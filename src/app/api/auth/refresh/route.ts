@@ -7,7 +7,7 @@ import { buildRefreshTokenCookie } from "@/lib/auth/cookies";
 import { getRefreshTokenFromRequest } from "@/lib/auth/request-refresh-token";
 import { getRefreshTokenExpiresAt } from "@/lib/auth/refresh-token-duration";
 import { checkIpRateLimit } from "@/lib/auth/rate-limit";
-import { buildCsrfCookie, generateCsrfToken } from "@/lib/auth/csrf";
+import { buildCsrfCookie, generateCsrfToken, verifyCsrfRequest } from "@/lib/auth/csrf";
 
 /**
  * SPEC-AUTH-001 M4 — POST /api/auth/refresh
@@ -16,28 +16,12 @@ import { buildCsrfCookie, generateCsrfToken } from "@/lib/auth/csrf";
  * §3.2 is the authoritative flow this implements.
  *
  * SPEC-AUTH-001 M6 additive hardening — REQ-AUTH-021 (IP-keyed rate limit,
- * checked before any DB access), REQ-AUTH-023 (a fresh csrf_token
- * double-submit cookie is issued alongside the rotated refresh-token
- * cookie on a successful rotation, via csrf.ts).
- *
- * @MX:DEBT this route does NOT call `verifyCsrfRequest()` — REQ-AUTH-023's
- * verification half (reject on missing/mismatched CSRF token) is
- * implemented and unit-tested in csrf.ts but deliberately NOT wired into
- * this handler. Wiring it in deterministically breaks every pre-existing
- * M4 test in tests/unit/api/auth/refresh.test.ts, tests/unit/api/auth/
- * logout.test.ts, and tests/integration/auth/logout-then-refresh.test.ts —
- * none of them send an X-CSRF-Token header or csrf_token cookie, since
- * they predate M6. See this milestone's self-verification report's
- * Blocker section for the full analysis and options.
- * @MX:CEILING CSRF *verification* is not enforced on this route until the
- * blocker is resolved; the SameSite=Lax cookie attribute (REQ-AUTH-023's
- * other half) IS enforced (unchanged since M2) and the double-submit
- * cookie IS issued on every successful rotation.
- * @MX:UPGRADE call `verifyCsrfRequest(request)` at the top of this handler
- * (before the `getRefreshTokenFromRequest` call) once the pre-existing
- * M4 test fixtures are updated to carry a matching csrf_token cookie +
- * X-CSRF-Token header, or the "no prior test modification" constraint is
- * explicitly lifted for this milestone.
+ * checked before any DB access), REQ-AUTH-023 (CSRF double-submit
+ * verification via `verifyCsrfRequest()`, checked before any DB access; a
+ * fresh csrf_token double-submit cookie is issued alongside the rotated
+ * refresh-token cookie on a successful rotation, via csrf.ts). AC-AUTH-023
+ * covers both halves: rejection on missing/mismatched CSRF token, and the
+ * SameSite=Lax cookie attribute (unchanged since M2).
  */
 
 // A single generic message for every 401 branch (not found / reused /
@@ -45,7 +29,17 @@ import { buildCsrfCookie, generateCsrfToken } from "@/lib/auth/csrf";
 // GENERIC_LOGIN_ERROR — the client cannot distinguish WHY a refresh failed.
 const GENERIC_REFRESH_ERROR = "Invalid refresh token";
 
+// Same convention as GENERIC_REFRESH_ERROR/GENERIC_LOGIN_ERROR — the client
+// cannot distinguish a missing token from a mismatched one.
+const GENERIC_CSRF_ERROR = "Invalid or missing CSRF token";
+
 export async function POST(request: Request): Promise<Response> {
+  // REQ-AUTH-023 — CSRF double-submit verification runs first, before any
+  // other check (including rate limiting and DB access).
+  if (!verifyCsrfRequest(request)) {
+    return NextResponse.json({ error: GENERIC_CSRF_ERROR }, { status: 403 });
+  }
+
   // REQ-AUTH-021 — IP-keyed check runs before any DB access; skipped when
   // the IP cannot be determined (see checkIpRateLimit's doc comment).
   if (!checkIpRateLimit("refresh", request).allowed) {

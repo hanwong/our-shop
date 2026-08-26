@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { CSRF_TEST_TOKEN } from "../../../helpers/csrf";
 
 /**
  * SPEC-AUTH-001 M4 — src/app/api/auth/refresh/route.ts
@@ -128,10 +129,35 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-function makeRequest(cookieValue: string | undefined): Request {
-  const headers: Record<string, string> = {};
+/**
+ * `csrfCookie`/`csrfHeader` default to the shared CSRF_TEST_TOKEN fixture so
+ * every pre-existing call site (`makeRequest(rawToken)`) passes the M6
+ * follow-up CSRF gate unchanged (REQ-AUTH-023). Pass `null` to omit either
+ * half, or a distinct string to construct a deliberate mismatch — both used
+ * by the CSRF-rejection tests below.
+ */
+interface MakeRequestOptions {
+  csrfCookie?: string | null;
+  csrfHeader?: string | null;
+}
+
+function makeRequest(
+  cookieValue: string | undefined,
+  { csrfCookie = CSRF_TEST_TOKEN, csrfHeader = CSRF_TEST_TOKEN }: MakeRequestOptions = {}
+): Request {
+  const cookieParts: string[] = [];
   if (cookieValue !== undefined) {
-    headers["cookie"] = `refresh_token=${cookieValue}`;
+    cookieParts.push(`refresh_token=${cookieValue}`);
+  }
+  if (csrfCookie !== null) {
+    cookieParts.push(`csrf_token=${csrfCookie}`);
+  }
+  const headers: Record<string, string> = {};
+  if (cookieParts.length > 0) {
+    headers["cookie"] = cookieParts.join("; ");
+  }
+  if (csrfHeader !== null) {
+    headers["x-csrf-token"] = csrfHeader;
   }
   return new Request("http://localhost/api/auth/refresh", { method: "POST", headers });
 }
@@ -298,10 +324,15 @@ describe("POST /api/auth/refresh", () => {
     const { POST } = await import("@/app/api/auth/refresh/route");
 
     function makeIpRequest(cookieValue: string | undefined): Request {
-      const headers: Record<string, string> = { "x-forwarded-for": "203.0.113.60" };
+      const headers: Record<string, string> = {
+        "x-forwarded-for": "203.0.113.60",
+        "x-csrf-token": CSRF_TEST_TOKEN,
+      };
+      const cookieParts: string[] = [`csrf_token=${CSRF_TEST_TOKEN}`];
       if (cookieValue !== undefined) {
-        headers["cookie"] = `refresh_token=${cookieValue}`;
+        cookieParts.unshift(`refresh_token=${cookieValue}`);
       }
+      headers["cookie"] = cookieParts.join("; ");
       return new Request("http://localhost/api/auth/refresh", { method: "POST", headers });
     }
 
@@ -339,5 +370,33 @@ describe("POST /api/auth/refresh", () => {
     const claims = await verifyAccessToken(body.accessToken);
     expect(claims.role).toBe("admin");
     expect(claims.sub).toBe(user.id);
+  });
+
+  it("[REQ-AUTH-023/AC-AUTH-023] rejects a request with no csrf_token cookie and no X-CSRF-Token header: 403, no DB write", async () => {
+    const user = await seedUser();
+    const { rawToken, row } = await seedRefreshToken(user.id);
+    const { POST } = await import("@/app/api/auth/refresh/route");
+
+    const response = await POST(makeRequest(rawToken, { csrfCookie: null, csrfHeader: null }));
+    expect(response.status).toBe(403);
+
+    // No rotation occurred: the old row is untouched and no new row exists.
+    expect(row.revokedAt).toBeNull();
+    expect(refreshTokens).toHaveLength(1);
+  });
+
+  it("[REQ-AUTH-023/AC-AUTH-023] rejects a request where the csrf_token cookie and X-CSRF-Token header do not match: 403, no DB write", async () => {
+    const user = await seedUser();
+    const { rawToken, row } = await seedRefreshToken(user.id);
+    const { POST } = await import("@/app/api/auth/refresh/route");
+
+    const response = await POST(
+      makeRequest(rawToken, { csrfCookie: CSRF_TEST_TOKEN, csrfHeader: "a-different-token" })
+    );
+    expect(response.status).toBe(403);
+
+    // No rotation occurred: the old row is untouched and no new row exists.
+    expect(row.revokedAt).toBeNull();
+    expect(refreshTokens).toHaveLength(1);
   });
 });

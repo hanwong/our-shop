@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { hashRefreshToken } from "@/lib/auth/session";
 import { buildExpiredRefreshTokenCookie } from "@/lib/auth/cookies";
 import { getRefreshTokenFromRequest } from "@/lib/auth/request-refresh-token";
+import { verifyCsrfRequest } from "@/lib/auth/csrf";
 
 /**
  * SPEC-AUTH-001 M4 — POST /api/auth/logout
@@ -17,26 +18,28 @@ import { getRefreshTokenFromRequest } from "@/lib/auth/request-refresh-token";
  * side effect in responding success when there was nothing left to revoke,
  * and erroring here would only leak whether a given token was ever valid.
  *
- * @MX:DEBT SPEC-AUTH-001 M6 — REQ-AUTH-023 also names `/auth/logout` as a
- * CSRF-verification target, alongside `/auth/refresh`. `verifyCsrfRequest()`
- * (csrf.ts) is implemented and unit-tested, but deliberately NOT called
- * here — wiring it in deterministically breaks every pre-existing M4 test
- * in tests/unit/api/auth/logout.test.ts and
- * tests/integration/auth/logout-then-refresh.test.ts (none send an
- * X-CSRF-Token header or csrf_token cookie). See the M6 self-verification
- * report's Blocker section — same conflict, same resolution, as
- * refresh/route.ts's identical @MX:DEBT marker.
- * @MX:CEILING CSRF verification is not enforced on this route until the
- * blocker is resolved; this route also does not issue a csrf_token cookie
+ * SPEC-AUTH-001 M6 additive hardening — REQ-AUTH-023 also names
+ * `/auth/logout` as a CSRF-verification target, alongside `/auth/refresh`.
+ * `verifyCsrfRequest()` (csrf.ts) is checked before any DB access
+ * (AC-AUTH-023). This route does not issue a csrf_token cookie itself
  * (logout only expires cookies, per its existing idempotency design — it is
  * not a "session issued/rotated" point per this milestone's Set-cookie
- * scope, which lists login/refresh/google-callback only).
- * @MX:UPGRADE call `verifyCsrfRequest(request)` at the top of this handler
- * once the pre-existing M4 test fixtures are updated to carry a matching
- * csrf_token cookie + X-CSRF-Token header, or the "no prior test
- * modification" constraint is explicitly lifted for this milestone.
+ * scope, which lists login/refresh/google-callback only); the cookie
+ * verified here was issued by a prior login/refresh/google-callback
+ * response.
  */
+
+// Same convention as refresh/route.ts's GENERIC_CSRF_ERROR — the client
+// cannot distinguish a missing token from a mismatched one.
+const GENERIC_CSRF_ERROR = "Invalid or missing CSRF token";
+
 export async function POST(request: Request): Promise<Response> {
+  // REQ-AUTH-023 — CSRF double-submit verification runs first, before any
+  // other check (including DB access).
+  if (!verifyCsrfRequest(request)) {
+    return NextResponse.json({ error: GENERIC_CSRF_ERROR }, { status: 403 });
+  }
+
   const rawToken = getRefreshTokenFromRequest(request);
 
   if (rawToken) {

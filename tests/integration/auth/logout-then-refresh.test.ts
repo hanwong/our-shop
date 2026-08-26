@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { CSRF_TEST_TOKEN } from "../../helpers/csrf";
 
 /**
  * SPEC-AUTH-001 M4 — AC-AUTH-012 integration test.
@@ -123,10 +124,36 @@ beforeEach(() => {
   delete process.env.JWT_REFRESH_TOKEN_EXPIRY;
 });
 
-function makeRequest(path: string, cookieValue: string | undefined): Request {
-  const headers: Record<string, string> = {};
+/**
+ * `csrfCookie`/`csrfHeader` default to the shared CSRF_TEST_TOKEN fixture so
+ * every pre-existing call site (`makeRequest(path, cookieValue)`) passes the
+ * M6 follow-up CSRF gate unchanged (REQ-AUTH-023). Pass `null` to omit
+ * either half, or a distinct string to construct a deliberate mismatch —
+ * both used by the CSRF-rejection test below.
+ */
+interface MakeRequestOptions {
+  csrfCookie?: string | null;
+  csrfHeader?: string | null;
+}
+
+function makeRequest(
+  path: string,
+  cookieValue: string | undefined,
+  { csrfCookie = CSRF_TEST_TOKEN, csrfHeader = CSRF_TEST_TOKEN }: MakeRequestOptions = {}
+): Request {
+  const cookieParts: string[] = [];
   if (cookieValue !== undefined) {
-    headers["cookie"] = `refresh_token=${cookieValue}`;
+    cookieParts.push(`refresh_token=${cookieValue}`);
+  }
+  if (csrfCookie !== null) {
+    cookieParts.push(`csrf_token=${csrfCookie}`);
+  }
+  const headers: Record<string, string> = {};
+  if (cookieParts.length > 0) {
+    headers["cookie"] = cookieParts.join("; ");
+  }
+  if (csrfHeader !== null) {
+    headers["x-csrf-token"] = csrfHeader;
   }
   return new Request(`http://localhost${path}`, { method: "POST", headers });
 }

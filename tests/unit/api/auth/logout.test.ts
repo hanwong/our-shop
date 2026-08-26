@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { CSRF_TEST_TOKEN } from "../../../helpers/csrf";
 
 /**
  * SPEC-AUTH-001 M4 — src/app/api/auth/logout/route.ts
@@ -56,10 +57,35 @@ beforeEach(() => {
   nextRtId = 1;
 });
 
-function makeRequest(cookieValue: string | undefined): Request {
-  const headers: Record<string, string> = {};
+/**
+ * `csrfCookie`/`csrfHeader` default to the shared CSRF_TEST_TOKEN fixture so
+ * every pre-existing call site (`makeRequest(rawToken)`) passes the M6
+ * follow-up CSRF gate unchanged (REQ-AUTH-023). Pass `null` to omit either
+ * half, or a distinct string to construct a deliberate mismatch — both used
+ * by the CSRF-rejection tests below.
+ */
+interface MakeRequestOptions {
+  csrfCookie?: string | null;
+  csrfHeader?: string | null;
+}
+
+function makeRequest(
+  cookieValue: string | undefined,
+  { csrfCookie = CSRF_TEST_TOKEN, csrfHeader = CSRF_TEST_TOKEN }: MakeRequestOptions = {}
+): Request {
+  const cookieParts: string[] = [];
   if (cookieValue !== undefined) {
-    headers["cookie"] = `refresh_token=${cookieValue}`;
+    cookieParts.push(`refresh_token=${cookieValue}`);
+  }
+  if (csrfCookie !== null) {
+    cookieParts.push(`csrf_token=${csrfCookie}`);
+  }
+  const headers: Record<string, string> = {};
+  if (cookieParts.length > 0) {
+    headers["cookie"] = cookieParts.join("; ");
+  }
+  if (csrfHeader !== null) {
+    headers["x-csrf-token"] = csrfHeader;
   }
   return new Request("http://localhost/api/auth/logout", { method: "POST", headers });
 }
@@ -124,5 +150,29 @@ describe("POST /api/auth/logout", () => {
     expect(response.status).toBe(200);
     const setCookie = response.headers.get("set-cookie");
     expect(setCookie).toMatch(/Max-Age=0/i);
+  });
+
+  it("[REQ-AUTH-023/AC-AUTH-023] rejects a request with no csrf_token cookie and no X-CSRF-Token header: 403, no DB write", async () => {
+    const { rawToken, row } = await seedRefreshToken();
+    const { POST } = await import("@/app/api/auth/logout/route");
+
+    const response = await POST(makeRequest(rawToken, { csrfCookie: null, csrfHeader: null }));
+    expect(response.status).toBe(403);
+
+    // No revocation occurred — the CSRF gate rejected before any DB access.
+    expect(row.revokedAt).toBeNull();
+  });
+
+  it("[REQ-AUTH-023/AC-AUTH-023] rejects a request where the csrf_token cookie and X-CSRF-Token header do not match: 403, no DB write", async () => {
+    const { rawToken, row } = await seedRefreshToken();
+    const { POST } = await import("@/app/api/auth/logout/route");
+
+    const response = await POST(
+      makeRequest(rawToken, { csrfCookie: CSRF_TEST_TOKEN, csrfHeader: "a-different-token" })
+    );
+    expect(response.status).toBe(403);
+
+    // No revocation occurred — the CSRF gate rejected before any DB access.
+    expect(row.revokedAt).toBeNull();
   });
 });
