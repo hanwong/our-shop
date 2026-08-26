@@ -187,6 +187,45 @@ describe("POST /api/auth/login", () => {
     expect(claims.exp - claims.iat).toBe(300);
   });
 
+  it("[SPEC-AUTH-001 M6 / AC-AUTH-021] returns 429 after more than 5 requests/60s from the same IP (x-forwarded-for), independent of the account tried", async () => {
+    await seedUser("rate-limit-a@example.com", "correct-password-a");
+    const { POST } = await import("@/app/api/auth/login/route");
+    const ipHeaders = { "x-forwarded-for": "203.0.113.50" };
+
+    function makeIpRequest(body: unknown): Request {
+      return new Request("http://localhost/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...ipHeaders },
+        body: JSON.stringify(body),
+      });
+    }
+
+    for (let i = 0; i < 5; i++) {
+      const response = await POST(
+        makeIpRequest({ email: "rate-limit-a@example.com", password: "correct-password-a" })
+      );
+      expect(response.status).toBe(200);
+    }
+    const sixth = await POST(
+      makeIpRequest({ email: "rate-limit-a@example.com", password: "correct-password-a" })
+    );
+    expect(sixth.status).toBe(429);
+  });
+
+  it("[SPEC-AUTH-001 M6 / REQ-AUTH-023] a successful login sets a csrf_token cookie alongside the refresh-token cookie (not httpOnly, SameSite=Lax)", async () => {
+    await seedUser("csrf-issue@example.com", "correct-password-csrf");
+    const { POST } = await import("@/app/api/auth/login/route");
+    const response = await POST(
+      makeRequest({ email: "csrf-issue@example.com", password: "correct-password-csrf" })
+    );
+    expect(response.status).toBe(200);
+    const setCookie = response.headers.getSetCookie();
+    const csrfCookie = setCookie.find((c) => c.startsWith("csrf_token="));
+    expect(csrfCookie).toBeTruthy();
+    expect(csrfCookie).not.toMatch(/HttpOnly/i);
+    expect(csrfCookie).toMatch(/SameSite=Lax/i);
+  });
+
   it("[AC-AUTH-003a integration] a >72-byte password round-trips: signup then login with the SAME raw password succeeds end-to-end", async () => {
     const { POST: signupPOST } = await import("@/app/api/auth/signup/route");
     const { POST: loginPOST } = await import("@/app/api/auth/login/route");

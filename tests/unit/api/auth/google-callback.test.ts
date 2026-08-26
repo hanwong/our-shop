@@ -389,5 +389,43 @@ describe("GET /api/auth/google/callback", () => {
       expect(setCookie.some((c) => c.startsWith("oauth_state=") && /Max-Age=0/i.test(c))).toBe(true);
       expect(setCookie.some((c) => c.startsWith("oauth_access_token_handoff="))).toBe(true);
     });
+
+    it("[SPEC-AUTH-001 M6 / REQ-AUTH-023] also sets a csrf_token cookie (not httpOnly, SameSite=Lax)", async () => {
+      mockValidIdentity("sub-csrf", "csrf-callback@example.com");
+      const { GET } = await import("@/app/api/auth/google/callback/route");
+
+      const response = await GET(makeRequest({ code: "code-csrf", state: "s1", cookieState: "s1" }));
+
+      const setCookie = response.headers.getSetCookie();
+      const csrfCookie = setCookie.find((c) => c.startsWith("csrf_token="));
+      expect(csrfCookie).toBeTruthy();
+      expect(csrfCookie).not.toMatch(/HttpOnly/i);
+      expect(csrfCookie).toMatch(/SameSite=Lax/i);
+    });
+  });
+
+  describe("[SPEC-AUTH-001 M6 / AC-AUTH-021] rate limiting", () => {
+    it("returns 429 after more than 5 requests/60s from the same IP (x-forwarded-for), before any code exchange is attempted on the 6th", async () => {
+      mockValidIdentity("sub-rl", "rl-callback@example.com");
+      const { GET } = await import("@/app/api/auth/google/callback/route");
+
+      function makeIpRequest(state: string, cookieState: string): Request {
+        const url = new URL("http://localhost/api/auth/google/callback");
+        url.searchParams.set("code", "code-rl");
+        url.searchParams.set("state", state);
+        return new Request(url.toString(), {
+          headers: { cookie: `oauth_state=${cookieState}`, "x-forwarded-for": "203.0.113.70" },
+        });
+      }
+
+      for (let i = 0; i < 5; i++) {
+        const response = await GET(makeIpRequest("s1", "s1"));
+        expect(response.status).toBe(302);
+      }
+      getTokenMock.mockClear();
+      const sixth = await GET(makeIpRequest("s1", "s1"));
+      expect(sixth.status).toBe(429);
+      expect(getTokenMock).not.toHaveBeenCalled();
+    });
   });
 });

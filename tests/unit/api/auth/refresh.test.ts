@@ -293,6 +293,41 @@ describe("POST /api/auth/refresh", () => {
     expect(response.status).toBe(401);
   });
 
+  it("[SPEC-AUTH-001 M6 / AC-AUTH-021] returns 429 after more than 5 requests/60s from the same IP (x-forwarded-for)", async () => {
+    const user = await seedUser();
+    const { POST } = await import("@/app/api/auth/refresh/route");
+
+    function makeIpRequest(cookieValue: string | undefined): Request {
+      const headers: Record<string, string> = { "x-forwarded-for": "203.0.113.60" };
+      if (cookieValue !== undefined) {
+        headers["cookie"] = `refresh_token=${cookieValue}`;
+      }
+      return new Request("http://localhost/api/auth/refresh", { method: "POST", headers });
+    }
+
+    for (let i = 0; i < 5; i++) {
+      const { rawToken } = await seedRefreshToken(user.id);
+      const response = await POST(makeIpRequest(rawToken));
+      expect(response.status).toBe(200);
+    }
+    const sixth = await POST(makeIpRequest("irrelevant-not-a-real-token"));
+    expect(sixth.status).toBe(429);
+  });
+
+  it("[SPEC-AUTH-001 M6 / REQ-AUTH-023] a successful rotation sets a csrf_token cookie alongside the rotated refresh-token cookie (not httpOnly, SameSite=Lax)", async () => {
+    const user = await seedUser();
+    const { rawToken } = await seedRefreshToken(user.id);
+    const { POST } = await import("@/app/api/auth/refresh/route");
+
+    const response = await POST(makeRequest(rawToken));
+    expect(response.status).toBe(200);
+    const setCookie = response.headers.getSetCookie();
+    const csrfCookie = setCookie.find((c) => c.startsWith("csrf_token="));
+    expect(csrfCookie).toBeTruthy();
+    expect(csrfCookie).not.toMatch(/HttpOnly/i);
+    expect(csrfCookie).toMatch(/SameSite=Lax/i);
+  });
+
   it("signs the new access token with the user's CURRENT role", async () => {
     const user = await seedUser({ role: "admin" });
     const { rawToken } = await seedRefreshToken(user.id);

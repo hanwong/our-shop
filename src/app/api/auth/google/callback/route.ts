@@ -9,6 +9,8 @@ import {
   buildExpiredOAuthStateCookie,
   exchangeCodeAndVerifyIdToken,
 } from "@/lib/auth/google-oauth";
+import { checkIpRateLimit } from "@/lib/auth/rate-limit";
+import { buildCsrfCookie, generateCsrfToken } from "@/lib/auth/csrf";
 
 /**
  * SPEC-AUTH-001 M5 — GET /api/auth/google/callback
@@ -22,6 +24,11 @@ import {
  * token rejected / owning-User missing), same GENERIC_*_ERROR convention as
  * login (M3) and refresh (M4) — the client cannot distinguish WHY the OAuth
  * callback failed.
+ *
+ * SPEC-AUTH-001 M6 additive hardening — REQ-AUTH-021 (IP-keyed rate limit,
+ * checked before the existing `state` CSRF check and any code exchange /
+ * DB access), REQ-AUTH-023 (a csrf_token double-submit cookie is set
+ * alongside the refresh-token cookie on session issuance).
  */
 const GENERIC_OAUTH_ERROR = "Google login failed";
 
@@ -45,6 +52,12 @@ function getCookieValue(request: Request, name: string): string | null {
 }
 
 export async function GET(request: Request): Promise<Response> {
+  // REQ-AUTH-021 — IP-keyed check runs before the state check / any code
+  // exchange or DB access; skipped when the IP cannot be determined.
+  if (!checkIpRateLimit("google-callback", request).allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
+
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -150,6 +163,9 @@ export async function GET(request: Request): Promise<Response> {
 
   const refreshCookie = buildRefreshTokenCookie(refreshToken, refreshTokenExpiresAt);
   response.cookies.set(refreshCookie.name, refreshCookie.value, refreshCookie.options);
+
+  const csrfCookie = buildCsrfCookie(generateCsrfToken());
+  response.cookies.set(csrfCookie.name, csrfCookie.value, csrfCookie.options);
 
   const expiredStateCookie = buildExpiredOAuthStateCookie();
   response.cookies.set(expiredStateCookie.name, expiredStateCookie.value, expiredStateCookie.options);

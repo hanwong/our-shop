@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import { comparePassword, dummyCompare } from "@/lib/auth/password";
 import { issueSession } from "@/lib/auth/session";
 import { buildRefreshTokenCookie } from "@/lib/auth/cookies";
+import { checkIpRateLimit } from "@/lib/auth/rate-limit";
+import { buildCsrfCookie, generateCsrfToken } from "@/lib/auth/csrf";
 
 /**
  * SPEC-AUTH-001 M3 — POST /api/auth/login
@@ -12,6 +14,34 @@ import { buildRefreshTokenCookie } from "@/lib/auth/cookies";
  * wrong-password paths — the client MUST NOT be able to distinguish them via
  * message content, status code, or timing), REQ-AUTH-006 (claim shape, via
  * the shared JWT path in jwt.ts/session.ts).
+ *
+ * SPEC-AUTH-001 M6 additive hardening — REQ-AUTH-021 (rate limit: >5
+ * requests/60s from the same IP -> 429 + 15-minute soft lockout), REQ-AUTH-023
+ * (a csrf_token double-submit cookie is set alongside the refresh-token
+ * cookie on every session issuance — login does not itself require CSRF
+ * *verification*, since it is the ORIGIN of a session, not a cookie-
+ * authenticated mutation; see csrf.ts).
+ *
+ * @MX:DEBT this route deliberately wires ONLY the IP-keyed half of
+ * REQ-AUTH-021 ("동일 IP 또는 동일 계정" — same IP OR same account),
+ * omitting the account-keyed half (`checkAccountRateLimit`, implemented and
+ * unit-tested in rate-limit.ts but NOT called here). Wiring the account-
+ * keyed check deterministically breaks the pre-existing M3 integration test
+ * tests/integration/auth/login.test.ts (AC-AUTH-005), which issues 30
+ * repeated requests against the SAME email to gather a statistical timing
+ * sample — the 6th such request would be rejected with 429 before the
+ * dummy-compare/compare timing path even runs, making the timing
+ * measurement impossible. This is a genuine SPEC-level conflict between
+ * REQ-AUTH-021 (account-keyed limiting) and REQ-AUTH-005/AC-AUTH-005 (which
+ * requires 30 uninterrupted same-account requests), not an implementation
+ * gap — see this milestone's self-verification report's Blocker section.
+ * @MX:CEILING IP-only enforcement holds until AC-AUTH-005's test
+ * methodology is revised (e.g., to use per-sample rate-limit resets or
+ * distinct synthetic accounts) or the SPEC explicitly narrows
+ * REQ-AUTH-021's login scope to IP-only.
+ * @MX:UPGRADE re-add `checkAccountRateLimit("login", email)` here once
+ * AC-AUTH-005's test methodology is reconciled with account-keyed rate
+ * limiting (tracked as this milestone's primary blocker).
  */
 
 // AC-AUTH-005/AC-AUTH-006: identical wording on both failure branches so the
@@ -24,6 +54,12 @@ interface LoginRequestBody {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  // REQ-AUTH-021 — IP-keyed check runs before any DB access; skipped when
+  // the IP cannot be determined (see checkIpRateLimit's doc comment).
+  if (!checkIpRateLimit("login", request).allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
+
   let body: LoginRequestBody;
   try {
     body = (await request.json()) as LoginRequestBody;
@@ -52,8 +88,10 @@ export async function POST(request: Request): Promise<Response> {
 
   const { accessToken, refreshToken, refreshTokenExpiresAt } = await issueSession(user.id, user.role);
   const cookie = buildRefreshTokenCookie(refreshToken, refreshTokenExpiresAt);
+  const csrfCookie = buildCsrfCookie(generateCsrfToken());
 
   const response = NextResponse.json({ accessToken }, { status: 200 });
   response.cookies.set(cookie.name, cookie.value, cookie.options);
+  response.cookies.set(csrfCookie.name, csrfCookie.value, csrfCookie.options);
   return response;
 }
