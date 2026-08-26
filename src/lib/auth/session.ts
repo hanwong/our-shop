@@ -44,8 +44,13 @@ function getRefreshTokenExpiresAt(): Date {
 /** SHA-256 hex digest of the raw opaque refresh token — the value persisted
  * to `RefreshToken.tokenHash` (REQ-AUTH-008: DB stores only the hash, never
  * the plaintext token; AC-AUTH-007b: round-trippable via this same function).
+ *
+ * SPEC-AUTH-001 M4 — exported (was module-private in M2) so the refresh
+ * (M4) and logout (M4) routes hash an incoming raw cookie token with the
+ * SAME function used at issuance time, instead of reimplementing a second,
+ * possibly-divergent hash. No other behavior in this file changed.
  */
-function hashRefreshToken(rawToken: string): string {
+export function hashRefreshToken(rawToken: string): string {
   return createHash("sha256").update(rawToken, "utf8").digest("hex");
 }
 
