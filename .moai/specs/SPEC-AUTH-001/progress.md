@@ -327,6 +327,12 @@ methodology (e.g., exempt the specific timing-measurement requests from rate-lim
 cookie tradeoff from M5, no-live-Postgres-in-sandbox from M1) remain as previously recorded, unresolved
 by design or by sandbox constraint, not newly discovered.
 
+**Operator decision (2026-08-27, post run-phase completion)**: option (a) — accept IP-only rate
+limiting on `login` as sufficient for now. No further code change requested. AC-AUTH-005's timing-test
+methodology stays as implemented. This closes the run-phase's one open decision item; a distributed
+many-IP credential-stuffing attack on a single account remains an accepted, named residual risk (not a
+silent gap) — revisit if abuse patterns are observed in production.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 - run_complete_at: 2026-08-27T05:16:00+09:00
@@ -337,7 +343,8 @@ by design or by sandbox constraint, not newly discovered.
 - trust5_gate: **PASS** — 135/135 tests, 95.7%/89.72%/100%/95.7% coverage (≥ 85/85/80/85 thresholds),
   `tsc --noEmit` exit 0, `eslint .` exit 0, both REQ-AUTH-024/025 security scans 0 matches
 - known_gaps_at_close: (1) account-keyed rate limiting on `login` deliberately unwired (conflicts with
-  AC-AUTH-005's timing test — needs an operator/sync-phase decision, see §E.2 M6 Residual-risk),
+  AC-AUTH-005's timing test) — **resolved by operator decision 2026-08-27: accept IP-only as sufficient,
+  no code change** (see §E.2 M6 Residual-risk → Operator decision),
   (2) AC-AUTH-006b (access token never in browser storage) unverifiable in this SPEC's API-only scope
   (no frontend exists), (3) no live PostgreSQL exercised anywhere in this run (sandbox constraint,
   recorded at run-phase start) — schema validated via `prisma validate`/`generate`/`migrate diff` only.
