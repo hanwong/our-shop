@@ -1,0 +1,14 @@
+{"timestamp":"2026-08-26T01:38:44Z","session_id":"ceeba9fb-06d8-4880-ab98-f1349163f610","agent":"manager-docs","declared_model":"","resolved_model":"opus","verdict":"missing"}
+{"timestamp":"2026-08-26T01:40:28Z","session_id":"ceeba9fb-06d8-4880-ab98-f1349163f610","agent":"plan-auditor","declared_model":"","resolved_model":"opus","verdict":"missing"}
+{"timestamp":"2026-08-26T01:44:11Z","session_id":"ceeba9fb-06d8-4880-ab98-f1349163f610","agent":"manager-docs","declared_model":"","resolved_model":"opus","verdict":"missing"}
+{"timestamp":"2026-08-26T01:44:55Z","session_id":"ceeba9fb-06d8-4880-ab98-f1349163f610","agent":"plan-auditor","declared_model":"","resolved_model":"opus","verdict":"missing"}
+{"timestamp":"2026-08-26T02:16:00Z","session_id":"ceeba9fb-06d8-4880-ab98-f1349163f610","agent":"Explore","declared_model":"","resolved_model":"sonnet","verdict":"missing"}
+{"timestamp":"2026-08-26T02:19:53Z","session_id":"ceeba9fb-06d8-4880-ab98-f1349163f610","agent":"manager-spec","declared_model":"","resolved_model":"opus","verdict":"missing"}
+{"timestamp":"2026-08-26T02:26:25Z","session_id":"ceeba9fb-06d8-4880-ab98-f1349163f610","agent":"manager-spec","declared_model":"","resolved_model":"opus","verdict":"missing"}
+{"timestamp":"2026-08-26T02:32:28Z","session_id":"ceeba9fb-06d8-4880-ab98-f1349163f610","agent":"general-purpose","declared_model":"","resolved_model":"","verdict":"unmapped"}
+{"timestamp":"2026-08-26T02:32:31Z","session_id":"ceeba9fb-06d8-4880-ab98-f1349163f610","agent":"general-purpose","declared_model":"","resolved_model":"","verdict":"unmapped"}
+{"timestamp":"2026-08-26T02:32:36Z","session_id":"ceeba9fb-06d8-4880-ab98-f1349163f610","agent":"general-purpose","declared_model":"","resolved_model":"","verdict":"unmapped"}
+{"timestamp":"2026-08-26T02:32:40Z","session_id":"ceeba9fb-06d8-4880-ab98-f1349163f610","agent":"general-purpose","declared_model":"","resolved_model":"","verdict":"unmapped"}
+{"timestamp":"2026-08-26T02:34:05Z","session_id":"ceeba9fb-06d8-4880-ab98-f1349163f610","agent":"plan-auditor","declared_model":"","resolved_model":"opus","verdict":"missing"}
+{"timestamp":"2026-08-26T02:41:50Z","session_id":"ceeba9fb-06d8-4880-ab98-f1349163f610","agent":"manager-spec","declared_model":"","resolved_model":"opus","verdict":"missing"}
+{"timestamp":"2026-08-26T06:22:28Z","session_id":"ceeba9fb-06d8-4880-ab98-f1349163f610","agent":"plan-auditor","declared_model":"","resolved_model":"opus","verdict":"missing"}
