@@ -233,6 +233,14 @@ node_modules/
 out/
 
 # ===========================================
+# our-shop app (SPEC-AUTH-001 M1 bootstrap)
+# ===========================================
+.env.local
+.env.*.local
+coverage/
+next-env.d.ts
+
+# ===========================================
 # Build Tools & Frameworks
 # ===========================================
 .turbo/

@@ -1,0 +1,64 @@
+// Prisma schema — SPEC-AUTH-001 M1 (Prisma 스키마 확장)
+//
+// Source of truth for the model shapes: design.md §2 (Prisma 스키마 개념 설계),
+// cross-checked against plan.md §3.1. Do not diverge from design.md without
+// updating design.md first (manager-develop is not the owner of SPEC body content).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  customer
+  admin
+}
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  passwordHash  String? // nullable — OAuth-only users have no password
+  emailVerified Boolean        @default(false)
+  role          Role           @default(customer)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  oauthAccounts OAuthAccount[]
+  refreshTokens RefreshToken[]
+}
+
+model OAuthAccount {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          String // e.g. "google" — extensible to other providers
+  providerAccountId String // the provider's subject id (Google's `sub`)
+  createdAt         DateTime @default(now())
+
+  // Prevents account-collision / double-linking: one (provider, providerAccountId)
+  // pair maps to exactly one OAuthAccount row (REQ-AUTH-017/018/019).
+  @@unique([provider, providerAccountId])
+}
+
+// @MX:ANCHOR fan-in target — the shared session-issuance path (issueSession(),
+// M2) and the refresh-rotation / reuse-detection / logout logic (M4) all read
+// and write this model. Any schema change here has fan-out across M2/M4/M6.
+model RefreshToken {
+  id                String    @id @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash         String // SHA-256 (or equivalent) hash of the opaque token — plaintext is never stored
+  familyId          String // groups a rotation chain; enables "revoke entire family" on reuse detection (REQ-AUTH-011)
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedByTokenId String? // set on rotation — points at the token that replaced this one
+  userAgent         String? // optional — reserved for a future "active sessions" UI (plan.md §3.1)
+  ip                String? // optional — reserved for a future "active sessions" UI (plan.md §3.1)
+  createdAt         DateTime  @default(now())
+
+  @@index([userId])
+  @@index([tokenHash])
+}

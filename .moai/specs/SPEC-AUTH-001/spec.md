@@ -2,9 +2,9 @@
 id: SPEC-AUTH-001
 title: "회원 가입·로그인 및 JWT 세션 관리"
 version: "0.1.1"
-status: draft
+status: completed
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-08-27
 author: snake
 priority: P1
 phase: "v0.1.0 MVP"
