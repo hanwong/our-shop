@@ -49,6 +49,12 @@ function getRefreshTokenExpiresAt(): Date {
  * (M4) and logout (M4) routes hash an incoming raw cookie token with the
  * SAME function used at issuance time, instead of reimplementing a second,
  * possibly-divergent hash. No other behavior in this file changed.
+ *
+ * [AUTO] @MX:ANCHOR fan-in target — called from issueSession (this file),
+ * the refresh route, and the logout route (fan_in 3); every caller MUST use
+ * this same digest so a lookup-by-hash never silently diverges.
+ * [AUTO] @MX:REASON changing the digest algorithm or encoding here
+ * invalidates every RefreshToken.tokenHash already persisted in the DB.
  */
 export function hashRefreshToken(rawToken: string): string {
   return createHash("sha256").update(rawToken, "utf8").digest("hex");
