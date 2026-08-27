@@ -238,6 +238,7 @@ out/
 .env.local
 .env.*.local
 coverage/
+next-env.d.ts
 
 # ===========================================
 # Build Tools & Frameworks
