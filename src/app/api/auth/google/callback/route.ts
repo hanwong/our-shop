@@ -144,6 +144,23 @@ export async function GET(request: Request): Promise<Response> {
             where: { id: existingUser.id },
             data: { passwordHash: null, emailVerified: true },
           });
+          // [AUTO] @MX:WARN 2026-08-27 C1 re-audit fix — nulling passwordHash
+          // alone does not revoke a session an attacker already established
+          // BEFORE the victim's Google login (e.g. by simply logging in with
+          // the password they set at signup). Without this, the attacker's
+          // existing RefreshToken keeps working and rotates indefinitely via
+          // POST /api/auth/refresh, which checks token validity only — never
+          // emailVerified or a credential-change signal — so the takeover
+          // survives the password fix. Revoke every still-active refresh
+          // token for this user in the SAME transaction as the link.
+          // [AUTO] @MX:REASON this is a blanket per-user revocation (not
+          // per-family, unlike refresh/route.ts's reuse-detection revoke) —
+          // deliberately broader, since ANY existing session for this user
+          // is untrusted at this point, not just one rotation family.
+          await tx.refreshToken.updateMany({
+            where: { userId: existingUser.id, revokedAt: null },
+            data: { revokedAt: new Date() },
+          });
         }
       });
       userId = existingUser.id;

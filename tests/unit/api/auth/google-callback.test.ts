@@ -150,6 +150,24 @@ vi.mock("@/lib/db", () => {
       refreshTokens.push(row);
       return row;
     }),
+    updateMany: vi.fn(
+      async ({
+        where,
+        data,
+      }: {
+        where: { userId: string; revokedAt: null };
+        data: { revokedAt: Date };
+      }) => {
+        let count = 0;
+        for (const row of refreshTokens) {
+          if (row.userId === where.userId && row.revokedAt === null) {
+            row.revokedAt = data.revokedAt;
+            count++;
+          }
+        }
+        return { count };
+      }
+    ),
   };
   const transactionMock = vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
     return callback({
@@ -426,6 +444,49 @@ describe("GET /api/auth/google/callback", () => {
       expect(attackerCreatedUser.emailVerified).toBe(true);
       expect(refreshTokens).toHaveLength(1);
       expect(refreshTokens[0]!.userId).toBe(attackerCreatedUser.id);
+    });
+
+    it("[C1 re-audit fix, 2026-08-27] a refresh token the ATTACKER already obtained before the victim's Google login (e.g. by logging in with the password they set at signup) is revoked in the SAME auto-link transaction — closing the surviving-session arm of the account-takeover exploit", async () => {
+      const attackerCreatedUser: FakeUserRow = {
+        id: "user-victim-email-2",
+        email: "victim2@example.com",
+        passwordHash: "attacker-chosen-bcrypt-hash-2",
+        emailVerified: false,
+        role: "customer",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      users.push(attackerCreatedUser);
+      // The attacker's own pre-existing session, obtained via their password
+      // BEFORE the victim ever authenticates. Nulling passwordHash alone
+      // (the prior fix) does nothing to a session token already issued.
+      const attackerRefreshToken: FakeRefreshTokenRow = {
+        id: "rt-attacker-session",
+        userId: attackerCreatedUser.id,
+        tokenHash: "attacker-session-hash",
+        familyId: "attacker-family",
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        revokedAt: null,
+        replacedByTokenId: null,
+        createdAt: new Date(),
+      };
+      refreshTokens.push(attackerRefreshToken);
+
+      mockValidIdentity("sub-victim2-google", "victim2@example.com");
+      const { GET } = await import("@/app/api/auth/google/callback/route");
+
+      const response = await GET(makeRequest({ code: "code-victim2", state: "s1", cookieState: "s1" }));
+
+      expect(response.status).toBe(302);
+      // The attacker's pre-existing session must be revoked, not merely left
+      // alone — a live refresh token survives a password nulling untouched.
+      expect(attackerRefreshToken.revokedAt).not.toBeNull();
+      // The victim's NEW session (issued by this callback) must still work —
+      // exactly one non-revoked token remains, and it is the new one.
+      const liveTokens = refreshTokens.filter((t) => t.revokedAt === null);
+      expect(liveTokens).toHaveLength(1);
+      expect(liveTokens[0]!.id).not.toBe(attackerRefreshToken.id);
+      expect(liveTokens[0]!.userId).toBe(attackerCreatedUser.id);
     });
   });
 
