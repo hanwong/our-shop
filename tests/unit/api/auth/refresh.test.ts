@@ -116,13 +116,20 @@ vi.mock("@/lib/db", () => {
   };
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   users = [];
   refreshTokens = [];
   nextRtId = 1;
   process.env.JWT_ACCESS_SECRET = "test-secret-at-least-32-bytes-long-for-hs256";
   delete process.env.JWT_ACCESS_TOKEN_EXPIRY;
   delete process.env.JWT_REFRESH_TOKEN_EXPIRY;
+  // [AUTO] 2026-08-27 F2/H1 fix — checkIpRateLimit no longer skips its check
+  // for an undeterminable IP (it now shares one rate-limited bucket per
+  // endpoint instead of always allowing). This file's requests mostly omit
+  // x-forwarded-for, so without a per-test reset, the 6th+ test in this file
+  // would spuriously receive 429 from a PRIOR test's quota.
+  const { __resetRateLimitStoreForTests } = await import("@/lib/auth/rate-limit");
+  __resetRateLimitStoreForTests();
   // Mock call history (e.g. $transaction.mock.calls) persists across tests
   // in this file since the module-level vi.mock factory is shared — clear
   // recorded calls/results each test without discarding the implementations.

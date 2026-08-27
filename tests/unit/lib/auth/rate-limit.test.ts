@@ -66,12 +66,13 @@ describe("checkRateLimit (REQ-AUTH-021)", () => {
 });
 
 describe("checkIpRateLimit / checkAccountRateLimit (route-handler convenience wrappers)", () => {
-  it("checkIpRateLimit skips the check entirely (always allowed) when the IP is undeterminable", async () => {
+  it("[F2/H1 fix, 2026-08-27] checkIpRateLimit falls back to a shared per-endpoint bucket (NOT unconditional allow) when the IP is undeterminable, so omitting x-forwarded-for cannot bypass the limit outright", async () => {
     const { checkIpRateLimit } = await import("@/lib/auth/rate-limit");
     const request = new Request("http://localhost/api/auth/login");
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 5; i++) {
       expect(checkIpRateLimit("login", request).allowed).toBe(true);
     }
+    expect(checkIpRateLimit("login", request).allowed).toBe(false);
   });
 
   it("[AC-AUTH-021] checkIpRateLimit blocks the 6th request from the SAME determinable IP within the window", async () => {
@@ -115,17 +116,34 @@ describe("checkIpRateLimit / checkAccountRateLimit (route-handler convenience wr
 });
 
 describe("extractClientIp", () => {
-  it("extracts the first entry of a comma-separated x-forwarded-for header", async () => {
+  it("[F2/H1 fix, 2026-08-27] extracts the LAST entry of a comma-separated x-forwarded-for header (the entry appended by the nearest, trusted single-hop proxy), NOT the client-supplied leftmost entry", async () => {
     const { extractClientIp } = await import("@/lib/auth/rate-limit");
     const request = new Request("http://localhost/api/auth/login", {
       headers: { "x-forwarded-for": "203.0.113.4, 70.41.3.18" },
     });
-    expect(extractClientIp(request)).toBe("203.0.113.4");
+    expect(extractClientIp(request)).toBe("70.41.3.18");
   });
 
   it("returns a fallback value when no x-forwarded-for header is present", async () => {
     const { extractClientIp } = await import("@/lib/auth/rate-limit");
     const request = new Request("http://localhost/api/auth/login");
     expect(extractClientIp(request)).toBe("unknown");
+  });
+});
+
+describe("[F2/H1 fix, 2026-08-27] extractClientIp / checkIpRateLimit resist the leftmost-rotation bypass", () => {
+  it("rotating the CLIENT-supplied (leftmost) x-forwarded-for entry per request does NOT reset the rate limit, because only the proxy-appended (rightmost) entry is trusted", async () => {
+    const { checkIpRateLimit } = await import("@/lib/auth/rate-limit");
+    const makeRequest = (spoofedLeft: string) =>
+      new Request("http://localhost/api/auth/login", {
+        headers: { "x-forwarded-for": `${spoofedLeft}, 198.51.100.77` },
+      });
+    for (let i = 0; i < 5; i++) {
+      // A different attacker-chosen leftmost value on every request.
+      expect(checkIpRateLimit("login", makeRequest(`10.0.0.${i}`)).allowed).toBe(true);
+    }
+    // The 6th request, still with a fresh spoofed leftmost value, is blocked
+    // because the trusted rightmost entry (198.51.100.77) is unchanged.
+    expect(checkIpRateLimit("login", makeRequest("10.0.0.99")).allowed).toBe(false);
   });
 });

@@ -91,6 +91,20 @@ describe("POST /api/auth/signup", () => {
     expect(users).toHaveLength(1);
   });
 
+  it("[F1 fix, acceptance.md §7] normalizes email to lowercase before both the duplicate-check and storage, so a mixed-case signup cannot bypass the case-normalized duplicate check google/callback relies on", async () => {
+    const { POST } = await import("@/app/api/auth/signup/route");
+    const response = await POST(makeRequest({ email: "MixedCase@Example.COM", password: "password1" }));
+    expect(response.status).toBe(201);
+    expect(users).toHaveLength(1);
+    expect(users[0]!.email).toBe("mixedcase@example.com");
+
+    // A second signup differing only by case must be rejected as the SAME
+    // account (409), not silently create a case-differing duplicate row.
+    const dup = await POST(makeRequest({ email: "mixedcase@example.com", password: "password2" }));
+    expect(dup.status).toBe(409);
+    expect(users).toHaveLength(1);
+  });
+
   it("[AC-AUTH-003b] rejects malformed email with 400 and creates no User", async () => {
     const { POST } = await import("@/app/api/auth/signup/route");
     for (const email of ["not-an-email", "@example.com", "user@"]) {

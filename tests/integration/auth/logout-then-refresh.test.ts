@@ -115,13 +115,19 @@ vi.mock("@/lib/db", () => {
   };
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   users = [];
   refreshTokens = [];
   nextRtId = 1;
   process.env.JWT_ACCESS_SECRET = "test-secret-at-least-32-bytes-long-for-hs256";
   delete process.env.JWT_ACCESS_TOKEN_EXPIRY;
   delete process.env.JWT_REFRESH_TOKEN_EXPIRY;
+  // [AUTO] 2026-08-27 F2/H1 fix — see tests/unit/api/auth/refresh.test.ts's
+  // beforeEach comment: checkIpRateLimit now rate-limits (rather than
+  // always-allows) requests with no x-forwarded-for, so this file (which
+  // exercises the refresh route) needs a per-test reset too.
+  const { __resetRateLimitStoreForTests } = await import("@/lib/auth/rate-limit");
+  __resetRateLimitStoreForTests();
 });
 
 /**

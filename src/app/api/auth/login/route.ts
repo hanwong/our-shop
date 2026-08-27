@@ -67,7 +67,12 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const email = typeof body.email === "string" ? body.email : "";
+  // [AUTO] @MX:NOTE 2026-08-27 (sync-phase F1 fix) — normalize to lowercase
+  // before lookup, matching signup/route.ts and google/callback/route.ts
+  // (acceptance.md §7 edge case). Without this, a stored mixed-case-inserted
+  // (now impossible post-fix, but pre-existing rows) or differently-cased
+  // login attempt against a lowercase-stored email fails with a false 401.
+  const email = typeof body.email === "string" ? body.email.toLowerCase() : "";
   const password = typeof body.password === "string" ? body.password : "";
 
   const user = await prisma.user.findUnique({ where: { email } });

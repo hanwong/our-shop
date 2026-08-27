@@ -32,10 +32,10 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const email = typeof body.email === "string" ? body.email : "";
+  const rawEmail = typeof body.email === "string" ? body.email : "";
   const password = typeof body.password === "string" ? body.password : "";
 
-  if (!EMAIL_FORMAT_REGEX.test(email)) {
+  if (!EMAIL_FORMAT_REGEX.test(rawEmail)) {
     return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
   }
   if (password.length < MIN_PASSWORD_LENGTH) {
@@ -44,6 +44,14 @@ export async function POST(request: Request): Promise<Response> {
       { status: 400 }
     );
   }
+
+  // [AUTO] @MX:NOTE 2026-08-27 (sync-phase F1 fix) — normalize BEFORE any
+  // lookup/comparison/storage, matching the convention already used by
+  // google/callback/route.ts (acceptance.md §7 edge case). Without this, a
+  // mixed-case signup email created a User row that google/callback's
+  // lowercase-normalized lookup could never find, defeating the AC-AUTH-018
+  // auto-link duplicate-detection Branch C depends on.
+  const email = rawEmail.toLowerCase();
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {

@@ -164,11 +164,18 @@
 - **Then** `passwordHash: null`인 신규 `User`와 신규 `OAuthAccount`가 하나의 트랜잭션으로 생성되고 세션이 발급된다.
 - **Traces**: REQ-AUTH-018
 
-**AC-AUTH-018** — auto-link: 기존 이메일/비밀번호 계정과 자동 연결 (확정 정책)
-- **Given** 이메일/비밀번호로 가입된 기존 `User`(이메일 `existing@example.com`)가 있고 `OAuthAccount`는 연결되어 있지 않으며, 동일 이메일의 Google 계정이 `email_verified === true`일 때
+**AC-AUTH-018** — auto-link: 이메일 인증된 기존 계정과 자동 연결 (확정 정책 — 2026-08-27 범위 축소, C1 보안 감사 대응)
+- **Given** 이메일/비밀번호로 가입된 기존 `User`(이메일 `existing@example.com`, **`emailVerified === true`**)가 있고 `OAuthAccount`는 연결되어 있지 않으며, 동일 이메일의 Google 계정이 `email_verified === true`일 때
 - **When** 해당 Google 계정으로 OAuth 콜백이 완료되면
 - **Then** 별도의 사용자 확인 단계 없이 기존 `User`에 `OAuthAccount(provider="google", providerAccountId=<sub>)`가 자동으로 생성·연결되고, 해당 `User`에 대한 세션이 발급된다. 연결 이후 동일 사용자가 이메일/비밀번호로도 여전히 로그인할 수 있다.
 - **Traces**: REQ-AUTH-019
+
+**AC-AUTH-018b** — auto-link: 미인증 기존 계정에 대한 비밀번호 무효화 (신규 — 2026-08-27, sync-phase 보안 감사 C1 대응 사용자 확정)
+- **Given** 이메일/비밀번호로 가입된 기존 `User`(이메일 `existing@example.com`, **`emailVerified === false`** — 이 SPEC은 이메일 소유권 검증 절차가 없으므로, signup으로 생성된 모든 `User`가 이 상태에 해당한다)가 있고 `OAuthAccount`는 연결되어 있지 않으며, 동일 이메일의 Google 계정이 `email_verified === true`일 때
+- **When** 해당 Google 계정으로 OAuth 콜백이 완료되면
+- **Then** 별도의 사용자 확인 단계 없이 `OAuthAccount`가 생성·연결되고 세션이 발급되지만, 같은 트랜잭션에서 기존 `User`의 `passwordHash`가 `null`로 무효화되고 `emailVerified`가 `true`로 갱신된다. 연결 이후 해당 계정은 **Google 로그인으로만** 계속 이용 가능하며, 연결 이전에 설정되어 있던 비밀번호로는 더 이상 로그인할 수 없다.
+- **근거**: 이메일 인증 없이 회원가입이 가능한 현재 구조에서는, 공격자가 피해자의 이메일로 먼저 가입해 비밀번호를 선점할 수 있다(계정 선점 공격). 이 상태에서 AC-AUTH-018의 원안(비밀번호 유지)을 그대로 적용하면 피해자가 나중에 Google로 로그인해도 공격자가 계속 비밀번호로 접근할 수 있어 완전한 계정 탈취로 이어진다. Google의 `email_verified === true`는 이 시스템이 가진 유일한 신뢰 가능한 이메일 소유권 증거이므로, 그 시점 이후로는 검증되지 않은 기존 비밀번호를 신뢰하지 않는다.
+- **Traces**: REQ-AUTH-019, 2026-08-27 sync-phase 보안 감사(sync-auditor F1/Phase-8 C1) 대응
 
 ## §6. 보안 하드닝
 

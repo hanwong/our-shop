@@ -76,9 +76,20 @@ describe("AC-AUTH-005 — response-time similarity between nonexistent-email and
     `median response time differs by less than max(20ms, 15% of the slower median) across N=${SAMPLE_SIZE} samples per case`,
     async () => {
       const { POST } = await import("@/app/api/auth/login/route");
+      // [AUTO] 2026-08-27 F2/H1 fix — checkIpRateLimit no longer skips its
+      // check for an undeterminable IP; without a reset per sample, this
+      // test's 60 rapid same-endpoint calls (all lacking x-forwarded-for,
+      // per this test's own design — it measures per-attempt comparison
+      // timing, not client identity) would themselves trip the 5-per-window
+      // limit at the 6th call. Reset before EACH sample so every call is
+      // measured as an isolated single login attempt — the scenario this
+      // AC-AUTH-005 test is actually modeling — rather than one client
+      // making 60 requests in a row.
+      const { __resetRateLimitStoreForTests } = await import("@/lib/auth/rate-limit");
 
       const nonexistentDurations: number[] = [];
       for (let i = 0; i < SAMPLE_SIZE; i++) {
+        __resetRateLimitStoreForTests();
         const start = performance.now();
         const response = await POST(makeRequest({ email: "ghost@example.com", password: "irrelevant-password" }));
         nonexistentDurations.push(performance.now() - start);
@@ -87,6 +98,7 @@ describe("AC-AUTH-005 — response-time similarity between nonexistent-email and
 
       const wrongPasswordDurations: number[] = [];
       for (let i = 0; i < SAMPLE_SIZE; i++) {
+        __resetRateLimitStoreForTests();
         const start = performance.now();
         const response = await POST(
           makeRequest({ email: "real-user@example.com", password: "wrong-password-guess" })

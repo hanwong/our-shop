@@ -178,7 +178,7 @@ sequenceDiagram
 | 9 | Google ID 토큰 위조 | JWKS 서명 검증 + iss/aud/email_verified 확인 |
 | 10 | 시크릿 노출 | 서버 전용 env var, `NEXT_PUBLIC_` 접두사 금지 |
 | 11 | bcrypt 72바이트 절단 | 길이 제한 또는 SHA-256 사전 해시 |
-| 12 | **auto-link 계정 탈취 (잔여 리스크, 수용)** | Google `email_verified === true`를 신뢰 근거로 채택. 이메일 우연 일치 + 실소유자 상이 시나리오는 발생 확률이 낮다고 판단해 수용(plan.md §5.1) — 향후 리스크 신호가 관측되면 explicit-confirm으로 전환 가능하도록 스키마/로직을 분리해 둔다. |
+| 12 | **auto-link 계정 선점 공격 (2026-08-27 완화 적용 — C1)** | 원래는 Google `email_verified === true`만 신뢰 근거로 채택하고 이메일 우연 일치 시나리오만 낮은 확률로 수용했으나(plan.md §5.1), sync-phase 보안 감사에서 이메일 인증 없이 가입 가능한 구조상 **공격자가 피해자 이메일을 의도적으로 선점**할 수 있음이 확인됨(발생 확률 낮음이 아니라 결정론적 공격). 완화: 연결 대상 기존 계정이 `emailVerified === false`이면 연결과 동시에 기존 `passwordHash`를 무효화(AC-AUTH-018b) — Google 로그인으로만 계속 이용 가능. `emailVerified === true`인 계정(향후 이메일 인증 기능이 생기면 발생)은 기존 AC-AUTH-018대로 비밀번호 유지. |
 | 13 | 관리자(admin) 라우트 무단 접근 (REQ-AUTH-022, 신규 — 2026-08-26 사용자 확정 §5.5) | `src/middleware.ts`에서 `/admin` 하위 라우트 진입 시 세션의 `role` 클레임이 `admin`인지 확인하고, 아니면 리다이렉트 또는 403으로 거부한다. 액션 단위 세분화 권한(예: 상품 편집 vs 주문 취소 분리)은 이번 SPEC 범위 밖 — §3 Out of Scope 참고. |
 
 ## §6. 참고

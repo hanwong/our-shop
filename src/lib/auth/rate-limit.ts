@@ -18,8 +18,9 @@
  *
  * IP extraction: `x-forwarded-for` (the standard de-facto header a reverse
  * proxy sets; this sandbox has no real proxy in front of it, so tests inject
- * the header directly). The first comma-separated entry is treated as the
- * original client per the header's near-to-origin convention.
+ * the header directly). The LAST comma-separated entry is trusted — see
+ * extractClientIp()'s doc comment for the single-trusted-hop assumption and
+ * why the leftmost entry was a security bug (2026-08-27, F2/H1 fix).
  *
  * Storage: single-instance in-memory Map (plan.md §5.6 — Redis is
  * explicitly Out of Scope for this SPEC; a multi-instance deployment would
@@ -90,17 +91,36 @@ export function checkRateLimit(key: string): RateLimitResult {
 }
 
 /**
- * Extracts the client IP from `x-forwarded-for` (first entry of the
+ * Extracts the client IP from `x-forwarded-for` (LAST entry of the
  * comma-separated chain). Returns `"unknown"` when the header is absent —
  * this sandbox has no real reverse proxy, so production deployments behind
  * one MUST ensure this header is set and trusted only from the proxy hop.
+ *
+ * [AUTO] @MX:WARN 2026-08-27 security fix (sync-phase audit findings
+ * sync-auditor F2 / Phase-8 H1) — this function previously trusted the
+ * FIRST (leftmost) entry. Under the standard single-reverse-proxy
+ * deployment, the proxy APPENDS the connecting IP to whatever
+ * `x-forwarded-for` value the client sent, so the leftmost entry is
+ * attacker-supplied and can be rotated per-request to defeat rate limiting
+ * entirely. The LAST entry — appended by the proxy immediately in front of
+ * this app — is the one the original client cannot forge in that topology.
+ * [AUTO] @MX:REASON Named limitation, NOT closed here: this assumes exactly
+ * ONE trusted reverse proxy hop that appends (never replaces) the header. A
+ * multi-hop proxy chain would need a configurable trusted-hop-count to
+ * correctly pick which entry is proxy-appended vs. attacker-supplied —
+ * explicitly out of scope for this fix cycle (see progress.md residual-risk
+ * entry for this SPEC's 2026-08-27 fix cycle).
  */
 export function extractClientIp(request: Request): string {
   const forwardedFor = request.headers.get("x-forwarded-for");
   if (forwardedFor) {
-    const first = forwardedFor.split(",")[0]?.trim();
-    if (first) {
-      return first;
+    const parts = forwardedFor
+      .split(",")
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
+    const last = parts[parts.length - 1];
+    if (last) {
+      return last;
     }
   }
   return "unknown";
@@ -124,15 +144,27 @@ export const UNKNOWN_IP = "unknown";
 
 /**
  * Convenience wrapper for route handlers: checks the IP-keyed rate limit for
- * `endpoint`, but SKIPS the check entirely (always allowed) when the IP
- * could not be determined (`UNKNOWN_IP`) — an undeterminable IP must not
- * silently pool every such caller into one shared, easily-exhausted bucket.
+ * `endpoint`. When the IP cannot be determined, requests share ONE
+ * `UNKNOWN_IP` bucket per endpoint rather than bypassing the check.
+ *
+ * [AUTO] @MX:ANCHOR fan-in target — called from login/refresh/google-callback
+ * route handlers (fan_in 3); the sole IP-keyed rate-limit gate REQ-AUTH-021
+ * relies on.
+ * [AUTO] @MX:REASON changing the allowed/blocked contract here changes rate
+ * limiting behavior on every one of its three call sites at once.
+ * [AUTO] @MX:WARN 2026-08-27 security fix (sync-phase audit findings
+ * sync-auditor F2 / Phase-8 H1) — this previously returned `{allowed: true}`
+ * unconditionally when the IP was undeterminable, which let an attacker
+ * disable rate limiting outright simply by omitting `x-forwarded-for`. A
+ * shared `UNKNOWN_IP` bucket per endpoint is a deliberate
+ * security-over-availability tradeoff for auth endpoints: legitimate callers
+ * that never send the header on a proxyless deployment now pool together and
+ * may rate-limit each other (a real, accepted residual risk — recorded in
+ * this SPEC's 2026-08-27 fix-cycle progress.md entry), which is preferable
+ * to the prior unconditional bypass.
  */
 export function checkIpRateLimit(endpoint: string, request: Request): RateLimitResult {
   const ip = extractClientIp(request);
-  if (ip === UNKNOWN_IP) {
-    return { allowed: true };
-  }
   return checkRateLimit(`${endpoint}:ip:${ip}`);
 }
 

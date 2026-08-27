@@ -90,6 +90,21 @@ vi.mock("@/lib/db", () => {
         return row;
       }
     ),
+    update: vi.fn(
+      async ({
+        where,
+        data,
+      }: {
+        where: { id: string };
+        data: { passwordHash?: string | null; emailVerified?: boolean };
+      }) => {
+        const row = users.find((u) => u.id === where.id);
+        if (!row) throw new Error(`update: no User with id ${where.id}`);
+        if (data.passwordHash !== undefined) row.passwordHash = data.passwordHash;
+        if (data.emailVerified !== undefined) row.emailVerified = data.emailVerified;
+        return row;
+      }
+    ),
   };
   const oAuthAccountDelegate = {
     findUnique: vi.fn(
@@ -153,13 +168,19 @@ vi.mock("@/lib/db", () => {
   };
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   users = [];
   oauthAccounts = [];
   refreshTokens = [];
   nextUserId = 1;
   nextOAuthId = 1;
   nextRtId = 1;
+  // [AUTO] 2026-08-27 F2/H1 fix — see tests/unit/api/auth/refresh.test.ts's
+  // beforeEach comment: checkIpRateLimit now rate-limits (rather than
+  // always-allows) requests with no x-forwarded-for, so this file needs a
+  // per-test reset too.
+  const { __resetRateLimitStoreForTests } = await import("@/lib/auth/rate-limit");
+  __resetRateLimitStoreForTests();
   generateAuthUrlMock.mockReset();
   getTokenMock.mockReset();
   verifyIdTokenMock.mockReset();
@@ -343,12 +364,12 @@ describe("GET /api/auth/google/callback", () => {
       expect(users[0]!.email).toBe("mixedcase@example.com");
     });
 
-    it("[AC-AUTH-018 Branch C — auto-link] an existing email/password User with no linked OAuthAccount is auto-linked on matching (case-normalized) email, WITHOUT a confirmation step, and the existing passwordHash is untouched", async () => {
+    it("[AC-AUTH-018 Branch C — auto-link, email-verified existing account] an existing email/password User (emailVerified:true) with no linked OAuthAccount is auto-linked on matching (case-normalized) email, WITHOUT a confirmation step, and the existing passwordHash is untouched", async () => {
       const existingUser: FakeUserRow = {
         id: "user-existing-c",
         email: "existing@example.com",
         passwordHash: "some-bcrypt-hash",
-        emailVerified: false,
+        emailVerified: true,
         role: "customer",
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -367,11 +388,44 @@ describe("GET /api/auth/google/callback", () => {
       expect(oauthAccounts[0]!.providerAccountId).toBe("sub-c");
       // The existing User row's passwordHash is untouched by the auto-link —
       // the same user can still log in with email/password afterward
-      // (AC-AUTH-018's explicit requirement; verified here as a pure
-      // data-shape assertion per this milestone's instructions).
+      // (AC-AUTH-018's explicit requirement, scoped to already-verified
+      // accounts after the 2026-08-27 C1 security fix).
       expect(existingUser.passwordHash).toBe("some-bcrypt-hash");
       expect(refreshTokens).toHaveLength(1);
       expect(refreshTokens[0]!.userId).toBe(existingUser.id);
+    });
+
+    it("[AC-AUTH-018b — auto-link, UNVERIFIED existing account — C1 fix] an attacker-registered account (emailVerified:false) auto-links but has its passwordHash invalidated, closing the account pre-hijacking exploit", async () => {
+      // Simulates: attacker POSTs /api/auth/signup with the victim's email
+      // and an attacker-chosen password (signup never sets emailVerified —
+      // this is the realistic state of EVERY account created by this SPEC's
+      // signup route). The real victim later signs in with their own Google
+      // account on the SAME email.
+      const attackerCreatedUser: FakeUserRow = {
+        id: "user-victim-email",
+        email: "victim@example.com",
+        passwordHash: "attacker-chosen-bcrypt-hash",
+        emailVerified: false,
+        role: "customer",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      users.push(attackerCreatedUser);
+      mockValidIdentity("sub-victim-google", "victim@example.com");
+      const { GET } = await import("@/app/api/auth/google/callback/route");
+
+      const response = await GET(makeRequest({ code: "code-victim", state: "s1", cookieState: "s1" }));
+
+      expect(response.status).toBe(302);
+      expect(users).toHaveLength(1); // still auto-links, no new row
+      expect(oauthAccounts).toHaveLength(1);
+      expect(oauthAccounts[0]!.userId).toBe(attackerCreatedUser.id);
+      // The exploit check: the attacker's password must no longer work.
+      expect(attackerCreatedUser.passwordHash).toBeNull();
+      // Google's email_verified confirmation is now recorded on the account.
+      expect(attackerCreatedUser.emailVerified).toBe(true);
+      expect(refreshTokens).toHaveLength(1);
+      expect(refreshTokens[0]!.userId).toBe(attackerCreatedUser.id);
     });
   });
 

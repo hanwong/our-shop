@@ -112,9 +112,25 @@ export async function GET(request: Request): Promise<Response> {
   } else {
     const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (existingUser) {
-      // Branch C (REQ-AUTH-019/AC-AUTH-018) — auto-link, confirmed policy,
-      // no separate confirmation step (plan.md §5.1). The existing User's
-      // passwordHash is untouched — email/password login keeps working.
+      // Branch C (REQ-AUTH-019/AC-AUTH-018/AC-AUTH-018b) — auto-link,
+      // confirmed policy, no separate confirmation step (plan.md §5.1).
+      //
+      // [AUTO] @MX:WARN 2026-08-27 security fix (sync-phase audit finding
+      // C1 — CRITICAL). Auto-linking to an existingUser whose email was
+      // NEVER independently verified (`emailVerified === false`, the state
+      // of every User this SPEC's signup route creates, since no email-
+      // verification flow exists) let an attacker pre-register the
+      // victim's email/password, then retain password access after the
+      // real owner authenticated with Google and got auto-linked to the
+      // attacker's row — full account takeover. Google's
+      // `email_verified === true` is the first reliable proof of email
+      // ownership this system has for that row, so from that point on the
+      // OLD unverified password can no longer be trusted: it is invalidated
+      // in the same transaction, and the row is marked verified.
+      // [AUTO] @MX:REASON AC-AUTH-018 (unchanged) still governs the
+      // already-verified case (password keeps working); AC-AUTH-018b is the
+      // new unverified-account branch this comment describes.
+      const wasUnverified = !existingUser.emailVerified;
       await prisma.$transaction(async (tx) => {
         await tx.oAuthAccount.create({
           data: {
@@ -123,6 +139,12 @@ export async function GET(request: Request): Promise<Response> {
             userId: existingUser.id,
           },
         });
+        if (wasUnverified) {
+          await tx.user.update({
+            where: { id: existingUser.id },
+            data: { passwordHash: null, emailVerified: true },
+          });
+        }
       });
       userId = existingUser.id;
       role = existingUser.role as Role;
