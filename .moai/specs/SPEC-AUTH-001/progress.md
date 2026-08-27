@@ -397,6 +397,14 @@ was factually wrong and is corrected here for the sync report / PR description. 
 this cycle (an `npm audit fix` is available but out of this cycle's scope — tracked as a residual
 item, not silently dropped).
 
+**F3 [Medium, sync-auditor/Phase-8] — operator decision (2026-08-27)**: the OAuth callback's 60-second,
+non-`httpOnly` access-token handoff cookie (`google-oauth.ts` `buildAccessTokenHandoffCookie`) is a
+real, time-bounded XSS-exposure window the operator had not previously weighed in on (distinct from
+the M5-era residual-risk note, which named the tradeoff but was never put to an explicit accept/reject
+decision). Operator decision: **accept as-is, no code change this cycle** — same treatment as the
+earlier account-keyed-rate-limiting decision. Revisit once a frontend SPEC exists (the documented
+long-term fix is a dedicated token-retrieval endpoint replacing the cookie).
+
 **Test-fixture fallout (not a defect, a consequence of F2's own fix)**: closing the unknown-IP
 fail-open meant every test file exercising `login`/`refresh`/`google/callback` without setting
 `x-forwarded-for` began sharing one rate-limited bucket per file, since none of those files reset the
