@@ -97,3 +97,34 @@ our-shop/
 ---
 
 **주의**: 위 구조는 실제 구현 전 제안 사항이며, 프레임워크 확정 및 개발 진행에 따라 변경될 수 있습니다.
+
+## 실제 디렉터리 구조 (SPEC-AUTH-001, 2026-08-27 sync)
+
+인증 기능은 위 제안 구조 중 `app/api`, `lib/auth`, `lib/db`, `middleware.ts` 부분을 그대로 따랐습니다. 다만 `features/` 도메인 계층은 이번 SPEC 범위(인증만)에서는 아직 만들지 않았습니다 — 카탈로그/장바구니/체크아웃 등 다른 도메인이 추가될 때 도입 여부를 재검토합니다.
+
+```
+our-shop/
+├── src/
+│   ├── app/
+│   │   └── api/auth/
+│   │       ├── signup/route.ts
+│   │       ├── login/route.ts
+│   │       ├── refresh/route.ts
+│   │       ├── logout/route.ts
+│   │       ├── google/route.ts
+│   │       └── google/callback/route.ts
+│   ├── lib/
+│   │   ├── auth/            # password, jwt, session, cookies, csrf, rate-limit, google-oauth
+│   │   └── db/               # Prisma client singleton
+│   ├── middleware.ts          # /admin RBAC gate
+│   └── types/auth.ts
+├── prisma/
+│   ├── schema.prisma          # User / OAuthAccount / RefreshToken
+│   └── migrations/
+├── tests/
+│   ├── unit/                  # per-module unit tests
+│   └── integration/           # AC-AUTH-005 timing test, refresh↔logout cross-handler test
+└── (README.md / CHANGELOG.md at repo root — see there)
+```
+
+`features/`, `components/`, `public/` from the original proposal are not yet created — they belong to a future catalog/cart/checkout SPEC, not this one.

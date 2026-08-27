@@ -100,3 +100,24 @@
 ---
 
 **주의**: 위 항목 중 "추천"으로 표기된 것은 사용자가 아직 확정하지 않은 사항입니다. 실제 개발 착수 전 사용자 확인 및 확정이 필요합니다.
+
+## 실제 구현 현황 (SPEC-AUTH-001, 2026-08-27 sync)
+
+SPEC-AUTH-001(인증) 구현을 통해 아래 항목이 **확정**됐습니다. 결제/카탈로그 등 나머지 도메인의 스택은 여전히 위 추천안 상태입니다.
+
+| 항목 | 상태 | 실제 값 |
+|---|---|---|
+| 프레임워크 | **확정** | Next.js 15 (App Router, Route Handlers) |
+| 데이터베이스 / ORM | **확정** | PostgreSQL + Prisma 6 |
+| 테스트 도구 | **확정** | Vitest 2 + `@vitest/coverage-v8` |
+| 패키지 매니저 | **확정 (추천안과 다름)** | **npm** — 개발 샌드박스에 `pnpm` 바이너리가 없어 npm으로 대체. 실제 팀 환경에서 pnpm 채택 시 재검토 |
+
+### 인증(Authentication) — 신규 확정
+
+- **비밀번호 해싱**: bcrypt cost 12, SHA-256 사전 해시(72바이트 절단 한계 우회)
+- **세션**: 액세스 토큰(JWT, HS256, 15분) + 리프레시 토큰(불투명 랜덤값, SHA-256 해시로만 저장, 재사용 감지 시 family 전체 폐기)
+- **OAuth**: `google-auth-library` 기반 Google 로그인, ID 토큰 서명/`iss`/`aud`/`email_verified` 검증
+- **레이트리밍/CSRF**: 인메모리 슬라이딩 윈도우(IP 기준, 분당 5회) + 이중 제출 쿠키(double-submit-cookie) CSRF
+- 상세 근거·트레이드오프는 `.moai/specs/SPEC-AUTH-001/design.md` §5(위협 모델) 참고
+
+

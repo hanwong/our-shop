@@ -498,4 +498,22 @@ again rather than treating as fully resolved.
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+- sync_complete_at: 2026-08-27T20:00:00+09:00
+- sync_status: audit-ready
+- sync_commit_sha: pending-backfill-c1 (this section is written before the sync commit lands; the
+  commit cannot reference its own SHA — backfilled in a follow-up commit per this SPEC's established
+  SHA-placeholder convention, same as §E.3's run-phase evidence)
+- documents_synced: README.md (new), CHANGELOG.md (new), .moai/project/tech.md (appended — confirmed
+  stack section), .moai/project/structure.md (appended — actual directory layout section)
+- status_transition: spec.md / plan.md frontmatter `status: draft → completed` (the intermediate
+  `in-progress` transition was never separately recorded during run-phase — a process-record gap, not
+  a functional one; the actual run-phase work is independently evidenced complete via §E.2/§E.3 and
+  two independent post-fix audits, so the transition goes straight to `completed` here)
+- final_verified_state: HEAD `8912e6f` — 19 files / 140 tests passing, 95.78%/89.89%/100%/95.78%
+  coverage, lint/typecheck clean, sync-auditor re-audit PASS 92.1/100, Phase-8 security re-scan
+  confirms no CRITICAL findings remain
+- known_gaps_at_close (carried forward, unresolved by design or explicit operator decision — not
+  silently dropped): (1) account-keyed rate limiting on `login` — accepted IP-only (2026-08-27), (2)
+  OAuth access-token handoff cookie — accepted as-is (2026-08-27, F3), (3) AC-AUTH-006b unverifiable
+  (no frontend in this SPEC's scope), (4) no live PostgreSQL exercised (sandbox constraint), (5) `tar`
+  critical dependency advisory via `bcrypt` — tracked, not fixed this cycle.

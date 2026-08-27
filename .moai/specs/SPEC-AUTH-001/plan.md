@@ -1,6 +1,6 @@
 ---
 id: SPEC-AUTH-001
-status: draft
+status: completed
 tier: L
 ---
 
