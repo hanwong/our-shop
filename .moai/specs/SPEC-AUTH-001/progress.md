@@ -415,20 +415,55 @@ rate-limiter between tests. Added `__resetRateLimitStoreForTests()` to the `befo
 by design — each sample now measures one isolated login attempt rather than accidentally tripping the
 new rate limit at the 6th call, which is closer to what that test actually intends to measure).
 
+**C1 completion (commit `c1130fe`, same day) — the first C1 fix was only half-closed.** A second
+independent re-audit round (sync-auditor + the Phase-8 reviewer, both re-spawned fresh against the
+fix cycle above) caught what the first pass missed: nulling `passwordHash` revokes nothing, so a
+`RefreshToken` the attacker had already obtained BEFORE the victim's Google login (trivially available
+— the attacker holds the password at that point) kept working. `POST /api/auth/refresh` checks only
+token validity (`revokedAt`/`expiresAt`/user-exists), never `emailVerified` or a credential-change
+signal, and each rotation extends the token another 30 days — so the takeover persisted indefinitely
+even after the password fix. Fix: the SAME transaction that nulls `passwordHash` now also revokes
+every still-active `RefreshToken` for that user (`tx.refreshToken.updateMany({ where: { userId,
+revokedAt: null }, data: { revokedAt: now } })`) — scoped inside the existing `wasUnverified` branch,
+so AC-AUTH-018's already-verified path is untouched. RED-GREEN verified with a reproduction test that
+seeds an attacker-held token before the link and asserts it is revoked while the victim's new session
+stays live (`tests/unit/api/auth/google-callback.test.ts`, the "C1 re-audit fix" test).
+
+**Independent re-audit verdicts (both re-spawned fresh at the fixed HEAD, not reusing the first pass's
+context)**:
+- **sync-auditor: PASS, 92.1/100** (Functionality 96, **Security 90** — must-pass cleared, Craft 93,
+  Consistency 85). Wrote and ran its OWN adversarial exploit-reproduction tests against the live route
+  handlers (not just DB-state assertions) for all three defects, then deleted them — confirmed genuinely
+  closed, not merely claimed closed. One auditor-side false-positive during its own investigation is
+  worth recording: its first `updateMany` test mock only filtered by `familyId`, so it initially looked
+  like the revocation wasn't firing; fixing the mock (not the source) resolved it — a reminder that a
+  suspected defect is a hypothesis until the tool/harness itself is also checked.
+- **Phase-8 security reviewer: initially BLOCK** (this is the pass that found the C1 completion gap
+  above) **→ the gap it found is what `c1130fe` closes.**
+
 **Evidence (this fix cycle, independently executed — not carried over from run-phase)**:
-- `.moai/state/verify/539ce61f-329b-4279-abef-5c36936e4b20/fixcycle2.tests.log` — `npm run test:coverage`
-  → **19 files / 139 tests passed**, 95.76%/89.83%/100%/95.76% stmt/branch/func/line (clears 85/85/80/85).
-- `npm run lint` → exit 0. `npm run typecheck` → exit 0 (both re-run after the fix cycle).
-- Each of C1/F1/F2 was verified RED→GREEN: a reproduction test was written and confirmed to fail
-  against the pre-fix code, then the minimal fix was applied and the same test confirmed to pass —
-  full command+output pairs are in the orchestrator session transcript for this sync session.
+- `.moai/state/verify/539ce61f-329b-4279-abef-5c36936e4b20/fixcycle-final.tests.log` — `npm run
+  test:coverage` at HEAD `8912e6f` → **19 files / 140 tests passed**, 95.78%/89.89%/100%/95.78%
+  stmt/branch/func/line (clears 85/85/80/85).
+- `npm run lint` → exit 0. `npm run typecheck` → exit 0 (both re-run after every fix in this cycle,
+  including the C1-completion fix).
+- Each of C1 (both the password and the session-revocation half), F1, and F2 was verified RED→GREEN: a
+  reproduction test was written and confirmed to fail against the pre-fix code, then the minimal fix
+  was applied and the same test confirmed to pass.
+- Incidental cleanup (commit `8912e6f`): a re-audit's own tooling run generated `next-env.d.ts` +
+  a `.next/` build cache dir, neither previously gitignored (M1 bootstrap missed the former). The
+  `.next/` dir briefly perturbed `tsc --noEmit` (a stray `NODE_ENV`-readonly conflict via its generated
+  `.next/types/routes.d.ts`) — removed, and `next-env.d.ts` added to `.gitignore`. Not a code defect;
+  a build-artifact side effect of a concurrent read-heavy audit session touching the same working tree.
 
 **Gaps**: (1) H2 (account-keyed rate limiting still unwired) — unchanged, remains the existing
 operator-accepted `@MX:DEBT` (this fix cycle's scope was explicitly limited to C1/F1/F2/H1, per the
 Kickoff-equivalent user approval — H2/H3/M1-M5 from the two audits were NOT in scope). (2) H3 (OAuth
-handoff cookie XSS exposure window) — not fixed this cycle; task queued for a follow-up operator
-decision (parallel treatment to how the original rate-limiting gap was surfaced). (3) The
-multi-hop-proxy limitation named in F2's fix is a documented, not closed, gap.
+handoff cookie XSS exposure window) — **operator decision 2026-08-27: accept as-is, no code change**
+(see the F3 operator-decision paragraph above). (3) The multi-hop-proxy limitation named in F2's fix
+is a documented, not closed, gap. (4) sync-auditor's A2/A3 (a trailing-comma XFF edge case; a benign
+non-transactional-read TOCTOU on `emailVerified` with idempotent outcomes either way) were explicitly
+advised as NOT requiring action — recorded here so they are not silently rediscovered as fresh findings.
 
 **Residual-risk**: (1) the rightmost-XFF-trust fix assumes exactly one reverse-proxy hop — a
 deployment behind Cloudflare+nginx (two hops) would need the trusted-hop-count extension before this
@@ -436,6 +471,10 @@ holds. (2) the shared `UNKNOWN_IP` bucket means legitimate callers on a proxyles
 sets `x-forwarded-for` pool together and may rate-limit each other — accepted as preferable to the
 prior unconditional bypass, but worth monitoring in production logs. (3) H4's `tar` critical finding
 remains unresolved in the dependency tree (fix available via `npm audit fix`, not applied this cycle).
+(4) this SPEC's worktree hosted a second, actively-writing session (the sync-auditor re-audit) during
+this fix cycle — no evidence of interference beyond the transient build artifacts noted above, but the
+same "concurrent writer" pattern flagged in the M1 residual-risk entry recurred and is worth naming
+again rather than treating as fully resolved.
 
 ## §E.3 Run-phase Audit-Ready Signal
 
@@ -443,8 +482,9 @@ remains unresolved in the dependency tree (fix available via `npm audit fix`, no
 - run_status: audit-ready
 - milestones: M1, M2, M3, M4, M5, M6 — all 6 committed, all independently re-verified by manager-lead
   (not taken from leaf-worker claims alone)
-- final_head: `dcd8b70` (branch `WT-auth-jwt-login`) — **superseded**: sync-phase security fix-cycle
-  (2026-08-27, above) added commits on top; see the fix-cycle section for the updated evidence.
+- final_head: `dcd8b70` (branch `WT-auth-jwt-login`) at run-phase close — **superseded by the
+  sync-phase security fix-cycle above**, current HEAD `8912e6f`; see that section for the updated
+  evidence (140 tests, two independent re-audits, both PASS/PROCEED at the final HEAD).
 - trust5_gate: **PASS** — 135/135 tests, 95.7%/89.72%/100%/95.7% coverage (≥ 85/85/80/85 thresholds),
   `tsc --noEmit` exit 0, `eslint .` exit 0, both REQ-AUTH-024/025 security scans 0 matches
 - known_gaps_at_close: (1) account-keyed rate limiting on `login` deliberately unwired (conflicts with
