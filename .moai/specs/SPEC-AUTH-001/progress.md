@@ -500,9 +500,8 @@ again rather than treating as fully resolved.
 
 - sync_complete_at: 2026-08-27T20:00:00+09:00
 - sync_status: audit-ready
-- sync_commit_sha: pending-backfill-c1 (this section is written before the sync commit lands; the
-  commit cannot reference its own SHA — backfilled in a follow-up commit per this SPEC's established
-  SHA-placeholder convention, same as §E.3's run-phase evidence)
+- sync_commit_sha: `c0e5611` (backfilled — per this SPEC's established SHA-placeholder convention,
+  same as §E.3's run-phase evidence)
 - documents_synced: README.md (new), CHANGELOG.md (new), .moai/project/tech.md (appended — confirmed
   stack section), .moai/project/structure.md (appended — actual directory layout section)
 - status_transition: spec.md / plan.md frontmatter `status: draft → completed` (the intermediate
