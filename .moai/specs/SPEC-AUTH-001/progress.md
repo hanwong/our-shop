@@ -333,13 +333,110 @@ methodology stays as implemented. This closes the run-phase's one open decision 
 many-IP credential-stuffing attack on a single account remains an accepted, named residual risk (not a
 silent gap) — revisit if abuse patterns are observed in production.
 
+### Sync-phase security fix-cycle (2026-08-27, post run-phase — C1/F1/F2/H1)
+
+Sync-phase entered two independent post-implementation audits (sync-auditor + a Phase-8 security
+reviewer), each spawned by the orchestrator with full milestone context. sync-auditor returned
+**FAIL** (Security dimension 62/100, must-pass threshold breached — 2 High findings). The Phase-8
+reviewer returned **BLOCK** (1 CRITICAL + 4 High findings). Both independently corroborated the same
+rate-limiting IP-extraction defect. Full findings text lives in the orchestrator session transcript;
+this section records only what was fixed, the evidence, and the residual risks.
+
+**C1 [CRITICAL, sync-auditor did not independently surface this one — Phase-8 only] — account
+pre-hijacking via unverified-email signup + unconditional OAuth auto-link.** Exploit: attacker signs
+up a victim's email with an attacker-chosen password (no email-verification flow exists in this SPEC,
+so `emailVerified` stays `false` forever for every signup-created row); victim later logs in via
+Google on the same email; Branch C (`google/callback/route.ts`) auto-linked without checking
+`emailVerified`, leaving the attacker's password valid — full account takeover.
+
+**Fix required a SPEC-body change, not only code**: the original AC-AUTH-018 explicitly guaranteed
+"password login still works after auto-link", which is incompatible with closing this exploit while
+the system has no email-verification flow (every account is "unverified" under that literal reading).
+Surfaced to the operator (2026-08-27) rather than resolved unilaterally per the artifact-ownership
+boundary — this section documents the OUTCOME; the decision record itself is the AskUserQuestion
+round in the orchestrator's session, not duplicated here. **Operator decision: amend AC-AUTH-018's
+scope to already-verified accounts, and add AC-AUTH-018b for the unverified-account case** (existing
+password invalidated + `emailVerified` set true on auto-link — Google's confirmation becomes the new
+trust anchor). `acceptance.md` and `design.md` §5 threat-model row 12 were both updated accordingly
+(design.md's original row 12 had already anticipated this exact escalation path: "향후 리스크 신호가
+관측되면 explicit-confirm으로 전환 가능하도록... 분리해 둔다").
+
+Implementation: `src/app/api/auth/google/callback/route.ts` Branch C — when the existing user's
+`emailVerified === false`, the SAME transaction that creates the `OAuthAccount` link also updates the
+`User` row (`passwordHash: null`, `emailVerified: true`). The already-verified path (AC-AUTH-018,
+unchanged) is untouched.
+
+**F1 [High, sync-auditor] — missing email case-normalization in signup/login.** `signup/route.ts` and
+`login/route.ts` stored/queried the raw-case email while `google/callback/route.ts` always normalized
+to lowercase (`User.email` is `@unique` and Postgres-case-sensitive) — a mixed-case signup could never
+be found by the OAuth auto-link's lowercase lookup, silently defeating C1's fix (and the general
+auto-link feature) for any mixed-case email. Fix: `.toLowerCase()` applied in both routes before every
+lookup/store, matching the convention `google/callback/route.ts` and `rate-limit.ts`'s account-keying
+already used, and matching acceptance.md §7's existing (until now unenforced in these two routes) edge
+case.
+
+**F2 [High, sync-auditor] / H1 [High, Phase-8, same root cause] — rate limiting fully bypassable via
+client-controlled IP.** `src/lib/auth/rate-limit.ts`: (a) `extractClientIp` trusted the LEFTMOST
+`x-forwarded-for` entry — under the standard single-reverse-proxy deployment (proxy APPENDS the
+connecting IP), the leftmost entry is attacker-supplied and rotatable per-request, defeating the limit
+entirely; (b) `checkIpRateLimit` returned `{allowed: true}` unconditionally when no IP could be
+determined, so simply omitting the header disabled rate limiting outright. Fix: (a) trust the
+RIGHTMOST entry instead (named limitation: assumes exactly one trusted proxy hop that appends rather
+than replaces — a multi-hop chain needs a configurable trusted-hop-count, explicitly out of scope for
+this fix cycle); (b) headerless requests now share ONE rate-limited `UNKNOWN_IP` bucket per endpoint
+instead of bypassing the check (a deliberate security-over-availability tradeoff for auth endpoints).
+
+**H4 [High, Phase-8] — `npm audit` production-dependency characterization corrected.** An earlier
+claim in this sync session that all 3 critical `npm audit` findings were devDependencies-only was
+independently checked by the Phase-8 reviewer and found **inaccurate**: `tar` (critical,
+GHSA-34x7-hfp2-rc4v) ships via `bcrypt`, a production dependency (`npm audit --omit=dev` → 9
+vulnerabilities: 3 moderate / 5 high / 1 critical). `vitest`/`@vitest/coverage-v8` are correctly
+dev-only. Mitigating context: `tar` is reached by `node-pre-gyp` at install time (prebuilt-binary
+extraction), not on the request path — runtime exploitability is low, but "not shipped to production"
+was factually wrong and is corrected here for the sync report / PR description. No code fix applied
+this cycle (an `npm audit fix` is available but out of this cycle's scope — tracked as a residual
+item, not silently dropped).
+
+**Test-fixture fallout (not a defect, a consequence of F2's own fix)**: closing the unknown-IP
+fail-open meant every test file exercising `login`/`refresh`/`google/callback` without setting
+`x-forwarded-for` began sharing one rate-limited bucket per file, since none of those files reset the
+rate-limiter between tests. Added `__resetRateLimitStoreForTests()` to the `beforeEach` of
+`tests/unit/api/auth/{login,refresh,google-callback}.test.ts` and
+`tests/integration/auth/logout-then-refresh.test.ts`, and a **per-sample** reset inside
+`tests/integration/auth/login.test.ts`'s AC-AUTH-005 timing loop (60 back-to-back same-endpoint calls
+by design — each sample now measures one isolated login attempt rather than accidentally tripping the
+new rate limit at the 6th call, which is closer to what that test actually intends to measure).
+
+**Evidence (this fix cycle, independently executed — not carried over from run-phase)**:
+- `.moai/state/verify/539ce61f-329b-4279-abef-5c36936e4b20/fixcycle2.tests.log` — `npm run test:coverage`
+  → **19 files / 139 tests passed**, 95.76%/89.83%/100%/95.76% stmt/branch/func/line (clears 85/85/80/85).
+- `npm run lint` → exit 0. `npm run typecheck` → exit 0 (both re-run after the fix cycle).
+- Each of C1/F1/F2 was verified RED→GREEN: a reproduction test was written and confirmed to fail
+  against the pre-fix code, then the minimal fix was applied and the same test confirmed to pass —
+  full command+output pairs are in the orchestrator session transcript for this sync session.
+
+**Gaps**: (1) H2 (account-keyed rate limiting still unwired) — unchanged, remains the existing
+operator-accepted `@MX:DEBT` (this fix cycle's scope was explicitly limited to C1/F1/F2/H1, per the
+Kickoff-equivalent user approval — H2/H3/M1-M5 from the two audits were NOT in scope). (2) H3 (OAuth
+handoff cookie XSS exposure window) — not fixed this cycle; task queued for a follow-up operator
+decision (parallel treatment to how the original rate-limiting gap was surfaced). (3) The
+multi-hop-proxy limitation named in F2's fix is a documented, not closed, gap.
+
+**Residual-risk**: (1) the rightmost-XFF-trust fix assumes exactly one reverse-proxy hop — a
+deployment behind Cloudflare+nginx (two hops) would need the trusted-hop-count extension before this
+holds. (2) the shared `UNKNOWN_IP` bucket means legitimate callers on a proxyless deployment that never
+sets `x-forwarded-for` pool together and may rate-limit each other — accepted as preferable to the
+prior unconditional bypass, but worth monitoring in production logs. (3) H4's `tar` critical finding
+remains unresolved in the dependency tree (fix available via `npm audit fix`, not applied this cycle).
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 - run_complete_at: 2026-08-27T05:16:00+09:00
 - run_status: audit-ready
 - milestones: M1, M2, M3, M4, M5, M6 — all 6 committed, all independently re-verified by manager-lead
   (not taken from leaf-worker claims alone)
-- final_head: `dcd8b70` (branch `WT-auth-jwt-login`)
+- final_head: `dcd8b70` (branch `WT-auth-jwt-login`) — **superseded**: sync-phase security fix-cycle
+  (2026-08-27, above) added commits on top; see the fix-cycle section for the updated evidence.
 - trust5_gate: **PASS** — 135/135 tests, 95.7%/89.72%/100%/95.7% coverage (≥ 85/85/80/85 thresholds),
   `tsc --noEmit` exit 0, `eslint .` exit 0, both REQ-AUTH-024/025 security scans 0 matches
 - known_gaps_at_close: (1) account-keyed rate limiting on `login` deliberately unwired (conflicts with
