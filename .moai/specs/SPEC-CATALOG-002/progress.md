@@ -130,4 +130,42 @@ baseline_attribution:
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+sync_complete_at: 2026-08-28T00:00:00+09:00
+sync_commit_sha: pending-backfill-sync   # 이 커밋 자신의 SHA — 착지 후 후속 커밋에서 backfill
+sync_status: complete
+changelog_entry_position: "CHANGELOG.md [Unreleased] — '### 추가 — SPEC-CATALOG-002' + '### 알려진 한계 — SPEC-CATALOG-002' (SPEC-CATALOG-001 섹션 뒤에 추가)"
+b12_self_test_a: pass    # grep -c "SPEC-CATALOG-002" CHANGELOG.md → 0 (중복 없음, 작성 전 확인)
+b12_self_test_b: pass    # acceptance.md AC 고유 식별자 16건 중 AC-CATALOG-001/016은 SPEC-CATALOG-001 상호참조 → 이 SPEC 소유 AC는 AC-CATALOG-017~030 = 14건, CHANGELOG 기재 수치와 일치
+b12_self_test_c: pass    # CHANGELOG/README에 기재한 경로 전부 ls 확인 (migrations/20260828120000_add_product_name_trgm_index/, src/features/catalog/{repositories,services,types}/, src/app/api/products/route.ts)
+
+frontmatter_status_transitions:
+  spec_md: in-progress → implemented → completed   # 단일 sync 커밋에 병합
+  plan_md: in-progress → implemented → completed
+  acceptance_md: n/a    # frontmatter 블록 없음 (SPEC-CATALOG-001과 동일 패턴) — 미변경
+  progress_md: n/a      # frontmatter 블록 없음 — 본문 §E.4만 추가
+
+ac_disposition:
+  ac_catalog_030: PASS-with-debt
+  rationale: >-
+    사용자 승인 하에 부분 인정. 애플리케이션 계층 p95는 search 단독 0.50ms,
+    search+category+sort 조합 0.35ms(N=50)로 300ms 예산을 크게 밑돈다. 제외된
+    부분은 DB 왕복이며, 여기에는 SPEC-CATALOG-001 AC-CATALOG-016에 없던 새 미검증
+    항목이 하나 더 있다 — M1이 추가한 트라이그램 GIN 인덱스를 쿼리 플래너가 실제로
+    선택하는지(EXPLAIN)는 라이브 DB 없이 확인할 수 없다. 실제 DB를 대상으로 한
+    재측정은 후속 작업이며, 종료된 항목이 아니다.
+  precedent: SPEC-CATALOG-001 AC-CATALOG-016 (동일 처분 패턴)
+
+files_touched:
+  - CHANGELOG.md                                   # 추가 + 알려진 한계 섹션 신규
+  - README.md                                      # 카탈로그 API 섹션에 search 파라미터 반영
+  - .moai/specs/SPEC-CATALOG-002/spec.md           # frontmatter status만
+  - .moai/specs/SPEC-CATALOG-002/plan.md           # frontmatter status만
+  - .moai/specs/SPEC-CATALOG-002/progress.md       # 본 §E.4 섹션
+
+gaps:
+  - 이 커밋은 원격에 푸시하지 않는다 (카드 워크트리 브랜치 WT-catalog-search-filter).
+  - sync_commit_sha는 placeholder다. 커밋은 자기 해시를 알 수 없으므로 후속 커밋에서 backfill한다.
+  - 소스·테스트·스키마는 sync 범위 밖이므로 재실행하지 않았다. 품질 게이트 수치는
+    §E.2의 run-phase 측정을 인용한 것이며, 이 커밋에서 새로 관측한 값이 아니다.
+```

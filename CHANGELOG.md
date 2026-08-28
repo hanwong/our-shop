@@ -49,3 +49,25 @@ A post-implementation security audit (independent quality + security review) fou
 - 카탈로그 마이그레이션은 `prisma migrate dev`가 아니라 손으로 작성했다(섀도 DB가 없었다). DDL 객체 집합은 `prisma migrate diff --from-empty`로 스키마와 정확히 일치함을 확인했지만, 실제 DB에 적용해본 적은 없다.
 - 이 SPEC에는 시드 스크립트가 없다. 시드 스크립트나 관리자용 카테고리 API가 생기기 전까지는 카테고리 행을 수동으로 넣어야 한다 — 이 범위에는 카테고리 생성/수정/삭제 API가 없다.
 - **구현 이후 보안 검토(`--security` 렌즈)에서 막는 결함은 발견되지 않았고**, 인수 기준을 위반하지 않는 비차단(non-blocking) 후속 항목 3건이 나왔다: (1) `page`에 상한이 없다(`pageSize`는 100으로 클램프되지만, 임의로 큰 `page` 값은 그대로 받아들여져 DB에 큰 `OFFSET`으로 전달된다); (2) 카탈로그 라우트 핸들러에 에러 경계가 없어, DB 계층 예외가 제어된 JSON 에러가 아니라 처리되지 않은 Next.js 프레임워크 500으로 그대로 전파된다; (3) 공개 목록/상세 엔드포인트에는(기존 인증 엔드포인트와 달리) 요청 횟수 제한이 없다 — SPEC-CATALOG-001이 이를 요구하지도, 금지하지도 않는다. 전체 근거: `.moai/reports/sync-audit/SPEC-CATALOG-001-security-2026-08-28.md`(로컬, gitignore 대상).
+
+### 추가 — SPEC-CATALOG-002: 상품 목록 API 키워드 검색 (이름 기반 부분 일치)
+
+- `GET /api/products`에 `?search=<검색어>` 파라미터를 추가했다. 상품명(`name`)에 대한 **대소문자 무관 부분 문자열 일치**이며, Prisma의 `contains` + `mode: "insensitive"`만 사용한다 — 원시 SQL도, PostgreSQL 전문 검색(`tsvector`/`to_tsquery`)도 쓰지 않는다.
+  - 검색 대상은 `name` 하나뿐이다. 상품 설명(`description`)에만 등장하는 단어로는 매치되지 않는다.
+  - 빈 문자열(`?search=`)이나 공백만 있는 값(`?search=%20%20%20`)은 400이 아니라 **파라미터가 없는 것과 동일하게** 처리한다 — 필터를 적용하지 않고 200을 반환한다.
+  - 일치하는 상품이 없으면 404가 아니라 빈 페이지(200, `items: []`, `totalCount: 0`, `totalPages: 0`)를 반환한다.
+  - 기존 `category`·`sort`·`page`·`pageSize`와 AND로 결합된다. 페이지네이션 메타데이터(`totalCount`, `totalPages`)는 **검색으로 걸러진 집합**을 기준으로 계산되며, 전체 카탈로그를 기준으로 하지 않는다.
+  - 관련도(relevance) 정렬은 추가하지 않았다. 검색 결과에도 기존 3종 정렬(`newest` 기본값, `price_asc`, `price_desc`)만 적용된다.
+  - 인식하는 쿼리 파라미터 집합은 4개에서 5개(`category`, `page`, `pageSize`, `sort`, `search`)로 늘었다. 별칭 `q`/`keyword`/`query`는 여전히 읽지 않으며, 이 폐쇄성은 화이트리스트 테스트가 계속 보장한다.
+- SPEC-CATALOG-001이 §3에서 검색을 **연기된 범위**로 기록하며 남겨둔 REQ-CATALOG-012를, `search` 파라미터에 한해 대체(supersede)한다. 그에 따라 "검색 파라미터를 읽지 않는다"고 못박고 있던 기존 테스트 두 곳(`query-surface.test.ts`, `product-service.test.ts`)을 계약 변경에 맞춰 수정했다 — 편의를 위한 삭제가 아니다.
+- Prisma 스키마: `postgresqlExtensions` 프리뷰 기능을 켜고 `pg_trgm` 확장과 `Product.name`에 대한 GIN 트라이그램 인덱스(`product_name_trgm_idx`)를 선언했다. 앞에 와일드카드가 붙는 `ILIKE '%검색어%'` 패턴은 B-tree 인덱스로 가속할 수 없어(B-tree는 접두사만 탐색한다) 기존 인덱스 3개로는 순차 스캔이 남기 때문이다. 마이그레이션: `prisma/migrations/20260828120000_add_product_name_trgm_index/`. 기존 인덱스 3개(`categoryId`, `createdAt`, `price`)는 그대로 유지된다.
+- `GET /api/products/[productId]` 상세 API와 라우트 핸들러(`src/app/api/products/route.ts`)는 변경하지 않았다. 핸들러가 이미 `searchParams`를 통째로 `listProducts()`에 넘기고 있어, 실제 변경은 서비스·리포지토리·타입 계층에 국한된다.
+- 인수 기준 14개(AC-CATALOG-017~030) 중 13개 PASS, 1개는 아래 "알려진 한계"의 부분 인정(PASS-with-debt) 항목이다. 테스트는 222개에서 304개로 늘었고 회귀는 0건이다.
+
+### 알려진 한계 — SPEC-CATALOG-002
+
+- **검색 포함 요청의 응답 속도 기준(AC-CATALOG-030)은 부분 인정(PASS-with-debt) 상태다.** p95 기준은 300ms이고, 측정된 애플리케이션 계층 p95는 `search` 단독 0.50ms·`search`+`category`+`sort` 조합 0.35ms(N=50)로 예산을 크게 밑돈다. 다만 이 수치에는 **DB 왕복이 빠져 있다** — 이 환경에 PostgreSQL 인스턴스가 없어 SPEC-CATALOG-001 AC-CATALOG-016과 같은 제약을 그대로 안고 있다. REQ-CATALOG-016B가 실제로 경계하는 위험은 카탈로그가 커질 때의 순차 스캔인데, 애플리케이션 계층 측정으로는 그것을 볼 수 없다.
+- **트라이그램 인덱스를 쿼리 플래너가 실제로 선택하는지 검증하지 못했다** — SPEC-CATALOG-001에는 없던 새 미검증 항목이다. 스키마와 마이그레이션이 `pg_trgm` 확장과 GIN 인덱스를 올바르게 **선언**한다는 점은 확인했지만, 확장이 실제로 설치되는지, 인덱스가 생성되는지, 플래너가 순차 스캔 대신 그 인덱스를 **선택**하는지는 라이브 DB에서 `EXPLAIN`을 돌려야 알 수 있다. 위 성능 근거가 기대는 지점이 바로 여기이므로, 실제 DB를 대상으로 한 재측정(CI나 배포 환경)은 명시적 후속 작업이며 아직 종료된 항목이 아니다.
+- 트라이그램 마이그레이션도 SPEC-CATALOG-001 선례대로 손으로 작성했고(섀도 DB가 없어 `prisma migrate dev`를 쓸 수 없었다), 어떤 데이터베이스에도 적용된 적이 없다. SQL의 구조적 정확성만 확인했다.
+- 관리형 DB(Neon, Supabase 등)에서 `CREATE EXTENSION "pg_trgm"` 권한이 있는지 확인하지 못했다. 권한이 없다면 인덱스 없이 진행하는 대안으로 물러서야 하며(plan.md §2.3 대안 B), 그 판단은 배포 대상 DB가 정해진 뒤에야 내릴 수 있다.
+- 유니코드 대소문자 폴딩은 ASCII 범위에서만 검증했다. 한글은 대소문자 구분이 없어 이 SPEC의 주 사용 사례에는 영향이 없지만, 라틴 확장 문자에 대한 동작은 collation에 의존하며 미검증이다.

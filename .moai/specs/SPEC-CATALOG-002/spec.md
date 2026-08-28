@@ -2,7 +2,7 @@
 id: SPEC-CATALOG-002
 title: "상품 목록 API 키워드 검색 (이름 기반 부분 일치)"
 version: "0.1.0"
-status: in-progress
+status: completed
 created: 2026-08-28
 updated: 2026-08-28
 author: snake
