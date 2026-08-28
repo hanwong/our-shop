@@ -175,3 +175,27 @@ m1_to_mN_commit_strategy: >-
 ## §E.4 Sync-phase Audit-Ready Signal
 
 _<pending sync-phase>_
+
+## §F Phase 4 Mode Selection
+
+**Input parameters**: tier=M; scope≈7-8 core files (prisma/schema.prisma + 5 new files under src/features/catalog + 2 new route.ts files); domain count=1 (backend/DB, single feature slice); file language mix=100% TypeScript + 1 Prisma schema; concurrency benefit=LOW (coding-heavy, sequential milestone dependencies M1→M2→M3→M4).
+
+**Mode evaluation**:
+| Mode | Selected? | Rationale |
+|---|---|---|
+| direct | No | Non-trivial multi-file feature implementation |
+| serial | **YES** | Coding-heavy work, single domain, <10 files — Anthropic's coding-task parallelism caveat applies |
+| fanout | No | Below the ≥3 domains / ≥10 files threshold |
+| sweep | No | Not mechanical/high-volume |
+
+**Decision: serial**
+
+**Justification**: Tier M SPEC with a single backend/database domain and strict milestone dependencies (schema → repository → service → route handlers) — a sequential `manager-develop` delegation per the standard Section A-E template is the correct envelope.
+
+### Boundary case — worktree materialization mismatch
+
+The spawned `manager-develop` invocation was auto-materialized into a **new** L1 worktree (`.claude/worktrees/agent-a6bc936c2517a5326`, branched from `origin/HEAD` per `worktree.baseRef: fresh`) rather than inheriting this session's already-entered `.claude/worktrees/catalog-plan` (branch `WT-catalog-plan`). This is the documented L1-ephemeral-vs-re-entry distinction (`worktree-integration.md` § L1 ephemeral vs L2 persistent — `isolation: worktree` is NOT a re-entry mechanism): `manager-develop`'s own agent definition carries `isolation: worktree` (write-heavy retained agent, per the HARD rule), so a plain `Agent()` spawn without an explicit re-entry mechanism gets a fresh tree regardless of the parent session's CWD.
+
+**Resolution** (performed by the orchestrator after the agent self-detected and reported the mismatch): verified `8336501` (WT-catalog-plan HEAD at spawn time) is an ancestor of the agent's final HEAD `83041ef` (`git merge-base --is-ancestor`, exit 0), then fast-forwarded `WT-catalog-plan` onto it from within `.claude/worktrees/catalog-plan` (`git merge --ff-only worktree-agent-a6bc936c2517a5326`) — no merge commit, no history rewrite, no other worktree touched. All 7 run-phase commits now live on `WT-catalog-plan` as intended.
+
+**Follow-up for future dispatches**: a run-phase delegation into an existing card worktree should either avoid `Agent()` auto-isolation for `manager-develop` (spawn without further isolation once the orchestrator's own session is already inside the target worktree — isolation is redundant there) or explicitly pass the target worktree path if the runtime supports it. Recorded here as a process note, not a code change.
