@@ -72,4 +72,13 @@ export interface ListProductsQuery {
   sort: ProductSort;
   /** A `Category.slug`; absent means "no category filter". */
   category?: string;
+  /**
+   * SPEC-CATALOG-002 — a keyword matched against `Product.name` as a
+   * case-insensitive substring (REQ-CATALOG-018).
+   *
+   * Always trimmed and non-empty when present: a blank or whitespace-only
+   * `?search=` is normalised to ABSENT rather than rejected (REQ-CATALOG-020),
+   * so this field never carries `""`.
+   */
+  search?: string;
 }

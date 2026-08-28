@@ -121,6 +121,74 @@ describe("findProductsPage — category filter (REQ-CATALOG-010)", () => {
   });
 });
 
+describe("findProductsPage — keyword search (SPEC-CATALOG-002 REQ-CATALOG-018)", () => {
+  it("matches name with a case-insensitive substring filter, never description", async () => {
+    const { findProductsPage } = await import("@/features/catalog/repositories/product-repository");
+    await findProductsPage({ page: 1, pageSize: 20, sort: "newest", search: "denim" });
+
+    const where = findMany.mock.calls[0]![0].where;
+    // `contains` + insensitive mode is what compiles to ILIKE '%denim%'
+    // (plan.md §2.2). REQ-CATALOG-019 keeps description out of the filter.
+    expect(where).toEqual({ name: { contains: "denim", mode: "insensitive" } });
+    expect(where.description).toBeUndefined();
+    expect(where.OR).toBeUndefined();
+  });
+
+  it("[AC-CATALOG-021] composes search AND category into one where clause", async () => {
+    const { findProductsPage } = await import("@/features/catalog/repositories/product-repository");
+    await findProductsPage({
+      page: 1,
+      pageSize: 20,
+      sort: "newest",
+      categoryId: "cat-tops",
+      search: "denim",
+    });
+
+    // Sibling keys on a Prisma where object are ANDed, so a product must match
+    // BOTH to be returned — "Denim Jeans" in bottoms must not survive this.
+    expect(findMany.mock.calls[0]![0].where).toEqual({
+      categoryId: "cat-tops",
+      name: { contains: "denim", mode: "insensitive" },
+    });
+  });
+
+  it("[AC-CATALOG-024] applies the identical where to findMany and count", async () => {
+    const { findProductsPage } = await import("@/features/catalog/repositories/product-repository");
+    await findProductsPage({ page: 2, pageSize: 20, sort: "newest", search: "denim" });
+
+    // totalCount must describe the SEARCHED set, not the whole table, or the
+    // client's totalPages points at pages that cannot be fetched.
+    expect(count.mock.calls[0]![0].where).toEqual(findMany.mock.calls[0]![0].where);
+  });
+
+  it("leaves the where clause empty when search is absent (REGRESSION — AC-CATALOG-029)", async () => {
+    const { findProductsPage } = await import("@/features/catalog/repositories/product-repository");
+    await findProductsPage({ page: 1, pageSize: 20, sort: "newest" });
+
+    expect(findMany.mock.calls[0]![0].where).toEqual({});
+  });
+
+  it("still paginates and sorts normally alongside a search filter", async () => {
+    const { findProductsPage } = await import("@/features/catalog/repositories/product-repository");
+    await findProductsPage({ page: 3, pageSize: 20, sort: "price_asc", search: "denim" });
+
+    const args = findMany.mock.calls[0]![0];
+    expect(args).toMatchObject({ skip: 40, take: 20 });
+    expect(args.orderBy[0]).toEqual({ price: "asc" });
+  });
+
+  it("passes a term containing SQL wildcards through as a bound parameter", async () => {
+    // acceptance.md §2: Prisma parameterises the value, so %/_/' are data, not
+    // syntax. The repository must not pre-escape or reject them.
+    const { findProductsPage } = await import("@/features/catalog/repositories/product-repository");
+    await findProductsPage({ page: 1, pageSize: 20, sort: "newest", search: "50%_off'" });
+
+    expect(findMany.mock.calls[0]![0].where).toEqual({
+      name: { contains: "50%_off'", mode: "insensitive" },
+    });
+  });
+});
+
 describe("findProductById (REQ-CATALOG-013/014)", () => {
   it("selects the full detail projection including description and updatedAt", async () => {
     const { findProductById } = await import("@/features/catalog/repositories/product-repository");

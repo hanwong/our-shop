@@ -56,6 +56,12 @@ export interface FindProductsPageArgs {
   sort: ProductSort;
   /** A resolved `Category.id`; absent means "no category filter". */
   categoryId?: string;
+  /**
+   * A trimmed, non-empty keyword; absent means "no keyword filter".
+   * Normalisation lives in the service layer (REQ-CATALOG-020) — this layer
+   * trusts what it is given, like every other argument here.
+   */
+  search?: string;
 }
 
 export interface ProductsPage {
@@ -75,10 +81,24 @@ export async function findProductsPage({
   pageSize,
   sort,
   categoryId,
+  search,
 }: FindProductsPageArgs): Promise<ProductsPage> {
   // The identical `where` feeds both queries so totalCount always describes the
   // filtered set rather than the whole table (REQ-CATALOG-007 + REQ-CATALOG-010).
-  const where: Prisma.ProductWhereInput = categoryId ? { categoryId } : {};
+  //
+  // Sibling keys on a Prisma where object are ANDed, so spreading the two
+  // optional filters composes them without an explicit AND array
+  // (REQ-CATALOG-021). Both absent leaves `{}` — byte-identical to the
+  // pre-search behaviour, which is what keeps AC-CATALOG-029 holding.
+  //
+  // `contains` + `mode: "insensitive"` compiles to `name ILIKE '%term%'`
+  // (REQ-CATALOG-018). Prisma binds the term as a parameter, so wildcards and
+  // quotes inside it are matched literally rather than interpreted — and the
+  // GIN trigram index added in M1 is what keeps that scan off the table.
+  const where: Prisma.ProductWhereInput = {
+    ...(categoryId ? { categoryId } : {}),
+    ...(search ? { name: { contains: search, mode: "insensitive" } } : {}),
+  };
 
   const [rows, totalCount] = await Promise.all([
     prisma.product.findMany({
