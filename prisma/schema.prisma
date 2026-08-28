@@ -62,3 +62,47 @@ model RefreshToken {
   @@index([userId])
   @@index([tokenHash])
 }
+
+// ---------------------------------------------------------------------------
+// SPEC-CATALOG-001 M1 — product catalog domain.
+//
+// Source of truth for these two model shapes: SPEC-CATALOG-001 plan.md §3
+// (Prisma 스키마 확장). Do not diverge from plan.md without updating plan.md
+// first (manager-develop is not the owner of SPEC body content).
+// ---------------------------------------------------------------------------
+
+// A product classification. Modelled as a TABLE rather than a Prisma enum
+// (plan.md §2.1) so that a future admin SPEC can add or rename categories with
+// a data change instead of a schema migration + deploy.
+model Category {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  slug      String    @unique // the list API's `?category=` filter key (REQ-CATALOG-010)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  products  Product[]
+}
+
+// @MX:ANCHOR fan-in target — every catalog read path reaches this model:
+// the list query (pagination + sort + category filter) and the detail query in
+// src/features/catalog/repositories/product-repository.ts, and through them
+// both public route handlers under src/app/api/products/.
+// @MX:REASON a column or index change here changes the query plan for the two
+// endpoints REQ-CATALOG-016 holds to a p95 300ms budget, so schema edits carry
+// performance fan-out beyond their local correctness.
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  price       Int // KRW minor-unit-free integer (plan.md §2.2) — not Decimal
+  description String
+  images      String[] // image URLs; array order is display order (plan.md §2.3)
+  stock       Int      @default(0)
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([categoryId]) // REQ-CATALOG-010 category filter
+  @@index([createdAt]) // REQ-CATALOG-008 `newest` sort (the default)
+  @@index([price]) // REQ-CATALOG-008 `price_asc` / `price_desc` sorts
+}
