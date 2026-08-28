@@ -1,6 +1,6 @@
 ---
 id: SPEC-CATALOG-001
-status: in-progress
+status: completed
 updated: 2026-08-28
 tier: M
 ---

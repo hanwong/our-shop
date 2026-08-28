@@ -2,7 +2,7 @@
 id: SPEC-CATALOG-001
 title: "상품 카탈로그 도메인 모델 및 목록/상세 조회 API"
 version: "0.1.0"
-status: in-progress
+status: completed
 created: 2026-08-27
 updated: 2026-08-28
 author: snake

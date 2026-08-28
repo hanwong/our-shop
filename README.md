@@ -1,6 +1,9 @@
 # our-shop
 
-A TypeScript / Next.js e-commerce backend. This repository currently implements **SPEC-AUTH-001** — email/password and Google OAuth authentication with JWT sessions.
+A TypeScript / Next.js e-commerce backend. This repository currently implements:
+
+- **SPEC-AUTH-001** — email/password and Google OAuth authentication with JWT sessions.
+- **SPEC-CATALOG-001** — the product catalog domain model and the public product list/detail API.
 
 ## Stack
 
@@ -60,7 +63,29 @@ Key security properties (see `.moai/specs/SPEC-AUTH-001/` for the full spec/acce
 
 **Known limitations** (tracked, not silently dropped — see `progress.md` for details): account-keyed rate limiting is implemented but not wired on `/login` (conflicts with an existing timing-equalization test); the OAuth callback's short-lived access-token handoff cookie is a reviewed, accepted trade-off pending a frontend SPEC; no live PostgreSQL has been exercised in this sandbox (schema validated via `prisma validate`/`generate`/`migrate diff` only).
 
+## Catalog API (SPEC-CATALOG-001)
+
+Public, read-only, and unauthenticated — `src/middleware.ts` matches `/admin/:path*` only, so no auth runs ahead of these routes. Handlers live under `src/app/api/products/`; the domain logic lives in `src/features/catalog/`.
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/products` | GET | Paginated product list with sorting and category filtering |
+| `/api/products/[productId]` | GET | Full product detail; 404 for an unknown id |
+
+List query parameters (no others are read — there is no search in this SPEC):
+
+| Parameter | Default | Behavior |
+|---|---|---|
+| `page` | `1` | Positive integer. Invalid values are rejected with 400 before any DB query. Out-of-range pages return an empty list, not an error. |
+| `pageSize` | `20` | Positive integer, clamped to a maximum of `100` rather than rejected. |
+| `sort` | `newest` | One of `newest`, `price_asc`, `price_desc`; each tie-broken by `id` for stable paging. Anything else is a 400. |
+| `category` | (none) | A `Category.slug`. A slug matching no category returns an empty page (200), not a 404. |
+
+The list response carries `items`, `page`, `pageSize`, `totalCount`, and `totalPages`. List rows omit `description` to keep the payload small; the detail response adds `description` and `updatedAt`. Both responses are built from an explicit field whitelist, so future row-shape additions (reviews, related products — both out of scope here) cannot leak into them.
+
+**Known limitations** (see `.moai/specs/SPEC-CATALOG-001/progress.md`): the 300ms p95 response-time criterion is accepted as passing with debt — application-layer p95 measures 0.41ms (list) / 0.06ms (detail), but excludes the database round trip, since no PostgreSQL was available; re-measurement against a real seeded database is a follow-up. The catalog migration was hand-written and verified against the schema via `migrate diff`, never applied to a live database. No seed script ships, and there is no Category management API — category rows must be inserted manually.
+
 ## Project documentation
 
 - `.moai/project/product.md`, `structure.md`, `tech.md` — project-wide docs
-- `.moai/specs/SPEC-AUTH-001/` — this feature's SPEC, plan, acceptance criteria, and progress record
+- `.moai/specs/SPEC-AUTH-001/`, `.moai/specs/SPEC-CATALOG-001/` — each feature's SPEC, plan, acceptance criteria, and progress record

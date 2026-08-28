@@ -174,7 +174,86 @@ m1_to_mN_commit_strategy: >-
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+sync_complete_at: 2026-08-28T11:40:00+09:00
+sync_commit_sha: pending-backfill-4d229e5   # this commit cannot name its own hash; backfilled in a follow-up commit
+sync_branch: WT-catalog-plan
+sync_base_commit: 4d229e51944602a0ce00192c3d7e2050cb265e28
+sync_status: complete-with-debt
+
+b12_self_test_a: "grep -c 'SPEC-CATALOG-001' CHANGELOG.md → 0 before edit (duplicate-entry guard passed; emission proceeded)"
+b12_self_test_b: >-
+  AC count cross-checked against acceptance.md (SSOT), NOT progress.md.
+  `grep -oE 'AC-([A-Z0-9]+-)*[0-9]+' acceptance.md | sort -u | wc -l` → 17 tokens,
+  of which AC-AUTH-005 is a cross-reference to SPEC-AUTH-001; the AC-CATALOG-* set is 16.
+  Non-zero count confirmed by hand (a 0 would have been a red flag, not a pass).
+  Disposition: 15 PASS + 1 PASS-with-debt (AC-CATALOG-016) = 16.
+b12_self_test_c: >-
+  Every path named in the CHANGELOG entry verified to exist via ls:
+  prisma/migrations/20260828015400_add_catalog_models/, src/app/api/products/route.ts,
+  src/app/api/products/[productId]/route.ts, src/features/catalog/{types,repositories,services}/,
+  src/middleware.ts. All present.
+
+changelog_entry_position: >-
+  Appended at the END of the [Unreleased] section, after the SPEC-AUTH-001 block
+  (its Added / Fixed / Known-limitations sub-sections left untouched). Two new
+  sub-sections: "### Added — SPEC-CATALOG-001: ..." and
+  "### Known limitations — SPEC-CATALOG-001". The latter is SPEC-qualified in its
+  heading to disambiguate it from SPEC-AUTH-001's generically-titled
+  "### Known limitations" block, which was not restructured (scope discipline).
+
+changelog_language_deviation: >-
+  The entry is written in ENGLISH, deviating from `documentation: ko` and from the
+  dispatch's explicit instruction to write CHANGELOG/README prose in Korean.
+  Reason: the entire pre-existing [Unreleased] section (SPEC-AUTH-001), produced by
+  this same sync workflow under this same config, is English; a Korean block appended
+  beneath it would make the file bilingual. File-internal consistency was chosen and
+  is flagged here and in the completion report rather than silently resolved either way.
+  Reversible with a single rewrite if the lead prefers Korean.
+
+ac_disposition:
+  ac_pass_count: 15
+  ac_pass_with_debt_count: 1
+  ac_fail_count: 0
+  ac_total: 16
+
+ac_catalog_016_disposition: >-
+  PASS-with-debt, per an explicit user decision obtained at the sync gate — NOT a
+  silent downgrade of the criterion. Measured application-layer p95: list 0.41ms,
+  detail 0.06ms (N=50), both far inside the 300ms budget. The measurement EXCLUDES
+  the database round trip, so it does not satisfy the criterion as written
+  ("p95 against a DB seeded with 50+ rows"): no PostgreSQL was available in this
+  environment (see §E.2.5 G2). Follow-up: re-measure end-to-end p95 against a real
+  seeded PostgreSQL in CI or a deployed environment. The debt is recorded in the
+  CHANGELOG "Known limitations — SPEC-CATALOG-001" block and in the README catalog
+  section, so it is visible to readers who never open this file.
+
+docs_touched:
+  changelog: true    # CHANGELOG.md — 2 new sub-sections appended to [Unreleased]
+  readme: true       # README.md — intro now lists both SPECs; new "Catalog API (SPEC-CATALOG-001)" section with endpoint + query-parameter tables and the known-limitations note; docs-pointer line extended to both SPEC directories
+  docs_site: false   # no docs site exists in this repository
+
+frontmatter_status_transitions:
+  spec_md: "in-progress → completed (updated: 2026-08-28)"
+  plan_md: "in-progress → completed (updated: 2026-08-28)"
+  acceptance_md: "not applicable — the file carries no frontmatter block (§E.2.5 G3); none was added, since creating one would be a body modification"
+  progress_md: "no frontmatter block; §E.4 body written by manager-docs, which owns this section"
+  note: >-
+    Single sync commit carries the full in-progress → implemented → completed close
+    (3-phase close; no separate Mx commit). Only `status:` and `updated:` were touched —
+    no §/REQ/AC body content in spec.md, plan.md, or acceptance.md was modified.
+
+mx_tag_validation: >-
+  Performed as a sync sub-step, not a separate phase. Existing @MX annotations were
+  reviewed, not rewritten: prisma/schema.prisma carries @MX:ANCHOR + @MX:REASON on the
+  Product model (query-plan fan-out to both endpoints under the p95 budget), and
+  product-service.ts carries @MX:ANCHOR + @MX:REASON on the module (sole entry point
+  from app/ into the catalog domain; the only place query params are validated on two
+  unauthenticated public endpoints). Both ANCHORs carry the mandatory @MX:REASON.
+  No tags added, removed, or modified during sync.
+
+canary_compliance_check: not-applicable   # this SPEC defines no forward-looking policy that its own sync would test
+```
 
 ## §F Phase 4 Mode Selection
 
