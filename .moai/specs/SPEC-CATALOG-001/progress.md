@@ -265,6 +265,10 @@ canary_compliance_check: not-applicable   # this SPEC defines no forward-looking
 - Full report: `.moai/reports/sync-audit/SPEC-CATALOG-001-security-2026-08-28.md` (local, gitignored, not part of this commit).
 - Disposition (user-confirmed via AskUserQuestion): documented as follow-up only; card proceeds to `done` without a code change in this sync cycle.
 
+### Documentation-language correction (lead-requested)
+
+Per lead-session request (cross-session message, post-sync): the SPEC-CATALOG-001 sections of `CHANGELOG.md` (`### 추가` / `### 알려진 한계`) and `README.md` (`## 카탈로그 API`) were translated from English to Korean to match `.moai/config/sections/language.yaml` `documentation: ko`. SPEC-AUTH-001's sections in both files were left untouched (out of scope per the request) — they remain English, matching manager-docs' original "existing file convention" note. No facts, numbers, endpoint paths, or parameter names were altered in translation; only prose. The README intro bullet list (line 6, shared with the AUTH-001 bullet) was deliberately left in English to avoid a mixed-language list — only the dedicated `## 카탈로그 API` section was translated, per the narrowest reading of "해당 섹션".
+
 ## §F Phase 4 Mode Selection
 
 **Input parameters**: tier=M; scope≈7-8 core files (prisma/schema.prisma + 5 new files under src/features/catalog + 2 new route.ts files); domain count=1 (backend/DB, single feature slice); file language mix=100% TypeScript + 1 Prisma schema; concurrency benefit=LOW (coding-heavy, sequential milestone dependencies M1→M2→M3→M4).
