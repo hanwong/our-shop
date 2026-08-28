@@ -4,13 +4,21 @@
 // cross-checked against plan.md §3.1. Do not diverge from design.md without
 // updating design.md first (manager-develop is not the owner of SPEC body content).
 
+// SPEC-CATALOG-002 M1 — `postgresqlExtensions` lets the schema declare the
+// PostgreSQL extensions a migration must install. Without it the `extensions`
+// field on the datasource below is ignored and pg_trgm never reaches the
+// migration, leaving the GIN index on Product.name uncreatable.
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  // pg_trgm supplies the gin_trgm_ops operator class that makes a
+  // leading-wildcard ILIKE indexable (SPEC-CATALOG-002 plan.md §2.3).
+  extensions = [pg_trgm]
 }
 
 enum Role {
@@ -105,4 +113,10 @@ model Product {
   @@index([categoryId]) // REQ-CATALOG-010 category filter
   @@index([createdAt]) // REQ-CATALOG-008 `newest` sort (the default)
   @@index([price]) // REQ-CATALOG-008 `price_asc` / `price_desc` sorts
+  // SPEC-CATALOG-002 M1 — REQ-CATALOG-018 keyword search runs as
+  // `name ILIKE '%term%'`. A B-tree index cannot serve a LEADING wildcard (it
+  // can only seek a known prefix), so the three indexes above leave that scan
+  // unaccelerated. A GIN index over trigrams can, which is what keeps a search
+  // request inside REQ-CATALOG-016B's p95 300ms budget as the catalog grows.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "product_name_trgm_idx")
 }

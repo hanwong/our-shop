@@ -1,6 +1,6 @@
 ---
 id: SPEC-CATALOG-002
-status: draft
+status: in-progress
 updated: 2026-08-28
 tier: M
 ---
