@@ -59,6 +59,54 @@ describe("AC-CATALOG-012 (as amended by SPEC-CATALOG-002) — closed query surfa
   });
 });
 
+describe("AC-CATALOG-026 — no relevance-ranked sort option (REQ-CATALOG-023)", () => {
+  it("PRODUCT_SORTS still carries exactly the three SPEC-CATALOG-001 values", async () => {
+    const { PRODUCT_SORTS } = await import("@/features/catalog/types/product");
+    expect([...PRODUCT_SORTS]).toEqual(["newest", "price_asc", "price_desc"]);
+  });
+
+  it.each(["relevance", "rank", "score", "best_match"])(
+    "does not accept '%s' as a sort value",
+    async (candidate) => {
+      const { PRODUCT_SORTS } = await import("@/features/catalog/types/product");
+      expect((PRODUCT_SORTS as readonly string[]).includes(candidate)).toBe(false);
+    }
+  );
+});
+
+describe("AC-CATALOG-027 — search is substring matching, not full-text (REQ-CATALOG-024)", () => {
+  const SEARCH_SOURCES = [
+    "src/features/catalog/services/product-service.ts",
+    "src/features/catalog/repositories/product-repository.ts",
+    "src/features/catalog/repositories/category-repository.ts",
+    "src/features/catalog/types/product.ts",
+  ] as const;
+
+  /** Source with line comments and block comments stripped. */
+  function codeOf(relativePath: string): string {
+    return readFileSync(path.join(ROOT, relativePath), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/.*$/gm, "");
+  }
+
+  it.each(["$queryRaw", "$executeRaw", "tsvector", "to_tsquery", "plainto_tsquery", "ts_rank"])(
+    "never reaches for '%s' in the catalog feature code",
+    (token) => {
+      // Comments are stripped first so the prose explaining WHY full-text is
+      // out of scope does not itself trip the check.
+      for (const source of SEARCH_SOURCES) {
+        expect(codeOf(source)).not.toContain(token);
+      }
+    }
+  );
+
+  it("matches with Prisma's contains + insensitive mode instead", () => {
+    const repository = codeOf("src/features/catalog/repositories/product-repository.ts");
+    expect(repository).toMatch(/contains:/);
+    expect(repository).toMatch(/mode:\s*"insensitive"/);
+  });
+});
+
 describe("AC-CATALOG-001 — the generated Product model carries every required field", () => {
   it("type-checks a Product against the REQ-CATALOG-001 field set", () => {
     // A compile-time assertion: `npx tsc --noEmit` fails if the generated
