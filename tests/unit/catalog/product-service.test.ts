@@ -255,14 +255,188 @@ describe("listProducts — category filter (AC-CATALOG-010/011 / REQ-CATALOG-010
   });
 });
 
-describe("listProducts — no search support (AC-CATALOG-012 / REQ-CATALOG-012)", () => {
-  it("ignores q and search entirely, querying exactly as an unparameterised request would", async () => {
+/**
+ * SPEC-CATALOG-002 supersedes REQ-CATALOG-012 for the `search` parameter only.
+ * SPEC-CATALOG-001 recorded "no search" as a SCOPE decision, not a permanent
+ * contract (its §3 deferred keyword search to a later SPEC); that SPEC is now
+ * here. `q` stays unsupported — plan.md §2.1 chose `search` with no alias.
+ */
+describe("listProducts — keyword search (SPEC-CATALOG-002 REQ-CATALOG-017/018)", () => {
+  it("[AC-CATALOG-017] forwards the search term to the query layer", async () => {
     const { listProducts } = await import("@/features/catalog/services/product-service");
 
-    const result = await listProducts(params("?q=%EA%B2%80%EC%83%89%EC%96%B4&search=%EA%B2%80%EC%83%89%EC%96%B4"));
+    const result = await listProducts(params("?search=denim"));
 
     expect(result.ok).toBe(true);
-    expect(findProductsPage).toHaveBeenCalledWith({ page: 1, pageSize: 20, sort: "newest", categoryId: undefined });
+    expect(findProductsPage).toHaveBeenCalledWith(expect.objectContaining({ search: "denim" }));
+  });
+
+  it("trims surrounding whitespace off the term", async () => {
+    const { listProducts } = await import("@/features/catalog/services/product-service");
+
+    await listProducts(params("?search=%20%20denim%20%20"));
+
+    expect(findProductsPage).toHaveBeenCalledWith(expect.objectContaining({ search: "denim" }));
+  });
+
+  it("still reads no 'q' alias (plan.md §2.1 — one documented spelling)", async () => {
+    const { listProducts } = await import("@/features/catalog/services/product-service");
+
+    await listProducts(params("?q=denim"));
+
+    expect(findProductsPage).toHaveBeenCalledWith(expect.objectContaining({ search: undefined }));
+  });
+
+  it("passes no search filter when the parameter is absent (REGRESSION — AC-CATALOG-029)", async () => {
+    const { listProducts } = await import("@/features/catalog/services/product-service");
+
+    await listProducts(params(""));
+
+    expect(findProductsPage).toHaveBeenCalledWith(expect.objectContaining({ search: undefined }));
+  });
+});
+
+describe("listProducts — blank search is absence, not an error (AC-CATALOG-019/020)", () => {
+  it.each([
+    { label: "empty", query: "?search=" },
+    { label: "one space", query: "?search=%20" },
+    { label: "three spaces", query: "?search=%20%20%20" },
+    { label: "tab", query: "?search=%09" },
+  ])("treats a $label term as absent — 200, no filter, never 400", async ({ query }) => {
+    const { listProducts } = await import("@/features/catalog/services/product-service");
+
+    const result = await listProducts(params(query));
+
+    // Unlike page/pageSize/sort, a blank search is NORMALISED rather than
+    // rejected (REQ-CATALOG-020): the user cleared the box, they did not send
+    // a malformed request.
+    expect(result.ok).toBe(true);
+    expect(findProductsPage).toHaveBeenCalledWith(expect.objectContaining({ search: undefined }));
+  });
+
+  it("returns the same query shape as an unparameterised request", async () => {
+    const { listProducts } = await import("@/features/catalog/services/product-service");
+
+    await listProducts(params("?search="));
+    const blankCall = findProductsPage.mock.calls[0]![0];
+
+    findProductsPage.mockClear();
+    await listProducts(params(""));
+    const absentCall = findProductsPage.mock.calls[0]![0];
+
+    expect(blankCall).toEqual(absentCall);
+  });
+});
+
+describe("listProducts — search composed with the existing parameters", () => {
+  it("[AC-CATALOG-021] resolves the category AND forwards the search term", async () => {
+    findCategoryIdBySlug.mockResolvedValue("cat-tops");
+    const { listProducts } = await import("@/features/catalog/services/product-service");
+
+    await listProducts(params("?search=denim&category=tops"));
+
+    expect(findProductsPage).toHaveBeenCalledWith(
+      expect.objectContaining({ categoryId: "cat-tops", search: "denim" })
+    );
+  });
+
+  it("[acceptance.md §2] short-circuits an unknown category WITHOUT a second query", async () => {
+    findCategoryIdBySlug.mockResolvedValue(null);
+    const { listProducts } = await import("@/features/catalog/services/product-service");
+
+    const result = await listProducts(params("?search=denim&category=nonexistent"));
+
+    // REQ-CATALOG-011 wins over search evaluation: a category that matches
+    // nothing makes the whole result empty, so spending a product query on the
+    // search term would be a round trip that cannot change the answer.
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data).toMatchObject({ items: [], totalCount: 0, totalPages: 0 });
+    expect(findProductsPage).not.toHaveBeenCalled();
+  });
+
+  it.each(["newest", "price_asc", "price_desc"])(
+    "[AC-CATALOG-022/023] keeps sort=%s working alongside search",
+    async (sort) => {
+      const { listProducts } = await import("@/features/catalog/services/product-service");
+
+      await listProducts(params(`?search=denim&sort=${sort}`));
+
+      expect(findProductsPage).toHaveBeenCalledWith(expect.objectContaining({ sort, search: "denim" }));
+    }
+  );
+
+  it("[AC-CATALOG-023] defaults a searched request to newest when sort is omitted", async () => {
+    const { listProducts } = await import("@/features/catalog/services/product-service");
+
+    await listProducts(params("?search=denim"));
+
+    expect(findProductsPage).toHaveBeenCalledWith(expect.objectContaining({ sort: "newest" }));
+  });
+
+  it("[AC-CATALOG-024] computes pagination metadata over the searched set", async () => {
+    findProductsPage.mockResolvedValue({ rows: [row()], totalCount: 43 });
+    const { listProducts } = await import("@/features/catalog/services/product-service");
+
+    const result = await listProducts(params("?search=denim&page=2&pageSize=20"));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data).toMatchObject({ page: 2, pageSize: 20, totalCount: 43, totalPages: 3 });
+    expect(findProductsPage).toHaveBeenCalledWith(expect.objectContaining({ page: 2, search: "denim" }));
+  });
+
+  it("still rejects an invalid page before reading anything, search present or not", async () => {
+    const { listProducts } = await import("@/features/catalog/services/product-service");
+
+    const result = await listProducts(params("?search=denim&page=0"));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.status).toBe(400);
+    expect(findProductsPage).not.toHaveBeenCalled();
+  });
+});
+
+describe("listProducts — search edge cases (acceptance.md §2)", () => {
+  it("[AC-CATALOG-025] answers a term matching nothing with an empty 200 page", async () => {
+    findProductsPage.mockResolvedValue({ rows: [], totalCount: 0 });
+    const { listProducts } = await import("@/features/catalog/services/product-service");
+
+    const result = await listProducts(params("?search=zzz-no-match-zzz"));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data).toMatchObject({ items: [], totalCount: 0, totalPages: 0 });
+  });
+
+  it("accepts a 5000-character term without erroring", async () => {
+    const { listProducts } = await import("@/features/catalog/services/product-service");
+
+    const result = await listProducts(params(`?search=${"a".repeat(5000)}`));
+
+    expect(result.ok).toBe(true);
+    expect(findProductsPage).toHaveBeenCalledWith(
+      expect.objectContaining({ search: "a".repeat(5000) })
+    );
+  });
+
+  it("accepts a single-character term (plan.md §2.4 — no minimum length)", async () => {
+    const { listProducts } = await import("@/features/catalog/services/product-service");
+
+    const result = await listProducts(params("?search=M"));
+
+    expect(result.ok).toBe(true);
+    expect(findProductsPage).toHaveBeenCalledWith(expect.objectContaining({ search: "M" }));
+  });
+
+  it("passes SQL metacharacters through untouched", async () => {
+    const { listProducts } = await import("@/features/catalog/services/product-service");
+
+    const result = await listProducts(params("?search=50%25_off%27"));
+
+    expect(result.ok).toBe(true);
+    expect(findProductsPage).toHaveBeenCalledWith(expect.objectContaining({ search: "50%_off'" }));
   });
 });
 

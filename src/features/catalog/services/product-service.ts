@@ -73,6 +73,29 @@ function parseSort(raw: string | null): ProductSort | null {
 }
 
 /**
+ * Normalises the `search` term (REQ-CATALOG-020).
+ *
+ * This returns a value rather than a nullable result because a blank term is
+ * NOT a validation failure: `?search=` and `?search=%20%20` mean "the user
+ * cleared the search box", which is a request for the unfiltered list, not a
+ * malformed request. So unlike parsePositiveInt / parseSort, there is no error
+ * branch here and no 400 is reachable from this parameter.
+ *
+ * Trimming happens before the emptiness test so a whitespace-only term
+ * normalises to absent, and a padded term ("  denim  ") filters on "denim"
+ * rather than on a string no product name contains.
+ *
+ * No minimum length is imposed (plan.md §2.4): Prisma parameterises the term so
+ * a short one opens no injection surface, and the M1 trigram index — not an
+ * arbitrary length floor — is what bounds the cost of a broad match.
+ */
+function parseSearch(raw: string | null): string | undefined {
+  if (raw === null) return undefined;
+  const trimmed = raw.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
+/**
  * Validates and normalises the list query.
  *
  * Note the ordering: an oversized pageSize is a VALID positive integer, so it
@@ -101,6 +124,7 @@ export function parseListQuery(searchParams: URLSearchParams): ServiceResult<Lis
   }
 
   const category = searchParams.get("category");
+  const search = parseSearch(searchParams.get("search"));
 
   return {
     ok: true,
@@ -109,6 +133,7 @@ export function parseListQuery(searchParams: URLSearchParams): ServiceResult<Lis
       pageSize: Math.min(requestedPageSize, MAX_PAGE_SIZE),
       sort,
       ...(category === null ? {} : { category }),
+      ...(search === undefined ? {} : { search }),
     },
   };
 }
@@ -145,11 +170,15 @@ function emptyPage(query: ListProductsQuery): PaginatedProducts {
 }
 
 /**
- * `GET /api/products` — one validated, filtered, sorted page of products.
+ * `GET /api/products` — one validated, filtered, searched, sorted page.
  *
- * Note that `q` and `search` are never read: this SPEC supports category
- * filtering and sorting only (REQ-CATALOG-012), so such parameters fall through
- * silently and the response is the same as for an unparameterised request.
+ * SPEC-CATALOG-002 added `search`, a case-insensitive substring match on the
+ * product NAME (REQ-CATALOG-017/018); `description` is not matched
+ * (REQ-CATALOG-019). It is the only spelling read — `q` remains unsupported and
+ * falls through silently (plan.md §2.1 deliberately declined an alias).
+ *
+ * Filters compose with AND: a request carrying both `search` and `category`
+ * returns only products satisfying both (REQ-CATALOG-021).
  */
 export async function listProducts(
   searchParams: URLSearchParams
@@ -164,6 +193,11 @@ export async function listProducts(
     // A slug matching no category is an empty result, never an error
     // (REQ-CATALOG-011). Returning here also skips a product query whose filter
     // could not have matched anything.
+    //
+    // This check stays AHEAD of the search query on purpose: the two filters
+    // are ANDed, so an unmatched category already fixes the answer at empty and
+    // no search term can widen it. Evaluating search first would spend a round
+    // trip that cannot change the result (acceptance.md §2).
     if (resolved === null) return { ok: true, data: emptyPage(query) };
     categoryId = resolved;
   }
@@ -173,6 +207,7 @@ export async function listProducts(
     pageSize: query.pageSize,
     sort: query.sort,
     categoryId,
+    search: query.search,
   });
 
   return {
