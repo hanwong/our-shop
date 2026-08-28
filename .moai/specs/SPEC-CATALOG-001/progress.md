@@ -255,6 +255,16 @@ mx_tag_validation: >-
 canary_compliance_check: not-applicable   # this SPEC defines no forward-looking policy that its own sync would test
 ```
 
+### Security audit addendum (`--security` lens)
+
+`sync-auditor` ran a post-implementation skeptical review of the two public catalog endpoints against `acceptance.md`, independently re-verifying source (not `progress.md`'s self-report) and probing adversarial inputs (`"../../etc/passwd"`, `"tops OR 1=1 --"`, a 5000-char id, `page=9007199254740991`).
+
+- **Verdict: PASS** — 0 blocking defects across all 7 requested items (input-validation ordering, `pageSize` clamp, query-param whitelist, category-filter injection surface, detail-route id handling, response-field whitelist, general OWASP scan).
+- 3 non-blocking findings (F1 unbounded `page` → unbounded OFFSET; F2 no error boundary in the catalog route handlers; F3 no rate limiting on the public endpoints) plus 1 informational note (F4: the DB round-trip excluded from AC-CATALOG-016's measurement is exactly the part that scales with table size). None violate a stated acceptance criterion. Same summary recorded in `CHANGELOG.md` § Known limitations for durability (the full report is gitignored).
+- Mechanical evidence re-run this audit, all against HEAD `023449b`: `npx vitest run` (catalog+api+integration subset) 82/82 passed; `grep -rn '\$queryRaw\|\$executeRaw\|queryRawUnsafe\|executeRawUnsafe' src/` → 0; `npx tsc --noEmit` exit 0; `npx eslint .` exit 0.
+- Full report: `.moai/reports/sync-audit/SPEC-CATALOG-001-security-2026-08-28.md` (local, gitignored, not part of this commit).
+- Disposition (user-confirmed via AskUserQuestion): documented as follow-up only; card proceeds to `done` without a code change in this sync cycle.
+
 ## §F Phase 4 Mode Selection
 
 **Input parameters**: tier=M; scope≈7-8 core files (prisma/schema.prisma + 5 new files under src/features/catalog + 2 new route.ts files); domain count=1 (backend/DB, single feature slice); file language mix=100% TypeScript + 1 Prisma schema; concurrency benefit=LOW (coding-heavy, sequential milestone dependencies M1→M2→M3→M4).
