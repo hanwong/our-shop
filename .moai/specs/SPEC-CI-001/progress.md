@@ -267,7 +267,7 @@ step을 오케스트레이터가 직접 커밋(`8eb2c14`)했고, 이후 첫 정�
 
 - sync_complete_at: 2026-08-30T00:00:00+09:00
 - sync_status: **complete**
-- sync_commit_sha: pending-backfill-SPEC-CI-001-sync
+- sync_commit_sha: 147e93b
 - ac_count (SSOT `acceptance.md`): 14 (AC-CI-001~014)
 - b12_self_test_a (pre-emission grep `SPEC-CI-001` in CHANGELOG.md before edit): 0 — 안전(중복 없음)
 - b12_self_test_b (AC count match): `grep -oE 'AC-CI-[0-9]+' acceptance.md | sort -u | wc -l` → 14, CHANGELOG 본문의 "인수 기준 14개(AC-CI-001~014)" 서술과 일치
