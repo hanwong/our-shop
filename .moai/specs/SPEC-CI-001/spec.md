@@ -2,7 +2,7 @@
 id: SPEC-CI-001
 title: "GitHub Actions CI 파이프라인 — PR/main 푸시 자동 품질 검증"
 version: "0.1.0"
-status: draft
+status: in-progress
 created: 2026-08-29
 updated: 2026-08-29
 author: snake

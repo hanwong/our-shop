@@ -1,0 +1,65 @@
+# CI Workflow
+#
+# Runs the verification scripts already defined in package.json against every
+# pull request targeting main, and against every push to main. This workflow
+# introduces no new verification tooling and changes no existing script — it
+# only moves the execution from a developer's machine to CI (SPEC-CI-001).
+#
+# Triggers:
+#   - pull_request (main): opened / synchronize / reopened
+#   - push (main): keeps main's status continuously known
+#   - workflow_dispatch: manual re-run (same convention as label-sync.yml)
+#
+# Scope: CI only. Deployment (CD) is deliberately out of scope until a hosting
+# target is chosen — see .moai/specs/SPEC-CI-001/spec.md §3.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege: this workflow only checks out code. It writes nothing.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # A pull request only cares about the result for its latest commit, so
+  # superseded runs are cancelled. A push to main must keep a verification
+  # record per commit, so those runs are never cancelled.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    # This name is the contract surface that a branch protection rule
+    # references as a required status check (REQ-CI-015). Renaming it breaks
+    # any protection rule already pointing at it.
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          # Single source of truth for the Node version, shared with local
+          # development via `nvm use` (REQ-CI-013).
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        # src/ and tests/ import types from @prisma/client, which only exist
+        # after generation, so this is a precondition for typecheck and test
+        # rather than an optional step (REQ-CI-008).
+        id: prisma_generate
+        run: npm run prisma:generate
