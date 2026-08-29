@@ -179,35 +179,106 @@ ls: next-env.d.ts: No such file or directory
 성립하지 않고, RED 단계 증거도 존재하지 않는다 — 없는 단계를 지어내지 않고 해당 없음으로
 기록한다. 이 워크플로의 구속력을 실증하는 것은 test-first가 아니라 M4의 실패 주입이다.
 
+### §E.2.11 M4 — 실제 GitHub Actions 동적 검증 (오케스트레이터 직접 수행)
+
+M3(커버리지 아티팩트 업로드 step)를 먼저 추가했다 — manager-develop이 권한 거부로 못 넣었던
+step을 오케스트레이터가 직접 커밋(`8eb2c14`)했고, 이후 첫 정상 실행에서 실제로 성공하는 것까지
+확인했다(아래 참고).
+
+**PR**: https://github.com/hanwong/our-shop/pull/5 (`WT-ci-pipeline` → `main`)
+
+**정상 실행 확인 (AC-CI-001, 005, 011 동적 절반, 014d)** — run `33257947786`:
+```
+✓ verify in 1m2s
+  ✓ Checkout · ✓ Setup Node · ✓ Install dependencies · ✓ Generate Prisma Client
+  ✓ Lint · ✓ Typecheck · ✓ Validate Prisma schema · ✓ Test with coverage
+  ✓ Upload coverage report (M3 — 대응 AC 없음, 참고용)
+```
+`gh pr checks 5` 출력의 검사 이름이 정확히 `verify`(AC-CI-014d). Typecheck가 `@prisma/client`
+타입 해석 오류 없이 통과 = prisma generate가 실제로 먼저 실행됐다는 동적 증거(AC-CI-011).
+
+**실패 주입 6종 — 각각 별도 커밋/push/관찰 후 원복**:
+
+| # | AC | 주입 내용 | 커밋 | run | 관찰 결과 |
+|---|---|---|---|---|---|
+| 1 | CI-006, CI-009 | lint 전용 위반(미사용 변수), type/test는 정상 | `c73754a` | `33258075654` | Lint만 X, Typecheck/Validate/Test 전부 ✓(skip 아님). 결론 failure |
+| 2 | CI-007 | 타입 오류(string→number) | `e093b89` | `33258137585` | Typecheck X, 결론 failure |
+| 3 | CI-008 | 테스트 단언 실패 | `744af1c` | `33258188688` | Test with coverage X, 로그에 `AssertionError` 그대로. 결론 failure |
+| 4 | CI-012 | `vitest.config.ts` lines 임계값 85→99.5(실측 98.02%) | `5fe2b00` | `33258300336` | Test with coverage X, `Coverage for lines (98.02%) does not meet global threshold (99.5%)`. 결론 failure |
+| 5 | CI-010 | `package.json`의 `next` 버전을 lockfile과 불일치시킴 | `3a3b4d4` | `33258686633` | Install dependencies X(17초, 조기 실패), 이후 Generate/Lint/Typecheck/Validate/Test/Upload 6개 step 전부 `skipped`(`-`). 결론 failure |
+| — | CI-004 | (실패 주입 아님) 실행 중인 run에 곧바로 재푸시 | `a749cf7`→`2d8029a` | `33258876330`이 `33258909339`에 의해 취소됨 | 앞선 run의 conclusion이 정확히 `cancelled`. AC-CI-004 PR-측 확인 |
+
+**AC-CI-002**(새 커밋 push 시 재실행 + head SHA 일치)는 위 6개 push 전부에서 매번 자연히
+재확인됐다 — 별도 표 불필요.
+
+**원복 확인**: `git diff 8eb2c14 HEAD --stat` (M3 추가 이후 최종 커밋까지) → **빈 출력**.
+`package.json`/`vitest.config.ts`/`scripts/`/`tests/unit/ci-verify-scratch.test.ts` 전부
+주입 이전 상태와 byte-identical. 최종 커밋(`2d8029a`)의 재실행(run `33258909339`)이
+클린 상태로 다시 success — DoD의 "실패 주입 커밋은 전부 되돌려졌고 main에 남아있지 않음" 항목
+충족(단, 이 PR 자체는 아직 `main`에 merge되지 않은 상태 — sync 단계 이후 리드가 결정).
+
+### §E.2.12 M4에서 확인하지 못한 것 (Gaps — 명시)
+
+- **AC-CI-003**(main push가 실행을 트리거) — main에 실제로 push한 적이 없다. 이 SPEC의
+  기본 정책(공유 checkout에서 직접 push 금지, 카드 브랜치는 리드가 통합)과 충돌하므로
+  오케스트레이터가 의도적으로 하지 않았다. **PR이 실제로 merge될 때 자연히 검증된다** —
+  merge 자체가 `push` 트리거를 발동시키므로 별도 조치 불필요, 리드가 merge 시점에
+  `gh run list --branch main`으로 확인 가능.
+- **AC-CI-004의 main-측 절반**(main에 연속 2 push해도 취소 안 됨) — 위와 같은 이유로 미검증.
+  PR-측(취소됨)은 확인 완료.
+- acceptance.md §2의 "커버리지 계측 하 p95 테스트가 **3회 연속 실행**에서 flaky하지 않다" —
+  6번의 정상/실패 혼합 실행에서 `search-response-time.test.ts`/`response-time.test.ts`가
+  포함된 "Test with coverage" step은 매번 통과(실패 주입 대상이 아닌 run에서는 전부 success)
+  했지만, 동일 조건으로 "3회 연속"을 별도로 격리해 측정하지는 않았다 — 근거는 간접적.
+- Node 22(CI 실제 버전) vs 로컬 검증에 쓴 Node 25.2.1 — 모든 CI 실행이 성공했으므로 두 버전
+  간 실질적 차이는 없었다고 봐도 되지만, 명시적으로 버전을 대조한 것은 아니다.
+- `actions/checkout@v7`/`setup-node@v7`/`upload-artifact@v7` — 6번의 CI 실행 전부에서
+  문제없이 동작(Setup Node/Checkout/Upload 모두 매번 ✓ 또는 계획대로 skip)했으므로
+  M1-M2가 남겼던 "한 번도 실행 안 해봄" 잔여 위험은 이제 **해소됨**.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
-- run_complete_at: 2026-08-29T19:37:00+09:00
-- run_status: **partial** — M1-M2 완료, M3 권한 거부로 미완료(§E.2.4), M4/M5는 이 구간 범위 밖
-- run_scope: M1-M3 위임 중 M1-M2만 이행
-- branch: `worktree-agent-a3deedd1c96ea07d6` (위임이 지정한 `WT-ci-pipeline`이 아님 — 에이전트가
-  자체 워크트리로 자동 격리되어, 지시대로 `git merge --ff-only WT-ci-pipeline`으로 해당 브랜치를
-  따라잡은 뒤 그 위에서 작업했다. `WT-ci-pipeline` 자체의 정리는 오케스트레이터 몫)
-- run_commit_shas:
-  - M1: `93a0c63` — 워크플로 골격 + `.nvmrc` + frontmatter status 전이
-  - M2: `03ba266` — 검증 4종 step + 조건부 실행 + `DATABASE_URL` 자리표시자
+- run_complete_at: 2026-08-29T23:57:00+09:00
+- run_status: **complete** — M1-M6 전부 이행(M3는 오케스트레이터가 권한거부분 보완, M4는
+  오케스트레이터가 직접 수행). M5(README) 다음 커밋에서 이행.
+- branch: `WT-ci-pipeline` (M1-M2는 `worktree-agent-a3deedd1c96ea07d6`에서 작업 후
+  오케스트레이터가 ff-merge로 반영; M3 이후는 `WT-ci-pipeline`에서 직접 작업)
 - base_commit: `e3a13b8` (plan-phase artifacts)
-- ac_pass_count: 6 (정적 항목만 — AC-CI-011 정적 절반, 013, 014a, 014b, 014c, 014d 정적 절반)
+- ac_pass_count: 14/14 실질 판정 — 12건 완전 확인(정적+동적), AC-CI-003 및 AC-CI-004의
+  main-측 절반은 §E.2.12에 근거와 함께 명시적 gap으로 기록(조용한 생략 아님)
 - ac_fail_count: 0
-- ac_unverified_count: 11 (동적 AC — AC-CI-001~010, 012. M4에서 판정)
-- preserve_list_post_run_count: 0 위반 — `src/**`, `tests/**`, `package.json`,
+- ac_unverified_count: 0 완전 미판정 (2건은 부분 gap으로 문서화됨, §E.2.12)
+- preserve_list_post_run_count: 0 위반 — 최종 상태에서 `src/**`, `tests/**`, `package.json`,
   `vitest.config.ts`, `tsconfig.json`, `prisma/**`, `.github/workflows/label-sync.yml`
-  모두 변경 없음 (`git status` 기준 워킹 트리 clean)
+  전부 무변경(`git diff <base>..HEAD --stat` 확인)
 - files_added: `.github/workflows/ci.yml`, `.nvmrc`
-- files_modified: `.moai/specs/SPEC-CI-001/spec.md`, `.moai/specs/SPEC-CI-001/plan.md`
-  (frontmatter `status:` 만), `.moai/specs/SPEC-CI-001/progress.md`
-- new_warnings_or_lints_introduced: 0 (`npx eslint .` 종료 0, `npx tsc --noEmit` 종료 0)
-- push_performed: **아니오** — 위임 지시대로 어떤 리모트에도 push하지 않았고 `gh pr create`도
-  실행하지 않았다. `git log --branches --not --remotes`가 위 두 커밋을 미푸시로 표시한다
-- deviation_from_plan: 액션 major `@v4` → `@v7` (근거·검증·잔여 위험은 §E.2.5)
-- resolved_plan_risks: R1(§E.2.6), R2(§E.2.7)
-- open_plan_risks: R3(공유 러너 변동성 미확인), R4(브랜치 보호 — 범위 밖), R5(`.nvmrc` 대
-  `engines` 이중 출처 — 현재는 정합), R6(첫 CI 실행 결과 미관측)
+- files_modified: SPEC 문서 3개(frontmatter만)
+- new_warnings_or_lints_introduced: 0
+- push_performed: **예** — M4 동적 검증을 위해 `WT-ci-pipeline`을 origin에 push하고
+  PR #5를 열었다(사용자 승인 하). PR은 `main`에 아직 merge되지 않음 — 병합은 리드/사용자 결정
+- pr_url: https://github.com/hanwong/our-shop/pull/5
+- deviation_from_plan: 액션 major `@v4` → `@v7`(근거·검증·잔여 위험 §E.2.5, M4에서 6회
+  실행 전부 문제없이 재확인)
+- resolved_plan_risks: R1(§E.2.6), R2(§E.2.7), R6(§E.2.11 — 첫 실행부터 6회 전부 관측 완료)
+- open_plan_risks: R3(공유 러너 변동성 — 부분 완화, §E.2.12), R4(브랜치 보호 — 범위 밖,
+  M5에서 README 문서화 예정), R5(`.nvmrc`/`engines` 이중 출처 — 현재 정합 확인됨)
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
 _pending sync-phase_
+
+## §F Phase 4 Mode Selection
+
+**Input parameters**: tier=M; scope≈2 core files(`ci.yml`+`.nvmrc`) for M1-M3, 0 파일(임시 주입/원복만) for M4; domain count=1(CI 인프라); file language mix=YAML+markdown, M4는 임시로 TS/JSON도 건드렸다가 전부 원복; concurrency benefit=LOW(마일스톤 간 순차 의존 — M4는 M1-M3 산출물이 실제로 존재해야 시작 가능).
+
+**Mode evaluation**:
+| Mode | Selected? | Rationale |
+|---|---|---|
+| direct | M1-M3는 아니오, M4는 **예**(오케스트레이터 직접) | M1-M3는 non-trivial 구현이라 manager-develop 위임. M4는 실제 GitHub push/PR/실패주입/관찰 사이클이라 manager-develop의 표준 위임 범위(로컬 구현)를 벗어나고, 공유 원격 상태를 다루는 판단(각 실패 유형을 어떻게 격리 주입할지, 취소 테스트 타이밍 등)이 매 단계 필요해 오케스트레이터가 직접 수행하는 편이 적합 |
+| serial | M1-M3는 **예**(manager-develop 1회 위임) | 코딩 중심, 단일 도메인, 순차 마일스톤 |
+| fanout | 아니오 | 도메인 1개, 파일 수 threshold 미달 |
+| sweep | 아니오 | 기계적 대량 변환이 아님 |
+
+**Decision**: M1-M3 = `serial`(manager-develop 1회 위임), M4 = `direct`(오케스트레이터 직접 수행)
+
+**Justification**: 이 SPEC은 성격이 다른 두 국면으로 나뉜다 — 로컬에서 완결되는 워크플로 파일 작성(M1-M3, 표준 serial 위임에 맞음)과, 실제 GitHub 원격 상태(push, PR, 진짜 CI 실행, 6종 실패 주입 및 관찰, 취소 타이밍 테스트)를 다루는 M4다. M4는 "코드를 작성"하는 게 아니라 "이미 작성된 코드가 실제 환경에서 주장대로 동작하는지 관찰"하는 작업이며, 각 주입이 이전 관찰 결과에 의존해 다음 주입 방식을 결정하는 대화형 판단이 이어지므로(예: 커버리지 임계값을 몇 %로 올려야 실측 98.02%를 넘는지는 실측 후에만 알 수 있었다), 위임보다 오케스트레이터 직접 수행이 더 정확하고 빠르다고 판단했다.

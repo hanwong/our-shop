@@ -1,11 +1,14 @@
 # our-shop
 
+[![CI](https://github.com/hanwong/our-shop/actions/workflows/ci.yml/badge.svg)](https://github.com/hanwong/our-shop/actions/workflows/ci.yml)
+
 A TypeScript / Next.js e-commerce backend. This repository currently implements:
 
 - **SPEC-AUTH-001** — email/password and Google OAuth authentication with JWT sessions.
 - **SPEC-CATALOG-001** — the product catalog domain model and the public product list/detail API.
 - **SPEC-CATALOG-002** — keyword search (name-based partial match) on the product list API.
 - **SPEC-CART-001** — cart (add/update-quantity/remove) and guest-to-member cart merge on login.
+- **SPEC-CI-001** — GitHub Actions CI: lint/typecheck/schema-validate/test run automatically on every PR and push to `main`.
 
 ## Stack
 
@@ -40,6 +43,15 @@ Required environment variables are documented inline in `.env.example`.
 | `npm test` | Run the Vitest suite once |
 | `npm run test:coverage` | Run the suite with coverage (gate: 85% stmt/branch/85% lines, 80% branch — see `vitest.config.ts`) |
 | `npm run prisma:generate` / `npm run prisma:validate` | Prisma client generation / schema validation |
+
+## Continuous Integration (SPEC-CI-001)
+
+`.github/workflows/ci.yml` runs `lint`, `typecheck`, `prisma:validate`, and `test:coverage` — the exact scripts above, unchanged — on every pull request targeting `main` and on every push to `main`. No deployment step: hosting is not yet chosen, so CD is deferred to a future SPEC once it is.
+
+**Branch protection is not configured by this SPEC.** The workflow reports a required-status-check-shaped result (job name `verify`), but until a repository admin turns on "Require status checks to pass" for `main` in GitHub's branch protection settings, a failing `verify` check does **not** block a merge — it is advisory only. To make it enforced:
+
+1. Repository **Settings → Branches → Branch protection rules → Add rule** for `main`.
+2. Enable **Require status checks to pass before merging**, then select `verify`.
 
 ## Authentication API (SPEC-AUTH-001)
 
