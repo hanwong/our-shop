@@ -93,7 +93,28 @@ m1_to_mN_commit_strategy: milestone-per-commit   # M1..M6 각 1커밋, amend/for
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+sync_complete_at: 2026-08-29
+sync_commit_sha: pending-backfill-sync-cart-001   # backfilled in a follow-up commit per the SHA placeholder backfill exemption (D3)
+sync_status: complete
+b12_self_test_a: "grep -c 'SPEC-CART-001' CHANGELOG.md → 0 (pre-emission), re-checked immediately before Edit → 0"
+b12_self_test_b: "grep -oE 'AC-CART-[0-9]+' acceptance.md | sort -u | wc -l → 16 — matches acceptance.md §4 REQ↔AC mapping table (16 AC) and CHANGELOG text (\"인수 기준 16개\")"
+b12_self_test_c: "all file paths cited in the CHANGELOG entry verified via ls: prisma/migrations/20260829140000_add_cart_cart_item/, src/app/api/cart/{route.ts,items/route.ts,items/[itemId]/route.ts}, src/features/cart/{types/cart.ts,repositories/cart-repository.ts,services/cart-service.ts}, src/lib/auth/guest-identity.ts — all present"
+changelog_entry_position: "appended after the SPEC-CATALOG-002 '알려진 한계' section, before EOF — CHANGELOG.md [Unreleased]"
+frontmatter_status_transitions:
+  spec_md: "in-progress -> completed"
+  plan_md: "in-progress -> completed"
+  acceptance_md: "in-progress -> completed"
+canary_compliance_check:
+  applicable: false
+  reason: "SPEC-CART-001 does not define a forward-looking policy that its own sync tests; no canary compliance check applies"
+```
+
+Deliverables this sync commit:
+- `CHANGELOG.md` — new `### 추가 — SPEC-CART-001` + `### 알려진 한계 — SPEC-CART-001` sections under `[Unreleased]`
+- `README.md` — feature list line + new `## 장바구니 API (SPEC-CART-001)` section + project-documentation list entry
+- `.moai/reports/sync-audit/SPEC-CART-001-security-2026-08-29.md` (new, local/gitignored) — `--security` lens re-check: 3 findings (guest cookie randomness, merge stock-clamp, auth-route additivity), all "checked, no weakness found"; 1 accepted residual (merge-failure observability gap, already documented in §E.2, not new)
+- `spec.md` / `plan.md` / `acceptance.md` frontmatter — `status: in-progress -> completed`, `updated: 2026-08-29` (body content untouched)
 
 ## §F Phase 4 Mode Selection
 

@@ -1,6 +1,6 @@
 ---
 id: SPEC-CART-001
-status: in-progress
+status: completed
 updated: 2026-08-29
 tier: M
 ---

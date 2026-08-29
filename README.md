@@ -5,6 +5,7 @@ A TypeScript / Next.js e-commerce backend. This repository currently implements:
 - **SPEC-AUTH-001** — email/password and Google OAuth authentication with JWT sessions.
 - **SPEC-CATALOG-001** — the product catalog domain model and the public product list/detail API.
 - **SPEC-CATALOG-002** — keyword search (name-based partial match) on the product list API.
+- **SPEC-CART-001** — cart (add/update-quantity/remove) and guest-to-member cart merge on login.
 
 ## Stack
 
@@ -91,7 +92,22 @@ Key security properties (see `.moai/specs/SPEC-AUTH-001/` for the full spec/acce
 
 **알려진 한계**(자세한 내용은 각 SPEC의 `progress.md` 참고): 300ms p95 응답 속도 기준은 두 SPEC 모두 부분 인정(PASS-with-debt) 상태다 — 애플리케이션 계층 p95는 목록 0.41ms·상세 0.06ms(SPEC-CATALOG-001), 검색 포함 요청 0.50ms·검색+필터+정렬 조합 0.35ms(SPEC-CATALOG-002)로 측정됐지만, PostgreSQL이 없어 DB 왕복은 모두 제외했다. 실제 시드된 DB를 대상으로 한 재측정은 후속 작업이다. 특히 **트라이그램 인덱스를 쿼리 플래너가 실제로 선택하는지는 아직 확인하지 못했다** — 선언이 올바르다는 것만 검증했을 뿐, 확장 설치·인덱스 생성·플래너의 선택 여부는 라이브 DB에서 `EXPLAIN`을 돌려야 알 수 있다. 두 마이그레이션 모두 손으로 작성했고 구조적 정확성만 확인했을 뿐 실제 DB에 적용한 적은 없으며, 관리형 DB에서 `CREATE EXTENSION "pg_trgm"` 권한이 있는지도 미확인이다. 시드 스크립트가 없고 카테고리 관리 API도 없어, 카테고리 행은 수동으로 넣어야 한다.
 
+## 장바구니 API (SPEC-CART-001)
+
+핸들러는 `src/app/api/cart/`에, 도메인 로직은 `src/features/cart/`에 있다. 게스트(비인증)와 회원(Bearer 토큰) 모두 사용할 수 있다 — 유효하지 않거나 없는 토큰은 401이 아니라 게스트 신원으로 처리된다.
+
+| 엔드포인트 | 메서드 | 설명 |
+|---|---|---|
+| `/api/cart` | GET | 현재 카트 조회. 활동 이력이 없으면 DB 행 생성 없이 빈 카트를 반환한다. |
+| `/api/cart/items` | POST | 상품 담기(`{ productId, quantity }`). 이미 담긴 상품은 수량 증분. 재고 초과는 400. |
+| `/api/cart/items/[itemId]` | PATCH | 수량을 절대값으로 설정(`{ quantity }`, 증분 아님). 재고 초과는 400. |
+| `/api/cart/items/[itemId]` | DELETE | 항목 삭제. 남의 카트이거나 존재하지 않는 항목은 404. |
+
+게스트 신원은 `guest_cart_id` 쿠키(`httpOnly`, `sameSite: "lax"`, `crypto.randomBytes(32)` 기반, 만료 14일)로 유지된다 — 이름·수명 모두 SPEC-AUTH-001의 `refresh_token`/`csrf_token`/`oauth_state`와 겹치지 않는다. 로그인(이메일/비밀번호 또는 Google 무관)에 성공하면 게스트 카트가 회원 카트로 병합된다: 회원 카트가 없으면 그대로 승격, 있으면 상품별로 수량을 합산한 뒤 현재 재고로 클램프하고 재고 소진 상품은 완전히 생략한다. 병합 후 게스트 카트는 삭제되어 같은 쿠키로 재로그인해도 중복 반영되지 않는다. 카트 작업은 상품 재고를 차감하지 않는다 — 재고 차감은 체크아웃의 몫이다.
+
+**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-CART-001/progress.md` 참고): PostgreSQL이 없는 환경이라 마이그레이션 실제 적용·DB 제약(유니크 충돌, cascade 삭제)의 실제 동작·동시 담기 경합은 미검증이다. 게스트→회원 병합 실패는 로그인 성공을 지키기 위해 의도적으로 삼켜지는데, 이 저장소에 로깅 인프라가 없어 실패가 기록되지 않는다(알려진 관측성 공백). 게스트 카트 쿠키는 낮은 유출 위험 판단에 따라 평문 저장이며 CSRF 토큰을 요구하지 않는다(받아들인 잔여 위험).
+
 ## Project documentation
 
 - `.moai/project/product.md`, `structure.md`, `tech.md` — project-wide docs
-- `.moai/specs/SPEC-AUTH-001/`, `.moai/specs/SPEC-CATALOG-001/`, `.moai/specs/SPEC-CATALOG-002/` — each feature's SPEC, plan, acceptance criteria, and progress record
+- `.moai/specs/SPEC-AUTH-001/`, `.moai/specs/SPEC-CATALOG-001/`, `.moai/specs/SPEC-CATALOG-002/`, `.moai/specs/SPEC-CART-001/` — each feature's SPEC, plan, acceptance criteria, and progress record
