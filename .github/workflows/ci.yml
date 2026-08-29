@@ -5,6 +5,9 @@
 # introduces no new verification tooling and changes no existing script — it
 # only moves the execution from a developer's machine to CI (SPEC-CI-001).
 #
+# SPEC-CI-001 M4 — trivial touch to trigger AC-CI-004's cancellation check
+# (a superseding push while a run is in progress cancels the earlier one).
+#
 # Triggers:
 #   - pull_request (main): opened / synchronize / reopened
 #   - push (main): keeps main's status continuously known
