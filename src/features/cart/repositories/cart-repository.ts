@@ -97,6 +97,25 @@ export async function findCartByGuestId(guestId: string): Promise<CartWithItems 
   return prisma.cart.findUnique({ where: { guestId }, include: CART_INCLUDE });
 }
 
+/**
+ * The price and stock of one product, or null when no product carries that id.
+ *
+ * Deliberately a cart-owned query rather than a call into the catalog
+ * repository: the cart needs only three columns, while the catalog's
+ * projections are shaped for its own list and detail responses. Reaching
+ * across would couple this SPEC's stock check to the catalog's response
+ * design, so that a later change to a catalog projection could silently break
+ * cart validation.
+ */
+export async function findProductForCart(
+  productId: string
+): Promise<{ id: string; price: number; stock: number } | null> {
+  return prisma.product.findUnique({
+    where: { id: productId },
+    select: { id: true, price: true, stock: true },
+  });
+}
+
 /** The item plus its owning cart id, so the caller can verify ownership. */
 export async function findItemById(itemId: string): Promise<CartItemLookup | null> {
   return prisma.cartItem.findUnique({
