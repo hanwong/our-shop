@@ -12,10 +12,7 @@ export default defineConfig({
       include: ["src/**/*.ts"],
       exclude: ["src/**/*.d.ts", "src/types/**"],
       thresholds: {
-        // SPEC-CI-001 M4 probe: temporarily raised above the measured ~98%
-        // ceiling to deliberately trip the coverage gate (AC-CI-012). Reverted
-        // to 85 immediately after observation.
-        lines: 99.5,
+        lines: 85,
         functions: 85,
         branches: 80,
         statements: 85,
