@@ -2,7 +2,6 @@
 // CI failure modes on a real GitHub Actions run (AC-CI-006/007/008/009/010/012).
 // Deleted before this PR is done; not part of the SPEC's shipped surface.
 
-export function ciVerifyScratchProbe(): number {
-  const wrongType: number = "this is a string assigned to a number type";
-  return wrongType;
+export function ciVerifyScratchProbe(): string {
+  return "probe";
 }
