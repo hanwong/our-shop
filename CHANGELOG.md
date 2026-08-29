@@ -72,3 +72,25 @@ A post-implementation security audit (independent quality + security review) fou
 - 관리형 DB(Neon, Supabase 등)에서 `CREATE EXTENSION "pg_trgm"` 권한이 있는지 확인하지 못했다. 권한이 없다면 인덱스 없이 진행하는 대안으로 물러서야 하며(plan.md §2.3 대안 B), 그 판단은 배포 대상 DB가 정해진 뒤에야 내릴 수 있다.
 - 유니코드 대소문자 폴딩은 ASCII 범위에서만 검증했다. 한글은 대소문자 구분이 없어 이 SPEC의 주 사용 사례에는 영향이 없지만, 라틴 확장 문자에 대한 동작은 collation에 의존하며 미검증이다.
 - **구현 이후 보안 검토(`--security` 렌즈)에서 막는 결함은 발견되지 않았고**(PASS), 인수 기준을 위반하지 않는 비차단 후속 항목 3건이 나왔다: (1) `product-repository.ts`의 코드 주석이 "Prisma가 파라미터로 바인딩하므로 검색어 안의 `%`/`_`도 문자 그대로 취급된다"고 적고 있는데, 이 설명은 정확하지 않다 — 파라미터 바인딩은 SQL 구문 삽입(인젝션)만 막을 뿐, 값이 `ILIKE` 패턴의 피연산자로 쓰일 때 그 안의 `%`/`_`가 와일드카드로 해석되는 것은 별개 문제이며 SQL LIKE 자체의 성질이다. 실제 동작(Prisma가 추가로 이스케이프하는지)은 이 환경에 DB가 없어 확인하지 못했지만, 주석의 설명 자체는 지금도 부정확하다. 인수 기준은 위반하지 않는다(`acceptance.md` §2가 "오류를 일으키지 않아야 함"으로만 요구). (2) 공개·비인증 엔드포인트인데 `search` 값에 길이 제한이 없다 — ReDoS는 해당하지 않지만(정규식이 아닌 부분 문자열 비교), `pg_trgm` 인덱스는 검색어 길이에 비례해 트라이그램을 생성하므로 매우 긴 검색어의 DB 비용은 측정된 적이 없다. (3) SPEC 문서(`spec.md §3`)에 남용·비용 관점의 언급이 전혀 없다 — 코드 결함은 아니며 후속 SPEC이 오독하지 않도록 남기는 기록성 지적이다. 전체 근거는 감사 세션 로그를 참고(리포트 파일은 생성되지 않았다).
+
+### 추가 — SPEC-CART-001: 장바구니(담기/수량변경/삭제) 및 게스트→회원 카트 병합
+
+- Prisma 스키마: `Cart`(`userId`·`guestId` 둘 다 nullable — 앱 레벨 XOR 불변식으로 정확히 하나만 채운다)와 `CartItem`(`@@unique([cartId, productId])`로 상품당 한 줄만 허용). 마이그레이션: `prisma/migrations/20260829140000_add_cart_cart_item/`.
+- `GET /api/cart` — 현재 카트 조회. 활동 이력이 없는 신원은 DB에 `Cart` 행을 만들지 않고 빈 카트(`{items:[],subtotal:0,itemCount:0}`)를 반환한다(지연 생성).
+- `POST /api/cart/items` — 상품 담기. 이미 담긴 상품은 새 행이 아니라 수량 증분(+`quantity`)이며, 재고를 초과하는 요청은 400으로 거부하고 어떤 카트 행도 생성/변경하지 않는다.
+- `PATCH /api/cart/items/:itemId` — 수량을 절대값으로 설정(담기의 증분과 다른 의미론). 재고 초과 시 400.
+- `DELETE /api/cart/items/:itemId` — 항목 삭제. 신원 X의 카트에 속하지 않거나 존재하지 않는 `itemId`는 403이 아니라 404(다른 카트 존재 여부를 노출하지 않기 위함).
+- 신원 해석(`resolveCartIdentity`, `src/features/cart/services/cart-service.ts`): 유효한 Bearer 액세스 토큰은 회원 카트로, 그 외(토큰 없음 또는 무효 토큰)는 게스트 카트로 해석된다. 무효/만료 토큰도 401이 아니라 게스트로 폴백한다 — 장바구니는 인증을 요구하지 않는다.
+- `src/lib/auth/guest-identity.ts`(신규) — 게스트 신원 쿠키(`guest_cart_id`). `crypto.randomBytes(32)`(CSPRNG) base64url 인코딩, `httpOnly:true`, `sameSite:"lax"`, 만료 14일(리프레시 토큰의 30일과 의도적으로 다름). 이름·수명 모두 `refresh_token`/`csrf_token`/`oauth_state`와 겹치지 않는다.
+- 로그인 시 게스트→회원 카트 병합(`mergeGuestCartIntoUserCart`, REQ-CART-011~013): 회원 카트가 없으면 게스트 카트를 그대로 승격(소유권 이전)하고, 있으면 상품별로 두 카트 수량을 합산한 뒤 **현재 재고로 클램프**하며, 클램프 결과가 0이면(재고 소진) 항목을 완전히 생략한다(수량 0으로 남기지 않음). 병합 후 게스트 카트는 삭제되어, 같은 게스트 쿠키로 재로그인해도 중복 반영되지 않는다(멱등). `src/app/api/auth/login/route.ts`와 `src/app/api/auth/google/callback/route.ts` 양쪽에 추가만 했으며(기존 로직 삭제 없음), 병합은 `try/catch`로 감싸 실패해도 로그인 자체는 항상 성공한다.
+- 카트 작업은 상품 재고를 차감하지 않는다(REQ-CART-015) — 재고 차감은 체크아웃의 몫으로 남겨둔다.
+- 새 `src/features/cart/` 계층(`types/`, `repositories/`, `services/`) — SPEC-CATALOG-001이 도입한 `features/` 레이어링 패턴을 그대로 따른다. 서비스 계층은 프레임워크에 독립적이며(순수 `Request`를 받아 판별 유니온 결과를 반환), HTTP 매핑은 라우트 핸들러에 맡긴다.
+- 인수 기준 16개(AC-CART-001~016) 전부 PASS. 테스트는 304개에서 437개로 늘었고 기존 인증(132개)·카탈로그(164개) 스위트 회귀는 0건이다.
+
+### 알려진 한계 — SPEC-CART-001
+
+- **마이그레이션 실제 적용은 미검증이다.** 이 환경에 PostgreSQL 인스턴스가 없어(`P1001 Can't reach database server`), 마이그레이션 SQL은 `prisma migrate diff --from-empty --to-schema-datamodel` 출력에서 발췌했다. 구조적 정합성(테이블 2개만 생성, DROP 없음, 제약 이름)은 단위 테스트로 텍스트 검증했지만, 실제 서버 적용·롤백·DB 제약(유니크 충돌 시 원자성, `onDelete: Cascade` 실제 전파)의 동작은 확인하지 못했다 — SPEC-CATALOG-001/002와 동일한 환경 제약이다.
+- **동시 담기 경합은 미관측이다.** 같은 게스트 쿠키로 들어오는 병렬 요청이 원자적 `{increment}`로 올바르게 합산되는지는 실제 Postgres 없이는 검증할 수 없다. 코드는 read-modify-write 대신 원자적 증분을 쓰도록 작성됐고 단위 테스트가 그 호출 형태를 확인하지만, 실제 경합 시나리오는 관측되지 않았다.
+- **게스트 카트 병합 실패는 관측 가능성이 없다.** 로그인 성공을 지키기 위해 병합 실패를 의도적으로 삼키는데(로그인 자체는 항상 성공), 이 저장소에 로깅 인프라가 없어 실패가 어디에도 기록되지 않는다 — 알려진 관측성 공백이며 새 SPEC이 로깅을 도입하기 전까지는 남는다.
+- 계정 키(guest_cart_id) 유출은 낮은 위험으로 판단해 값을 평문으로 저장한다(`Cart.guestId`) — 유출 시 노출 범위가 낯선 사람의 장바구니 내용뿐이며 PII·결제수단·계정 접근권이 없기 때문이다(리프레시 토큰의 해시 저장 방식과 의도적으로 다름). 게스트 카트 조작에는 CSRF 토큰이 요구되지 않는다 — 위조된 카트 편집이 노출하거나 이동시키는 자산이 없기 때문에 받아들인 잔여 위험이다.
+- **구현 이후 보안 검토(`--security` 렌즈)에서 막는 결함은 발견되지 않았다(PASS).** 게스트 카트 쿠키의 난수성(`crypto.randomBytes` 기반, `Math.random()` 아님), 병합 시 재고 클램프 로직, 두 인증 라우트에 대한 추가가 순수 additive임(기존 132개 인증 테스트 무변경 통과)을 확인했다. 유일한 잔여 항목은 위에서 이미 기록한 병합-실패 관측성 공백이며, 새로 발견된 결함이 아니다. 전체 근거: `.moai/reports/sync-audit/SPEC-CART-001-security-2026-08-29.md`(로컬, gitignore 대상).

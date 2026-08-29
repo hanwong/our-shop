@@ -11,6 +11,12 @@ import {
 } from "@/lib/auth/google-oauth";
 import { checkIpRateLimit } from "@/lib/auth/rate-limit";
 import { buildCsrfCookie, generateCsrfToken } from "@/lib/auth/csrf";
+import {
+  buildExpiredGuestCartCookie,
+  getCookieValue,
+  readGuestCartId,
+} from "@/lib/auth/guest-identity";
+import { mergeGuestCartIntoUserCart } from "@/features/cart/services/cart-service";
 
 /**
  * SPEC-AUTH-001 M5 — GET /api/auth/google/callback
@@ -32,24 +38,11 @@ import { buildCsrfCookie, generateCsrfToken } from "@/lib/auth/csrf";
  */
 const GENERIC_OAUTH_ERROR = "Google login failed";
 
-/** Reads a single named cookie off the incoming Request's `Cookie` header. */
-function getCookieValue(request: Request, name: string): string | null {
-  const header = request.headers.get("cookie");
-  if (!header) {
-    return null;
-  }
-  for (const part of header.split(";")) {
-    const eqIdx = part.indexOf("=");
-    if (eqIdx === -1) {
-      continue;
-    }
-    const key = part.slice(0, eqIdx).trim();
-    if (key === name) {
-      return decodeURIComponent(part.slice(eqIdx + 1).trim());
-    }
-  }
-  return null;
-}
+// SPEC-CART-001 M5 — the module-private getCookieValue() that used to sit here
+// moved to @/lib/auth/guest-identity so the login route could read the guest
+// cookie through the same parser instead of growing a second copy (plan.md §6
+// step 1). The implementation is unchanged, so the `state` read below behaves
+// exactly as it did before (AC-AUTH-014).
 
 export async function GET(request: Request): Promise<Response> {
   // REQ-AUTH-021 — IP-keyed check runs before the state check / any code
@@ -213,6 +206,31 @@ export async function GET(request: Request): Promise<Response> {
   // buildAccessTokenHandoffCookie()'s doc comment for the full rationale.
   const accessTokenCookie = buildAccessTokenHandoffCookie(accessToken);
   response.cookies.set(accessTokenCookie.name, accessTokenCookie.value, accessTokenCookie.options);
+
+  // ---------------------------------------------------------------------
+  // SPEC-CART-001 M5 — guest cart merge (REQ-CART-011/013, plan.md §6).
+  //
+  // Purely ADDITIVE, and identical in shape to login/route.ts's block —
+  // REQ-CART-011 makes the merge independent of WHICH credential path the
+  // user took. Everything above is SPEC-AUTH-001 behaviour, unchanged; a
+  // callback carrying no guest cookie takes none of this branch.
+  // ---------------------------------------------------------------------
+  const guestCartId = readGuestCartId(request);
+  if (guestCartId !== null) {
+    try {
+      await mergeGuestCartIntoUserCart(userId, guestCartId);
+    } catch {
+      // See login/route.ts's matching catch: a cart failure must not cost a
+      // completed OAuth login, and this codebase has no logging surface.
+    }
+
+    const expiredGuestCookie = buildExpiredGuestCartCookie();
+    response.cookies.set(
+      expiredGuestCookie.name,
+      expiredGuestCookie.value,
+      expiredGuestCookie.options
+    );
+  }
 
   return response;
 }

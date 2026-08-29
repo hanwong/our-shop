@@ -5,6 +5,8 @@ import { issueSession } from "@/lib/auth/session";
 import { buildRefreshTokenCookie } from "@/lib/auth/cookies";
 import { checkIpRateLimit } from "@/lib/auth/rate-limit";
 import { buildCsrfCookie, generateCsrfToken } from "@/lib/auth/csrf";
+import { buildExpiredGuestCartCookie, readGuestCartId } from "@/lib/auth/guest-identity";
+import { mergeGuestCartIntoUserCart } from "@/features/cart/services/cart-service";
 
 /**
  * SPEC-AUTH-001 M3 — POST /api/auth/login
@@ -98,5 +100,39 @@ export async function POST(request: Request): Promise<Response> {
   const response = NextResponse.json({ accessToken }, { status: 200 });
   response.cookies.set(cookie.name, cookie.value, cookie.options);
   response.cookies.set(csrfCookie.name, csrfCookie.value, csrfCookie.options);
+
+  // ---------------------------------------------------------------------
+  // SPEC-CART-001 M5 — guest cart merge (REQ-CART-011/013, plan.md §6).
+  //
+  // Purely ADDITIVE: everything above is SPEC-AUTH-001 behaviour, unchanged.
+  // A request with no guest cookie takes none of this branch, which is why
+  // the pre-existing login tests still pass without modification.
+  // ---------------------------------------------------------------------
+  const guestCartId = readGuestCartId(request);
+  if (guestCartId !== null) {
+    try {
+      await mergeGuestCartIntoUserCart(user.id, guestCartId);
+    } catch {
+      // A cart problem must never cost the user their login: the session
+      // above is already valid and REQ-AUTH-004 promises it. The cost of
+      // swallowing is that a failed merge is silent — this codebase has no
+      // logging surface to report it to, so it is recorded as a known gap
+      // rather than papered over with a console call no other module makes.
+    }
+
+    // Expired unconditionally, INCLUDING after a failed merge. The merge is
+    // idempotent only because a merged guest id stops resolving; a partial
+    // merge breaks that, so re-presenting the cookie at the next login could
+    // double-count quantities. Dropping the cookie risks orphaning a guest
+    // cart row (the TTL cleanup spec.md §3 defers), which is the cheaper of
+    // the two failures.
+    const expiredGuestCookie = buildExpiredGuestCartCookie();
+    response.cookies.set(
+      expiredGuestCookie.name,
+      expiredGuestCookie.value,
+      expiredGuestCookie.options
+    );
+  }
+
   return response;
 }
