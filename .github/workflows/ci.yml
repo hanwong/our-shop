@@ -42,6 +42,22 @@ jobs:
     name: verify
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # PLACEHOLDER — not a real credential, and not a secret (REQ-CI-011,
+      # REQ-CI-012). It points at loopback and no database of that name is
+      # ever reachable from a runner.
+      #
+      # It is load-bearing rather than defensive: `prisma validate` fails with
+      # P1012 "Environment variable not found: DATABASE_URL" when the variable
+      # is absent, and with "You must provide a nonempty URL" when it is empty,
+      # because prisma/schema.prisma declares url = env("DATABASE_URL").
+      # A clean CI checkout has no .env (it is gitignored), so without this the
+      # prisma:validate step could not pass. `prisma generate` does not need it.
+      #
+      # Nothing in CI opens a database connection: the test suite mocks the
+      # Prisma seam (@/lib/db), and the auth tests set their own JWT/OAuth
+      # environment variables, so no real secret needs to reach this workflow.
+      DATABASE_URL: "postgresql://ci:ci@127.0.0.1:5432/our_shop_ci?schema=public"
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -63,3 +79,31 @@ jobs:
         # rather than an optional step (REQ-CI-008).
         id: prisma_generate
         run: npm run prisma:generate
+
+      # The four verification steps below each run regardless of whether the
+      # others failed, so one push reports every failure at once instead of
+      # revealing them one round trip at a time (REQ-CI-007).
+      #
+      # !cancelled() alone would be wrong: it would also run these after a
+      # broken setup, burying the real error under four "cannot find module"
+      # failures. Gating on prisma_generate — the last step of the setup chain,
+      # so its success implies checkout, setup-node and npm ci all succeeded —
+      # keeps the verification steps skipped when setup breaks (REQ-CI-009).
+      - name: Lint
+        if: ${{ !cancelled() && steps.prisma_generate.conclusion == 'success' }}
+        run: npm run lint
+
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.prisma_generate.conclusion == 'success' }}
+        run: npm run typecheck
+
+      - name: Validate Prisma schema
+        if: ${{ !cancelled() && steps.prisma_generate.conclusion == 'success' }}
+        run: npm run prisma:validate
+
+      - name: Test with coverage
+        # vitest exits non-zero when a test fails OR when coverage falls below
+        # the thresholds in vitest.config.ts, so this one step enforces both
+        # (REQ-CI-006, REQ-CI-010).
+        if: ${{ !cancelled() && steps.prisma_generate.conclusion == 'success' }}
+        run: npm run test:coverage
