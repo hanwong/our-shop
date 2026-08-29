@@ -83,6 +83,15 @@ describe("SPEC-CART-001 M2 — guest cookie attributes (AC-CART-004)", () => {
     expect(buildGuestCartCookie("g").options.maxAge).toBe(3 * 24 * 60 * 60);
   });
 
+  it("accepts hours and minutes as well as days", async () => {
+    process.env.GUEST_CART_COOKIE_EXPIRY = "6h";
+    const mod = await import("@/lib/auth/guest-identity");
+    expect(mod.buildGuestCartCookie("g").options.maxAge).toBe(6 * 60 * 60);
+
+    process.env.GUEST_CART_COOKIE_EXPIRY = "90m";
+    expect(mod.buildGuestCartCookie("g").options.maxAge).toBe(90 * 60);
+  });
+
   it("falls back to the default rather than throwing on an unparseable expiry", async () => {
     process.env.GUEST_CART_COOKIE_EXPIRY = "not-a-duration";
     const { buildGuestCartCookie } = await import("@/lib/auth/guest-identity");
