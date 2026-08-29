@@ -94,3 +94,25 @@ m1_to_mN_commit_strategy: milestone-per-commit   # M1..M6 각 1커밋, amend/for
 ## §E.4 Sync-phase Audit-Ready Signal
 
 _<pending sync-phase>_
+
+## §F Phase 4 Mode Selection
+
+**Input parameters**: tier=M; scope≈12 core files (2 new Prisma models + guest-identity.ts + 3 cart feature files + 3 route files, plus 2 existing auth route files touched additively); domain count=1 (backend/DB, single feature slice, with a narrow cross-cutting integration into an already-completed auth SPEC's two route files); file language mix=100% TypeScript + 1 Prisma schema; concurrency benefit=LOW (coding-heavy, strict milestone dependencies M1→M6, and the M5 auth-integration milestone specifically needed the M1-M4 cart service to exist first).
+
+**Mode evaluation**:
+| Mode | Selected? | Rationale |
+|---|---|---|
+| direct | No | Non-trivial multi-file feature implementation touching existing production auth code |
+| serial | **YES** | Coding-heavy work, single domain, <15 files, sequential milestone dependencies — Anthropic's coding-task parallelism caveat applies |
+| fanout | No | Below the ≥3 domains / ≥10 files threshold; and this SPEC's elevated risk (existing auth-file modification) benefits from one continuous agent context tracking the PRESERVE boundary, not split attention across parallel spawns |
+| sweep | No | Not mechanical/high-volume; semantic new-code work |
+
+**Decision: serial**
+
+**Justification**: Tier M SPEC with a single backend/database domain and strict milestone dependencies. The one added consideration versus SPEC-CATALOG-001/002 is the cross-cutting touch into SPEC-AUTH-001's `login/route.ts` and `google/callback/route.ts` — a single sequential `manager-develop` delegation (Section A-E template, with the auth-regression re-test elevated to a must-pass gate in Section B) is the correct envelope; splitting this across parallel agents would have raised the risk of two agents racing on the same two auth files.
+
+### Boundary case — recurring worktree materialization mismatch (3rd occurrence this session)
+
+Same as SPEC-CATALOG-001 and SPEC-CATALOG-002: `manager-develop`'s `isolation: worktree` frontmatter auto-materialized a fresh L1 worktree (`worktree-agent-aec0c64a13894cd41`, based on origin/HEAD) regardless of this session already being anchored in `.claude/worktrees/t3` (branch `WT-cart-guest-merge`). This time the delegation prompt pre-warned the agent with the exact recovery steps (check `git branch --show-current` first; on mismatch, `git merge --ff-only WT-cart-guest-merge` into its own branch rather than attempting a checkout) — the agent applied the fix immediately with no blocker round-trip, unlike SPEC-CATALOG-002 which needed one. After the agent's completion, the orchestrator fast-forwarded `WT-cart-guest-merge` (`cab1cdb..6e11d56`) to bring the 7 milestone commits onto the card's actual branch, verified independently (tsc/eslint/prisma validate/vitest all re-run clean, PRESERVE diffs confirmed empty against the correct baseline `cab1cdb`, not the more distant `dc0283b`).
+
+**Process note for future dispatches**: this is now a confirmed recurring pattern (3/3 `manager-develop` spawns into a pre-entered card worktree this session). Pre-warning the agent (as done here) avoids the extra round-trip SPEC-CATALOG-002 needed, but does not prevent the materialization itself — that would require either a runtime-level fix (no per-spawn override currently avoids `isolation: worktree` on an agent whose frontmatter sets it) or always dispatching without pre-entering the target worktree (letting the agent's own auto-materialized tree be the working tree, then reconciling by branch name afterward — the pattern used successfully all three times).
