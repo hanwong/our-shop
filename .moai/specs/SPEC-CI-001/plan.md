@@ -1,7 +1,7 @@
 ---
 id: SPEC-CI-001
-status: in-progress
-updated: 2026-08-29
+status: completed
+updated: 2026-08-30
 tier: M
 ---
 

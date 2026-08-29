@@ -94,3 +94,25 @@ A post-implementation security audit (independent quality + security review) fou
 - **게스트 카트 병합 실패는 관측 가능성이 없다.** 로그인 성공을 지키기 위해 병합 실패를 의도적으로 삼키는데(로그인 자체는 항상 성공), 이 저장소에 로깅 인프라가 없어 실패가 어디에도 기록되지 않는다 — 알려진 관측성 공백이며 새 SPEC이 로깅을 도입하기 전까지는 남는다.
 - 계정 키(guest_cart_id) 유출은 낮은 위험으로 판단해 값을 평문으로 저장한다(`Cart.guestId`) — 유출 시 노출 범위가 낯선 사람의 장바구니 내용뿐이며 PII·결제수단·계정 접근권이 없기 때문이다(리프레시 토큰의 해시 저장 방식과 의도적으로 다름). 게스트 카트 조작에는 CSRF 토큰이 요구되지 않는다 — 위조된 카트 편집이 노출하거나 이동시키는 자산이 없기 때문에 받아들인 잔여 위험이다.
 - **구현 이후 보안 검토(`--security` 렌즈)에서 막는 결함은 발견되지 않았다(PASS).** 게스트 카트 쿠키의 난수성(`crypto.randomBytes` 기반, `Math.random()` 아님), 병합 시 재고 클램프 로직, 두 인증 라우트에 대한 추가가 순수 additive임(기존 132개 인증 테스트 무변경 통과)을 확인했다. 유일한 잔여 항목은 위에서 이미 기록한 병합-실패 관측성 공백이며, 새로 발견된 결함이 아니다. 전체 근거: `.moai/reports/sync-audit/SPEC-CART-001-security-2026-08-29.md`(로컬, gitignore 대상).
+
+### 추가 — SPEC-CI-001: GitHub Actions CI 파이프라인 (PR/main 푸시 자동 품질 검증)
+
+- `.github/workflows/ci.yml`(신규) — `package.json`에 이미 존재하던 검증 스크립트(`lint`, `typecheck`, `prisma:validate`, `test:coverage`)를 새로 도입하지 않고 그대로, PR(`main` 대상, opened/synchronize/reopened)과 `main` 푸시에서 자동 실행한다. 검증 도구나 임계값은 전혀 바꾸지 않았다 — 실행 주체를 사람에서 CI로 옮긴 것이 전부다.
+  - 잡 이름은 `verify`로 고정(브랜치 보호 규칙이 참조할 계약 표면).
+  - `permissions: contents: read`(최소 권한), `timeout-minutes: 15`.
+  - PR push는 이전 실행을 취소(`cancel-in-progress`)하지만 `main` push는 취소하지 않아 커밋별 검증 기록을 보존한다.
+  - `prisma generate`가 4개 검증 스텝(lint/typecheck/prisma:validate/test:coverage)의 선행 조건이며, `prisma generate` 실패 시 나머지는 스킵되고, 성공 시 4개는 서로 독립적으로 전부 실행되어(하나 실패해도 나머지 계속) 한 번의 푸시로 모든 실패를 한꺼번에 보고한다.
+  - `DATABASE_URL`은 루프백을 가리키는 자리표시자 값이며 실제 크레덴셜이 아니다 — `prisma:validate`가 요구하기 때문에 필요하다(값이 없거나 비어 있으면 `prisma validate`가 즉시 실패함을 실측으로 확인).
+  - 커버리지 리포트를 아티팩트로 업로드(`actions/upload-artifact`, 7일 보관) — 대응하는 REQ/AC는 없는 편의 기능.
+  - `.nvmrc`(신규, Node 22) — 로컬 `nvm use`와 CI(`setup-node`의 `node-version-file`)가 같은 파일을 Node 버전의 단일 출처로 공유한다.
+  - `actions/checkout` / `actions/setup-node` / `actions/upload-artifact`는 계획 단계 스케치(`@v4`)에서 실제 최신 메이저인 `@v7`로 의도적으로 갱신했다 — 사용 중인 입력 표면(`node-version-file`, `cache`, `name`/`path`/`retention-days`/`if-no-files-found`)이 v7에서도 그대로임을 확인한 뒤 채택했다.
+- 이 SPEC은 애플리케이션 코드를 만들지 않는다 — `src/**`/`tests/**`/`package.json`/`vitest.config.ts`/`prisma/**`/`.github/workflows/label-sync.yml`는 전부 무변경이다.
+- 인수 기준 14개(AC-CI-001~014) 중 12개는 실제 GitHub Actions 실행(정상 실행 1회 + 실패 주입 6종 + 취소 프로브 1회, PR #5)으로 완전히 확인됐다. 나머지 2건은 아래 "알려진 한계"에 명시한 대로 의도적으로 미검증 상태로 남겼다.
+
+### 알려진 한계 — SPEC-CI-001
+
+- **AC-CI-003(main push가 워크플로 실행을 트리거)과 AC-CI-004의 main-측 절반(main에 연속 2회 push해도 실행이 취소되지 않음)은 검증하지 못했다.** 이 SPEC의 공유 checkout 정책(카드 브랜치에서 직접 `main`으로 push 금지, 통합은 리드/사용자 결정)과 충돌하기 때문에 오케스트레이터가 의도적으로 `main`에 push하지 않았다. PR-측 취소 동작(AC-CI-004의 나머지 절반)은 실제로 취소됨을 확인했다. 두 항목 모두 PR이 실제로 `main`에 merge되는 시점에 자연히 검증된다 — merge 자체가 `push` 트리거를 발동시키므로 별도 조치는 필요 없고, `gh run list --branch main`으로 사후 확인 가능하다.
+- 커버리지 계측 하 응답 속도 테스트가 "3회 연속 실행에서 flaky하지 않다"는 acceptance.md의 요구는, 6회의 정상/실패 혼합 실행에서 해당 테스트가 포함된 스텝이 매번 통과했다는 간접 근거만 있고 별도로 격리된 3회 연속 측정은 하지 않았다.
+- 로컬 검증은 Node 25.2.1에서 수행했고 CI는 `.nvmrc`대로 Node 22를 사용한다 — 6회의 실제 CI 실행이 전부 문제없이 성공했으므로 실질적 차이는 없어 보이지만, 두 버전을 나란히 대조 측정하지는 않았다.
+- 브랜치 보호 규칙(리포지토리 Settings에서 `verify`를 필수 상태 검사로 지정)은 이 SPEC의 범위가 아니며 아직 설정되지 않았다 — README에 활성화 절차를 안내해 두었다(수동 설정 필요).
+- 이 SPEC은 애플리케이션 코드가 없어 test-first(RED-GREEN-REFACTOR) 주기가 성립하지 않는다 — 대신 6종 실패 주입과 즉시 원복으로 워크플로의 구속력을 실증했다(`git diff` byte-identical 확인).

@@ -265,7 +265,20 @@ step을 오케스트레이터가 직접 커밋(`8eb2c14`)했고, 이후 첫 정�
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_pending sync-phase_
+- sync_complete_at: 2026-08-30T00:00:00+09:00
+- sync_status: **complete**
+- sync_commit_sha: pending-backfill-SPEC-CI-001-sync
+- ac_count (SSOT `acceptance.md`): 14 (AC-CI-001~014)
+- b12_self_test_a (pre-emission grep `SPEC-CI-001` in CHANGELOG.md before edit): 0 — 안전(중복 없음)
+- b12_self_test_b (AC count match): `grep -oE 'AC-CI-[0-9]+' acceptance.md | sort -u | wc -l` → 14, CHANGELOG 본문의 "인수 기준 14개(AC-CI-001~014)" 서술과 일치
+- b12_self_test_c (파일 경로 검증): `.github/workflows/ci.yml`, `.nvmrc` 모두 `ls`로 존재 확인, README.md `## Continuous Integration (SPEC-CI-001)` 섹션도 이미 존재(오케스트레이터가 run-phase에서 직접 커밋)
+- changelog_entry_position: `CHANGELOG.md` `[Unreleased]` 섹션, SPEC-CART-001 항목 뒤(파일 최하단)에 `### 추가 — SPEC-CI-001`/`### 알려진 한계 — SPEC-CI-001` 두 절로 추가
+- frontmatter_status_transitions.spec_md: in-progress → completed (updated: 2026-08-29 → 2026-08-30)
+- frontmatter_status_transitions.plan_md: in-progress → completed (updated: 2026-08-29 → 2026-08-30)
+- canary_compliance_check: 해당 없음 — 이 SPEC은 forward-looking 정책을 정의하지 않음
+- README.md: run-phase에서 이미 배지·기능 목록·`## Continuous Integration (SPEC-CI-001)` 섹션이 추가되어 있음을 확인(`6f1b6ab`) — sync-phase에서 추가 수정 불필요로 판단
+- mx_tag_validation: 이 SPEC은 `src/**`/`tests/**` 변경이 없어 신규 @MX 태그 대상 코드가 없음. `.github/workflows/ci.yml`/`.nvmrc`는 YAML/설정 파일로 MX 태그 대상 언어가 아님 — 해당 없음으로 기록
+- spec_body_modification: 없음(frontmatter `status:`/`updated:`만 변경, body 미변경)
 
 ## §F Phase 4 Mode Selection
 
