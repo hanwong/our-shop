@@ -2,7 +2,7 @@
 id: SPEC-CART-001
 title: "장바구니(담기/수량변경/삭제) 및 게스트→회원 카트 병합"
 version: "0.1.0"
-status: draft
+status: in-progress
 created: 2026-08-29
 updated: 2026-08-29
 author: snake

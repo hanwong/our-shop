@@ -76,9 +76,21 @@ describe("SPEC-CATALOG-001 M1 — variant modelling is absent (AC-CATALOG-002)",
     expect(body).not.toMatch(/variant/i);
   });
 
+  // [AUTO] SPEC-CART-001 M1 — this assertion was an exact-equality list over
+  // every model name, which made it fail on ANY additive model, including ones
+  // AC-CATALOG-002 says nothing about. AC-CATALOG-002 is about the ABSENCE of
+  // variant/option/SKU modelling on the catalog, so the check is restated in
+  // those terms: the catalog and auth models must still all be present, and no
+  // model may model a product variant. Adding Cart/CartItem (SPEC-CART-001
+  // plan.md §4) now passes; adding a `ProductVariant` still fails, which is
+  // the behaviour this test exists to provide.
   it("declares no separate variant/option table anywhere in the schema", () => {
     const modelNames = [...schema.matchAll(/^model\s+(\w+)/gm)].map((m) => m[1]!);
-    expect(modelNames).toEqual(["User", "OAuthAccount", "RefreshToken", "Category", "Product"]);
+
+    expect(modelNames).toEqual(
+      expect.arrayContaining(["User", "OAuthAccount", "RefreshToken", "Category", "Product"])
+    );
+    expect(modelNames.filter((name) => /variant|option|sku/i.test(name))).toEqual([]);
   });
 });
 

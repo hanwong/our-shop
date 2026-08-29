@@ -36,6 +36,12 @@ model User {
   updatedAt     DateTime       @updatedAt
   oauthAccounts OAuthAccount[]
   refreshTokens RefreshToken[]
+  // SPEC-CART-001 M1 — back-relation only. Prisma requires the opposite side
+  // of Cart.user to be declared here; no existing field above changes.
+  // Modelled as a LIST even though @@unique([userId]) on Cart caps it at one,
+  // because Prisma derives arity from the FK side's uniqueness, and a scalar
+  // here would not compile against a nullable non-unique-typed back-reference.
+  carts         Cart[]
 }
 
 model OAuthAccount {
@@ -109,6 +115,8 @@ model Product {
   category    Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  // SPEC-CART-001 M1 — back-relation only; no existing field above changes.
+  cartItems   CartItem[]
 
   @@index([categoryId]) // REQ-CATALOG-010 category filter
   @@index([createdAt]) // REQ-CATALOG-008 `newest` sort (the default)
@@ -119,4 +127,67 @@ model Product {
   // unaccelerated. A GIN index over trigrams can, which is what keeps a search
   // request inside REQ-CATALOG-016B's p95 300ms budget as the catalog grows.
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "product_name_trgm_idx")
+}
+
+// ---------------------------------------------------------------------------
+// SPEC-CART-001 M1 — cart domain.
+//
+// Source of truth for these two model shapes: SPEC-CART-001 plan.md §4. Do not
+// diverge from plan.md without updating plan.md first (manager-develop is not
+// the owner of SPEC body content).
+// ---------------------------------------------------------------------------
+
+// A cart belongs to EXACTLY ONE identity (REQ-CART-001): a member (`userId`)
+// or a guest cookie (`guestId`). Both columns are nullable and the "exactly
+// one" half is an APP-LEVEL invariant, not a DB CHECK constraint — plan.md
+// §2.1 chose this over a polymorphic owner column (which forfeits the FK to
+// User) and over split UserCart/GuestCart tables (which forces CartItem to
+// point at two parents). The invariant is held by giving the repository only
+// two construction paths, createUserCart() and createGuestCart(), so no code
+// path exists that can fill both columns or neither.
+//
+// @MX:ANCHOR fan-in target — every cart read and write path reaches this
+// model: identity resolution, the four public cart endpoints, and the
+// login-time guest->member merge invoked from both auth success routes.
+// @MX:REASON the ownership columns here are what separates one shopper's cart
+// from another's, so a change to their nullability or uniqueness is an
+// authorization boundary change, not a modelling detail.
+model Cart {
+  id        String     @id @default(cuid())
+  // @unique on a NULLABLE column excludes NULLs from the uniqueness check
+  // (standard Postgres), so these read as "at most one cart per member" and
+  // "at most one cart per guest cookie" while still allowing many rows to
+  // leave the other column NULL.
+  userId    String?    @unique
+  guestId   String?    @unique
+  user      User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     CartItem[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@index([guestId])
+}
+
+// One line of a cart. Carries NO price column: the cart always joins
+// Product.price live (plan.md §2.4) because nothing has been promised to the
+// shopper until checkout, and checkout owns its own price-confirmation
+// mechanism.
+model CartItem {
+  id        String   @id @default(cuid())
+  cartId    String
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String
+  // Cascade, deliberately UNLIKE Product -> Category's Restrict: a cart line
+  // has no reason to outlive the product it points at, so a deleted product
+  // simply leaves every cart (plan.md §4/§8).
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // The conflict target REQ-CART-006's add-is-increment upsert relies on: one
+  // row per (cart, product) is what makes "add the same product again" an
+  // increment rather than a duplicate row.
+  @@unique([cartId, productId])
+  @@index([productId])
 }
