@@ -107,3 +107,15 @@ jobs:
         # (REQ-CI-006, REQ-CI-010).
         if: ${{ !cancelled() && steps.prisma_generate.conclusion == 'success' }}
         run: npm run test:coverage
+
+      - name: Upload coverage report
+        # Convenience only — no REQ/AC depends on this step's success
+        # (acceptance.md §4 DoD note). Uploaded even on a failing run so a
+        # failure's coverage state is inspectable, never on a broken setup.
+        if: ${{ !cancelled() && steps.prisma_generate.conclusion == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ github.run_id }}
+          path: coverage/
+          retention-days: 7
+          if-no-files-found: warn
