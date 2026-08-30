@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 /**
  * SPEC-AUTH-001 M2 — src/lib/auth/cookies.ts
@@ -25,12 +25,16 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // NODE_ENV is written via vi.stubEnv (Next.js declares it `readonly` on
+  // NodeJS.ProcessEnv, so a direct assignment is a TS2540 compile error).
+  // Unstub before restoreEnv so the stub registry is drained first.
+  vi.unstubAllEnvs();
   restoreEnv();
 });
 
 describe("buildRefreshTokenCookie (REQ-AUTH-008)", () => {
   it("sets httpOnly: true", async () => {
-    process.env.NODE_ENV = "production";
+    vi.stubEnv("NODE_ENV", "production");
     const { buildRefreshTokenCookie } = await import("@/lib/auth/cookies");
     const cookie = buildRefreshTokenCookie("raw-refresh-token-value", new Date(Date.now() + 60_000));
     expect(cookie.options.httpOnly).toBe(true);
@@ -49,14 +53,14 @@ describe("buildRefreshTokenCookie (REQ-AUTH-008)", () => {
   });
 
   it("derives secure: true when NODE_ENV is not development", async () => {
-    process.env.NODE_ENV = "production";
+    vi.stubEnv("NODE_ENV", "production");
     const { buildRefreshTokenCookie } = await import("@/lib/auth/cookies");
     const cookie = buildRefreshTokenCookie("raw-refresh-token-value", new Date(Date.now() + 60_000));
     expect(cookie.options.secure).toBe(true);
   });
 
   it("derives secure: false when NODE_ENV is development", async () => {
-    process.env.NODE_ENV = "development";
+    vi.stubEnv("NODE_ENV", "development");
     const { buildRefreshTokenCookie } = await import("@/lib/auth/cookies");
     const cookie = buildRefreshTokenCookie("raw-refresh-token-value", new Date(Date.now() + 60_000));
     expect(cookie.options.secure).toBe(false);

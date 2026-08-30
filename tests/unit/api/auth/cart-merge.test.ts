@@ -118,7 +118,9 @@ beforeEach(async () => {
   process.env.GOOGLE_CLIENT_ID = "client-id";
   process.env.GOOGLE_CLIENT_SECRET = "client-secret";
   process.env.GOOGLE_REDIRECT_URI = "http://localhost/api/auth/google/callback";
-  process.env.NODE_ENV = "test";
+  // vi.stubEnv, not a direct assignment: Next.js declares NODE_ENV `readonly`
+  // on NodeJS.ProcessEnv, so `process.env.NODE_ENV = x` is a TS2540 error.
+  vi.stubEnv("NODE_ENV", "test");
   getTokenMock.mockResolvedValue({ tokens: { id_token: "id-token" } });
   verifyIdTokenMock.mockResolvedValue({
     getPayload: () => ({

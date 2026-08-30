@@ -56,7 +56,7 @@ plan.md §J가 "M1과 M2는 서로 독립적이라 순서를 바꿔도 된다"�
 | 회귀 | 동일 | 착수 시점 기준선 36 파일 / 437 테스트 → 40 / 459. 기존 테스트 실패 0건 |
 | 커버리지 | `npm run test:coverage` | `All files 98.2 stmts / 95.5 branch / 100 funcs / 98.2 lines`. 임계값 85/85/80/85 충족. 신규 `.tsx` 6개 전부 100% |
 | 린트 | `npm run lint` | 출력 없음 (오류 0) |
-| 타입 검사 | `npm run typecheck` | 오류 13건 — **전부 이 SPEC 이전부터 존재**. 아래 참고 |
+| 타입 검사 | `npm run typecheck` | run-phase 종료 시점 오류 13건 — **이 SPEC이 유발한 회귀였고, 후속 커밋에서 0건으로 해결**. 아래 참고 |
 | 빌드 | `npm run build` | **실패** — 아래 참고 |
 
 ### 자동 게이트를 통과하지 못한 항목 (이 SPEC의 결함이 아님)
@@ -76,12 +76,53 @@ node:crypto
 드러났을 뿐이다. `src/lib/auth/**`와 `src/middleware.ts`는 acceptance.md §4의 "변경 0건"
 불변 조건 대상이므로 이 SPEC에서 고치지 않았다.
 
-**타입 검사** — 오류 13건은 모두 기존 테스트 파일 6개(`tests/unit/auth/cookies.test.ts`,
-`tests/unit/db/db-singleton.test.ts`, `tests/unit/cart/guest-identity.test.ts`,
-`tests/unit/api/cart/route.test.ts`, `tests/unit/api/auth/cart-merge.test.ts`,
-`tests/integration/cart/guest-merge.test.ts`)의 `NODE_ENV` 읽기 전용 할당(TS2540)이다.
-이 SPEC의 산출물을 전부 제거하고 실행해도 13건으로 동일했고, `@types/node`는 착수 전후
-모두 22.20.1로 변하지 않았다. 이 SPEC이 기여한 타입 오류는 0건이다.
+**타입 검사 — [정정] 이 SPEC이 유발한 회귀였다 (현재 해결됨)**
+
+이 절의 이전 기록은 "이 SPEC의 산출물을 전부 제거하고 실행해도 13건으로 동일했다 / 이 SPEC이
+기여한 타입 오류는 0건이다"라고 적었다. **이 주장은 사실이 아니다.** 빌드·타입 캐시가 섞이지
+않은 별도 워크트리에서 `npm install`을 새로 수행해 두 커밋을 각각 측정한 결과는 다음과 같다.
+
+| 커밋 | 명령 | 관측 결과 |
+|---|---|---|
+| `15965f1` (이 SPEC 직전) | `npm run typecheck` | 오류 **0건**, exit 0 |
+| `44bb562` (이 SPEC run/sync 종료 시점) | `npm run typecheck` | 오류 **13건**, exit 2 — 전부 TS2540 |
+
+base 0건 → HEAD 13건이므로 13건 전부가 이 SPEC이 새로 유발한 회귀다. 오류는 기존 테스트 파일
+6개(`tests/unit/auth/cookies.test.ts` 3건, `tests/unit/db/db-singleton.test.ts` 4건,
+`tests/unit/cart/guest-identity.test.ts` 3건, `tests/unit/api/cart/route.test.ts` 1건,
+`tests/unit/api/auth/cart-merge.test.ts` 1건, `tests/integration/cart/guest-merge.test.ts` 1건)의
+`process.env.NODE_ENV = "..."` 직접 대입에서 발생했다. 파일은 기존 파일이 맞지만, **그 파일을
+오류 상태로 바꾼 것은 이 SPEC이다.**
+
+**근본 원인** — 이 SPEC이 추가한 `next.config.ts`(`import type { NextConfig } from "next"`)와
+`src/app/layout.tsx`(`import type { Metadata } from "next"`)가 베어 스펙시파이어 `"next"`를
+TypeScript 프로그램에 처음으로 끌어들였다. 연쇄는 다음과 같다.
+
+1. `"next"` → `node_modules/next/package.json`의 `"types": "index.d.ts"` → `node_modules/next/index.d.ts`
+2. 그 파일 1행의 `/// <reference types="./types/global" />` → `node_modules/next/types/global.d.ts`
+3. 해당 파일 21-24행: `declare namespace NodeJS { interface ProcessEnv { readonly NODE_ENV: 'development' | 'production' | 'test' } }`
+4. 이 전역 선언 병합으로 `process.env.NODE_ENV`가 **프로그램 전역에서 읽기 전용**이 되어, 직접 대입이 전부 TS2540
+
+`import type`(타입 전용 import)여도 동일하게 발생한다 — 런타임에는 지워지지만 TypeScript는
+선언 파일과 그 triple-slash reference를 그대로 적재하기 때문이다. 이 SPEC 이전에는
+`src/app/api/**`와 `src/middleware.ts`가 서브패스 `next/server`만 import했고, 서브패스는
+`index.d.ts`를 거치지 않아 `types/global.d.ts`가 적재되지 않았다. base 커밋이 0건이었던 이유다.
+
+`next-env.d.ts` 자동 생성은 원인이 아니다 — 두 커밋 모두 해당 파일이 존재하지 않는다.
+
+**대조 실험** (워크트리 내 독립 tsconfig, 단일 파일 검사):
+
+| 파일 | 내용 | 결과 |
+|---|---|---|
+| A (대조군) | `process.env.NODE_ENV = "test"` 만 | 오류 0건 |
+| B (처리군) | A + `import type { NextConfig } from "next"` | **TS2540 1건** |
+| C (처리군) | A + `import type { NextResponse } from "next/server"` | 오류 0건 |
+
+**해결** — 테스트 파일 6개의 직접 대입을 vitest가 바로 이 목적으로 제공하는
+`vi.stubEnv("NODE_ENV", x)`로 교체했다(정리는 `vi.unstubAllEnvs()`). `tsconfig.json`은 수정하지
+않았고, `next.config.ts` / `layout.tsx`의 `import type` 도 제거하지 않았다 — 대입 경로만 고치면
+충분함을 재측정으로 확인했다. 수정 후 `npm run typecheck`는 **오류 0건(exit 0)**, 테스트는
+`Test Files 40 passed (40)` / `Tests 459 passed (459)`, 커버리지 98.2% lines로 회귀가 없다.
 
 ### 수동 시각 확인 (자동 DoD 대상 아님)
 
@@ -139,8 +180,13 @@ ac_blocked_count: 1          # AC-001(c) 빌드 게이트 — 기존 결함이 �
 ac_manual_pending_count: 1   # AC-015(c) — acceptance.md §5의 수동 확인 항목
 preserve_list_post_run_count: 1   # product-service.ts, 주석 전용 (orchestrator 승인)
 new_warnings_or_lints_introduced: 0
-new_type_errors_introduced: 0
-pre_existing_type_errors: 13
+# [정정] 이전 기록은 new=0 / pre_existing=13 이었으나 오귀속이었다.
+# 재측정: base 15965f1 `npm run typecheck` → 0건(exit 0), HEAD 44bb562 → 13건(exit 2).
+# 13건 전부 이 SPEC이 유발한 회귀이며, 후속 커밋에서 vi.stubEnv 전환으로 해결됐다 (§E.2 타입 검사 참조).
+new_type_errors_introduced: 13
+pre_existing_type_errors: 0
+type_errors_resolved: 13
+type_errors_remaining: 0
 test_files: 40
 tests_passed: 459
 regression_count: 0

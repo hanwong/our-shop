@@ -185,7 +185,9 @@ beforeEach(async () => {
     { id: "D", name: "product D", price: 500, images: [], stock: 0 },
   ];
   process.env.JWT_ACCESS_SECRET = "test-secret-at-least-32-bytes-long-for-hs256";
-  process.env.NODE_ENV = "test";
+  // vi.stubEnv, not a direct assignment: Next.js declares NODE_ENV `readonly`
+  // on NodeJS.ProcessEnv, so `process.env.NODE_ENV = x` is a TS2540 error.
+  vi.stubEnv("NODE_ENV", "test");
   const { __resetRateLimitStoreForTests } = await import("@/lib/auth/rate-limit");
   __resetRateLimitStoreForTests();
 });
