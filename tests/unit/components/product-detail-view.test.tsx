@@ -16,8 +16,8 @@ import type { ProductDetail } from "@/features/catalog/types/product";
 // level so they do not couple to the optimizer's markup (plan.md §K R6), and
 // the component tree stops depending on next.config's host allow-list.
 vi.mock("next/image", () => ({
-  default: ({ src, alt, ...rest }: ImgHTMLAttributes<HTMLImageElement>) => (
-    <img src={typeof src === "string" ? src : ""} alt={alt} {...rest} />
+  default: ({ src, alt, className }: ImgHTMLAttributes<HTMLImageElement>) => (
+    <img src={typeof src === "string" ? src : ""} alt={alt} className={className} />
   ),
 }));
 

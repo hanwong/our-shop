@@ -12,9 +12,13 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
  * autoplay, so what remains is the whole feature (plan.md §E).
  */
 
+// next/image is replaced with a plain <img> so assertions stay at the role/alt
+// level (plan.md §K R6). Only the attributes the tests read are forwarded:
+// spreading the rest would push next-only props (`fill`, `priority`) onto the
+// DOM and make React warn about non-boolean attributes on every render.
 vi.mock("next/image", () => ({
-  default: ({ src, alt, ...rest }: ImgHTMLAttributes<HTMLImageElement>) => (
-    <img src={typeof src === "string" ? src : ""} alt={alt} {...rest} />
+  default: ({ src, alt, className }: ImgHTMLAttributes<HTMLImageElement>) => (
+    <img src={typeof src === "string" ? src : ""} alt={alt} className={className} />
   ),
 }));
 
