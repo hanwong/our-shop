@@ -154,4 +154,40 @@ m1_to_mN_commit_strategy: "마일스톤별 개별 커밋 (M2 → M1 → M3 → M
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+sync_complete_at: 2026-08-30
+sync_commit_sha: pending-backfill-sync
+sync_status: complete-with-known-gaps
+b12_self_test_a: "grep -c 'SPEC-STOREFRONT-001' CHANGELOG.md → 0 (pre-emission); 1 (post-emission, no duplicate)"
+b12_self_test_b: "grep -oE 'AC-STOREFRONT-[0-9]+' acceptance.md | sort -u | wc -l → 15; CHANGELOG entry states 15 (14 PASS + 1 unverified manual). Non-zero, matches acceptance.md §1 header (현재 15개)"
+b12_self_test_c: "모든 파일 경로 실재 확인 — layout.tsx / globals.css / page.tsx / products/[productId]/{page,not-found}.tsx / components/product/{ProductDetailView,ProductGallery}.tsx / next.config.ts / postcss.config.mjs / vitest.config.ts / tests/unit/{app,components}/*.test.tsx 전부 존재"
+changelog_entry_position: "CHANGELOG.md [Unreleased] 섹션 말미, SPEC-CI-001 항목 다음 (### 추가 — SPEC-STOREFRONT-001 + ### 알려진 한계 — SPEC-STOREFRONT-001)"
+frontmatter_status_transitions:
+  spec_md: "in-progress → completed (updated: 2026-08-30)"
+  plan_md: "N/A — 이 파일에는 YAML frontmatter 블록이 없다(본문 `# Implementation Plan:` 헤딩으로 시작). 없는 블록을 새로 만들지 않았다"
+  acceptance_md: "N/A — 이 파일에도 YAML frontmatter 블록이 없다(본문 `# Acceptance Criteria:` 헤딩으로 시작)"
+  body_content_touched: false
+docs_synchronized:
+  - "CHANGELOG.md — [Unreleased]에 추가 항목 + 알려진 한계 항목"
+  - "README.md — 구현 목록에 SPEC-STOREFRONT-001 한 줄, `## 스토어프론트 화면` 섹션 신설, 프로젝트 문서 목록에 SPEC 디렉터리 추가"
+known_gaps:
+  - id: AC-STOREFRONT-001c
+    status: BLOCKED
+    detail: "`npm run build` 실패. 원인은 이 SPEC 밖의 기존 결함(`src/middleware.ts` → `@/lib/auth/jwt` → `node:crypto`, Edge 런타임 번들 불가). 이 SPEC 산출물을 전부 제거해도 동일하게 실패함을 run-phase에서 확인. `src/lib/auth/**`·`src/middleware.ts`는 acceptance.md §4의 변경 0건 불변 조건 대상이라 손대지 않았다"
+    tracking: "칸반 백로그의 별도 카드로 분리(카드 id 미발급). 이 SPEC의 결함이 아니며 이 SPEC의 sync를 막지 않는다"
+  - id: AC-STOREFRONT-015c
+    status: UNVERIFIED-MANUAL
+    detail: "폭 375px 뷰포트 가로 스크롤 없음 — 관측 결과 없음. acceptance.md §5가 자동 DoD의 PASS 조건에서 명시적으로 제외한 수동 시각 확인 항목이며, jsdom에 레이아웃 엔진이 없고 브라우저 E2E 하네스는 spec.md §3에서 제외했다. **통과했다는 뜻이 아니라 아직 아무도 확인하지 않았다는 뜻이다**"
+    tracking: "수동 확인 시 확인자·확인 일자·관측 결과를 §E.2 수동 시각 확인 절에 기록"
+mx_tag_validation:
+  scope: "sync 하위 단계로 수행(별도 Mx phase 아님)"
+  result: "신규 산출물의 @MX 주석 확인 — ProductDetailView.tsx / ProductGallery.tsx에 @MX:NOTE 각 1건(명시적 필드 나열의 이유, 네이티브 button 선택의 이유). product-service.ts의 @MX:ANCHOR fan-in은 run-phase M5 이후 커밋에서 이미 갱신됨. 누락 태그 추가 0건"
+sync_phase_files_changed: 4
+sync_phase_src_or_tests_touched: false
+```
+
+### 이 sync 커밋이 하지 않은 것
+
+- `src/**` / `tests/**` 무변경 — sync는 문서·CHANGELOG·SPEC frontmatter·progress.md만 다룬다.
+- `spec.md` / `plan.md` / `acceptance.md`의 **본문**은 한 글자도 바꾸지 않았다. `spec.md`는 frontmatter의 `status:`와 `updated:` 두 필드만 갱신했다.
+- `src/middleware.ts` / `src/lib/auth/jwt.ts`의 빌드 결함은 고치지 않았다(위 known_gaps 참고).

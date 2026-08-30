@@ -116,3 +116,33 @@ A post-implementation security audit (independent quality + security review) fou
 - 로컬 검증은 Node 25.2.1에서 수행했고 CI는 `.nvmrc`대로 Node 22를 사용한다 — 6회의 실제 CI 실행이 전부 문제없이 성공했으므로 실질적 차이는 없어 보이지만, 두 버전을 나란히 대조 측정하지는 않았다.
 - 브랜치 보호 규칙(리포지토리 Settings에서 `verify`를 필수 상태 검사로 지정)은 이 SPEC의 범위가 아니며 아직 설정되지 않았다 — README에 활성화 절차를 안내해 두었다(수동 설정 필요).
 - 이 SPEC은 애플리케이션 코드가 없어 test-first(RED-GREEN-REFACTOR) 주기가 성립하지 않는다 — 대신 6종 실패 주입과 즉시 원복으로 워크플로의 구속력을 실증했다(`git diff` byte-identical 확인).
+
+### 추가 — SPEC-STOREFRONT-001: 상품 상세 페이지 UI 및 이미지 갤러리 (루트 문서 셸 포함)
+
+**이 저장소의 첫 화면이다.** 이전 5개 SPEC은 전부 API·도메인 계층만 만들었고 `.tsx` 파일도 CSS 파일도 하나 없었다. Next.js App Router는 루트 레이아웃 없이는 어떤 라우트도 렌더링하지 못하므로, 루트 문서 셸 구축이 상세 페이지의 부수 작업이 아니라 **선행 산출물**로 이 SPEC 범위에 들어왔다.
+
+- **루트 문서 셸** — `src/app/layout.tsx`(`<html lang="ko">`, 전역 스타일 import, `metadata.title`/`.description`), `src/app/globals.css`(Tailwind 진입점 + 한국어 본문 가독성을 위한 시스템 폰트 스택), `src/app/page.tsx`(상세 화면 진입 링크 한 줄짜리 홈 스텁 — 홈 콘텐츠 설계는 범위 밖). 헤더·푸터·전역 내비게이션·검색창·장바구니 아이콘은 전부 제외했다.
+  - 폰트는 `next/font/google`이 아니라 `globals.css`의 시스템 폰트 스택을 쓴다. plan.md §K R7이 빌드 시점 네트워크 의존성을 이유로 이미 대안으로 승인해 둔 경로이며, 여기에 R7이 예상하지 못한 두 번째 이유가 더해졌다 — `next/font`는 Next.js SWC 폰트 로더를 요구하는데 vitest는 그것을 돌리지 않아 셸이 테스트 불가능해진다.
+- **Tailwind CSS v4** — `tailwindcss` / `@tailwindcss/postcss` / `postcss` 3종을 devDependency로 추가하고 `postcss.config.mjs` 한 개만 둔다. v3 방식(`tailwind.config.js`, `npx tailwindcss init`, `@tailwind base/components/utilities` 3종 디렉티브)은 쓰지 않는다 — v4는 CSS-first이며 `globals.css` 최상단의 `@import "tailwindcss";` 한 줄이 전부다. `@theme` 커스터마이즈(디자인 토큰 체계)는 만들지 않았다. 이 결정으로 프로젝트 전체의 스타일링 방향이 Tailwind로 고정된다.
+- **`GET /products/[productId]` 상세 화면** — `src/app/products/[productId]/page.tsx`는 얇은 데이터 어댑터다. `params`를 풀고 기존 `getProductDetail()` 서비스를 **직접** 호출한다. 자기 자신의 `GET /api/products/:id`를 HTTP로 되부르지 않는다 — 프로세스 안에서 끝날 일에 네트워크 왕복을 얹고, 절대 URL용 환경변수가 새로 필요해지며, JSON 경계에서 `ProductDetail` 타입 계약을 잃기 때문이다. 페이지와 API가 같은 서비스를 공유하므로 404의 의미가 두 곳에서 갈라질 수 없다.
+  - 존재하지 않는 상품 id는 `notFound()`로 분기하고 `src/app/products/[productId]/not-found.tsx`가 안내 화면을 그린다. 서비스의 내부 오류 문자열(`Product not found`)·스택·DB 정보는 화면으로 전달하지 않는다.
+  - 인증을 요구하지 않는다. 세션 조회도 `redirect()`도 없고 `src/middleware.ts`의 매처(`/admin/:path*`)에 `/products`가 없다(이 SPEC에서 `middleware.ts` 변경 0건).
+- **`ProductDetailView`**(순수 서버 컴포넌트) — 이름·가격·설명 전문·카테고리 이름·재고 상태를 표시한다. 가격은 `Intl.NumberFormat("ko-KR")`으로 `89,000원` 형태(소수점 없음, `₩` 글리프 없음). 재고 0이면 "품절"을 명시한다. 표시 필드를 페이로드 순회가 아니라 하나씩 적어 두었기 때문에, 이후 카탈로그 DTO에 필드가 늘어도 화면에 저절로 새어 나오지 않는다 — 리뷰·관련 상품·재고 변동 이력·`category.id`·`createdAt`/`updatedAt`은 표시하지 않는다.
+- **`ProductGallery`**(클라이언트 컴포넌트) — 상태를 가진 유일한 조각이라 `"use client"` 경계를 여기까지로 좁혔다. 페이지 전체에 붙이면 설명 텍스트까지 클라이언트 번들에 들어간다. props는 직렬화 가능한 `images: string[]`과 `productName: string` 둘뿐이다.
+  - 첫 이미지가 최초 대표 이미지. 이미지가 2장 이상일 때만 썸네일 목록을 렌더하고, 1장이면 아예 렌더하지 않는다. 썸네일 선택 시 대표 이미지가 교체되고 해당 썸네일만 `aria-current="true"`를 갖는다. 빈 배열이면 예외 없이 "이미지 준비 중" 대체 표시를 그린다(`noUncheckedIndexedAccess`가 이 분기를 컴파일러 차원에서 강제한다 — non-null 단언을 쓰지 않은 이유).
+  - 썸네일은 네이티브 `<button>`이다. 로빙 tabindex ARIA 위젯을 손으로 구현하지 않았다 — 몇 개짜리 목록에 그 패턴을 직접 짜면 코드가 몇 배로 늘고 그 자체가 접근성 버그의 출처가 된다. `<button>`은 Tab 이동·Enter/Space 활성화·포커스 링을 브라우저에서 그대로 받는다. 모든 이미지의 `alt`에 상품명이 들어간다.
+  - 확대(zoom), 라이트박스, 스와이프 제스처, 자동 재생 캐러셀은 제공하지 않는다(정적 검사로 매치 0건 확인). 캐러셀·라이트박스 런타임 의존성 추가도 0건이다.
+- **`next.config.ts`**(신규) — `next/image`의 원격 호스트 허용 목록만 담는다. 현재 등록된 유일한 호스트 `picsum.photos`는 실제 상품 이미지 호스트가 아니라 **임시 플레이스홀더**다. 저장소에 시드 데이터가 없고 실제 이미지 호스팅도 아직 정해지지 않았다. 호스팅이 정해지면 이 목록을 교체·확장해야 하며, **그 설정 변경이 실제 상품 이미지 URL을 데이터에 넣기 전에 선행되어야 한다** — 미등록 호스트를 `next/image`에 넘기면 런타임 오류가 난다.
+- **테스트 하네스 확장** — `vitest.config.ts`에 `.tsx` 수집(`tests/**/*.test.tsx`), `.tsx` 커버리지 대상(`src/**/*.tsx`), `esbuild: { jsx: "automatic" }`를 추가했다. 전역 `environment`는 `"node"`로 **유지한다** — 컴포넌트 테스트만 파일 상단의 `// @vitest-environment jsdom` 지시자로 DOM을 켠다. 기존 437개 노드 테스트의 실행 환경을 바꾸는 것은 이 SPEC의 범위가 아니다. devDependency는 `jsdom`과 `@testing-library/react` 2개만 추가했다(`@testing-library/jest-dom`은 넣지 않았다 — `getByRole` 계열이 스스로 예외를 던지므로 별도 매처 없이 단언이 성립한다). `@vitejs/plugin-react`도 도입하지 않았다.
+- 인수 기준 15개(AC-STOREFRONT-001~015) 중 14개 PASS, 1개는 아래 "알려진 한계"의 미확인 항목이다. 테스트는 437개에서 459개로(파일 36 → 40) 늘었고 회귀는 0건, 커버리지는 98.2% lines / 95.5% branches / 100% functions로 임계값(85/85/80/85)을 충족한다. 신규 `.tsx` 6개는 전부 100%다.
+- `src/features/catalog/services/product-service.ts`의 `@MX:ANCHOR` fan-in 주석을 갱신했다 — 상세 페이지가 세 번째 진입점이 됐기 때문이다. 주석 전용 변경이며(주석 블록을 제거한 두 버전의 코드가 완전히 동일함을 확인), 카탈로그 도메인 로직·API·Prisma 스키마·인증·장바구니는 전부 변경 0건이다.
+
+### 알려진 한계 — SPEC-STOREFRONT-001
+
+- **`npm run build`가 실패한다(AC-STOREFRONT-001c 미충족).** 원인은 이 SPEC의 산출물이 아니라 기존 결함이다 — `src/middleware.ts` → `@/lib/auth/jwt` → `node:crypto` 경로에서 Edge 런타임이 `node:crypto`를 번들하지 못한다(`UnhandledSchemeError`). **이 SPEC의 산출물을 전부 제거한 상태에서 빌드해도 동일하게 실패함을 확인했다.** 이 SPEC이 프로젝트에 처음으로 빌드 실행을 도입하면서 드러났을 뿐이다. `src/lib/auth/**`와 `src/middleware.ts`는 이 SPEC의 "변경 0건" 불변 조건 대상이라 고치지 않았고, **칸반 백로그의 별도 카드로 분리해 추적한다.**
+- **AC-STOREFRONT-015(c) — 폭 375px 뷰포트에서 가로 스크롤이 없는지는 확인하지 않았다.** 이 항목은 처음부터 **수동 시각 확인 항목**으로 분류돼 자동 Definition of Done의 통과 조건에서 제외돼 있다. jsdom에는 레이아웃 엔진이 없어 요소 폭·스크롤 폭을 계산할 수 없고, 그것을 관측할 브라우저 E2E 하네스(Playwright 등) 도입은 이 SPEC의 범위 밖이기 때문이다. run-phase는 브라우저를 띄우지 않았으므로 **관측 결과가 없다** — 자동으로 통과했다는 뜻이 아니라, 아직 아무도 확인하지 않았다는 뜻이다. 같은 이유로 썸네일 포커스 링의 실제 렌더도 미확인이다.
+- **빌드 게이트는 CI에 없다.** `.github/workflows/ci.yml`의 실행 단계는 `lint`/`typecheck`/`prisma:validate`/`test:coverage` 네 개이고 `npm run build`가 없다. 이 SPEC이 처음 들여온 빌드 타임 툴체인(PostCSS + Tailwind v4)의 회귀는 CI가 잡아주지 않으며, 손으로 돌려야 한다. CI 워크플로 수정은 이 SPEC의 범위 밖이다.
+- **`npm run typecheck` 오류 13건이 남아 있다** — 전부 기존 테스트 파일 6개의 `NODE_ENV` 읽기 전용 할당(TS2540)이며 이 SPEC 이전부터 존재했다. 산출물을 전부 제거하고 실행해도 13건으로 동일했고, 이 SPEC이 기여한 타입 오류는 0건이다.
+- **jsdom 테스트는 브라우저가 실제로 그려낸 결과를 보지 않는다.** Tailwind 관련 단언이 보장하는 것은 "컴포넌트가 의도한 유틸리티 클래스 토큰을 출력한다 + Tailwind 파이프라인이 설정돼 있다"까지이며, 계산된 CSS·요소 폭·시각적 스타일은 판정 대상이 아니다. 같은 이유로 HTTP 응답 상태 코드(404/200) 자체도 관측하지 않는다 — 이 SPEC의 테스트가 판정하는 것은 페이지가 `notFound()`를 호출하는지까지이고, 그 호출이 HTTP 404로 번역되는 것은 Next.js 런타임의 보증이다.
+- 개별 이미지 URL이 깨진 경우(URL은 있으나 404)의 대체 처리는 없다 — 대체 표시가 다루는 것은 "이미지가 없는 상품"이지 "깨진 URL"이 아니다. 수용된 잔여 위험이며 후속 SPEC 대상이다.
+- 라우트 그룹 `(shop)`은 만들지 않았다. 그룹의 존재 이유인 공통 레이아웃(헤더/푸터)이 이번 범위 밖이라 지금 만들면 빈 디렉터리 한 겹만 남는다. 괄호 이름은 URL에 반영되지 않으므로 나중에 옮겨도 `/products/{id}` 주소는 그대로다.

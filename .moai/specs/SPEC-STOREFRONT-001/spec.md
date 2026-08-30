@@ -2,7 +2,7 @@
 id: SPEC-STOREFRONT-001
 title: "상품 상세 페이지 UI 및 이미지 갤러리 (루트 레이아웃 선행 구축 포함)"
 version: "0.1.2"
-status: in-progress
+status: completed
 created: 2026-08-30
 updated: 2026-08-30
 author: snake
