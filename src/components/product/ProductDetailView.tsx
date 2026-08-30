@@ -1,3 +1,4 @@
+import { ProductGallery } from "@/components/product/ProductGallery";
 import type { ProductDetail } from "@/features/catalog/types/product";
 
 /**
@@ -30,7 +31,11 @@ export function ProductDetailView({ product }: { product: ProductDetail }) {
 
   return (
     <article className="mx-auto max-w-3xl px-4 py-8">
-      <h1 className="text-2xl font-semibold text-neutral-900">{product.name}</h1>
+      {/* Only the two serializable values the gallery needs cross the
+          server/client boundary — never the whole ProductDetail (plan.md §F). */}
+      <ProductGallery images={product.images} productName={product.name} />
+
+      <h1 className="mt-6 text-2xl font-semibold text-neutral-900">{product.name}</h1>
 
       <p className="mt-2 text-sm text-neutral-500">{product.category.name}</p>
 
