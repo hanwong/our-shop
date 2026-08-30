@@ -100,12 +100,32 @@ node:crypto
 `vitest.config.ts`의 `test.environment`는 `"node"` 유지. jsdom은 컴포넌트 테스트 파일
 상단의 `// @vitest-environment jsdom` 지시자로만 적용된다.
 
-### 미해결 항목
+### acceptance.md §4 / §5 충돌과 그 처리
 
-- `product-service.ts`의 `@MX:ANCHOR` fan-in 주석은 **갱신하지 않았다.** acceptance.md
-  §5 DoD와 plan.md §B/M5는 갱신을 요구하지만, acceptance.md §4는 같은 파일이 속한
-  `src/features/catalog/**`에 대해 "변경 0건"을 요구한다. 두 조건이 동시에 성립할 수 없어
-  기계적으로 검증되는 §4 불변 조건을 지키는 쪽을 택했고, 판단을 orchestrator에 남긴다.
+`product-service.ts`의 `@MX:ANCHOR` fan-in 주석에 대해 acceptance.md §5 DoD와
+plan.md §B/M5는 갱신을 요구하는 반면, acceptance.md §4는 같은 파일이 속한
+`src/features/catalog/**`에 "변경 0건"을 요구해 두 조건이 동시에 성립하지 않았다.
+
+**orchestrator 판정(2026-08-30): 주석을 갱신한다.** §4의 취지는 동작 보존이지 주석
+동결이 아니며, mx-tag-protocol에 따라 MX 주석은 에이전트가 자율적으로 갱신하는 대상이다.
+
+갱신 결과는 **주석 전용 변경**이며(M5 다음의 `docs(SPEC-STOREFRONT-001)` 커밋),
+다음으로 확인했다.
+
+- 주석이 아닌 변경 줄 수: 0
+- 주석 블록을 제거한 두 버전의 코드 비교: 완전히 동일
+- 갱신 후 `npm run test` 40 파일 / 459 테스트 통과, `npm run lint` 오류 0,
+  `npm run typecheck` 오류 13건(기존과 동일, 증감 없음)
+
+따라서 `src/features/catalog/**`의 변경은 1개 파일 / 주석 5줄이며, 동작·로직 변경은 없다.
+그 외 PRESERVE 경로(`src/app/api`, `prisma`, `src/lib/auth`, `src/features/cart`,
+`src/middleware.ts`)는 변경 0건을 유지한다.
+
+### 후속 카드로 분리된 항목
+
+- `npm run build` 실패(`node:crypto` / Edge 런타임, `src/middleware.ts` → `jwt.ts`)는
+  orchestrator 판정(2026-08-30)에 따라 **별도 백로그 카드**로 분리됐다. 이 SPEC에서
+  `middleware.ts` / `jwt.ts`는 손대지 않는다.
 
 ## §E.3 Run-phase Audit-Ready Signal
 
@@ -117,7 +137,7 @@ ac_pass_count: 15
 ac_fail_count: 0
 ac_blocked_count: 1          # AC-001(c) 빌드 게이트 — 기존 결함이 원인
 ac_manual_pending_count: 1   # AC-015(c) — acceptance.md §5의 수동 확인 항목
-preserve_list_post_run_count: 0
+preserve_list_post_run_count: 1   # product-service.ts, 주석 전용 (orchestrator 승인)
 new_warnings_or_lints_introduced: 0
 new_type_errors_introduced: 0
 pre_existing_type_errors: 13

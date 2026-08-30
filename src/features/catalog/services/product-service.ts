@@ -28,10 +28,11 @@ import { findCategoryIdBySlug } from "@/features/catalog/repositories/category-r
  * /009 (sort defaulting and rejection), REQ-CATALOG-010/011 (category filter),
  * REQ-CATALOG-013/014/015 (detail, 404, field whitelist).
  *
- * @MX:ANCHOR fan-in target — both public route handlers under
- * src/app/api/products/ enter the catalog domain exclusively through
- * listProducts() and getProductDetail(); the repositories are never called
- * from the app/ layer directly.
+ * @MX:ANCHOR fan-in target — three callers enter the catalog domain
+ * exclusively through listProducts() and getProductDetail(): the two public
+ * route handlers under src/app/api/products/, and the product detail page at
+ * src/app/products/[productId]/page.tsx (SPEC-STOREFRONT-001). The
+ * repositories are never called from the app/ layer directly.
  * @MX:REASON this module is the only place query parameters are validated, so
  * a regression here is an input-validation hole on two unauthenticated public
  * endpoints, not a local bug.
