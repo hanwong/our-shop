@@ -9,6 +9,7 @@ A TypeScript / Next.js e-commerce backend. This repository currently implements:
 - **SPEC-CATALOG-002** — keyword search (name-based partial match) on the product list API.
 - **SPEC-CART-001** — cart (add/update-quantity/remove) and guest-to-member cart merge on login.
 - **SPEC-CI-001** — GitHub Actions CI: lint/typecheck/schema-validate/test run automatically on every PR and push to `main`.
+- **SPEC-STOREFRONT-001** — the first UI surface: a root document shell (Tailwind CSS v4) and the `/products/{productId}` detail page with an image gallery.
 
 ## Stack
 
@@ -119,7 +120,25 @@ Key security properties (see `.moai/specs/SPEC-AUTH-001/` for the full spec/acce
 
 **알려진 한계**(자세한 내용은 `.moai/specs/SPEC-CART-001/progress.md` 참고): PostgreSQL이 없는 환경이라 마이그레이션 실제 적용·DB 제약(유니크 충돌, cascade 삭제)의 실제 동작·동시 담기 경합은 미검증이다. 게스트→회원 병합 실패는 로그인 성공을 지키기 위해 의도적으로 삼켜지는데, 이 저장소에 로깅 인프라가 없어 실패가 기록되지 않는다(알려진 관측성 공백). 게스트 카트 쿠키는 낮은 유출 위험 판단에 따라 평문 저장이며 CSRF 토큰을 요구하지 않는다(받아들인 잔여 위험).
 
+## 스토어프론트 화면 (SPEC-STOREFRONT-001)
+
+이 저장소의 첫 UI다. 이전 SPEC들은 전부 API·도메인 계층만 만들었고, Next.js App Router는 루트 레이아웃 없이 어떤 라우트도 렌더링하지 못하므로 루트 문서 셸 구축이 상세 화면의 선행 산출물로 함께 들어갔다.
+
+| 경로 | 파일 | 설명 |
+|---|---|---|
+| `/` | `src/app/page.tsx` | 상세 화면 진입 링크 한 줄짜리 스텁. 홈 콘텐츠 설계는 범위 밖 |
+| `/products/[productId]` | `src/app/products/[productId]/page.tsx` | 상품 상세. 서버 컴포넌트가 `getProductDetail()`을 직접 호출한다(자기 API를 HTTP로 되부르지 않음) |
+| (404) | `src/app/products/[productId]/not-found.tsx` | 존재하지 않는 상품 안내 화면 |
+
+화면 컴포넌트는 `src/components/product/`에 있다 — `ProductDetailView`(순수 서버 컴포넌트: 이름·가격·설명 전문·카테고리·재고)와 `ProductGallery`(`"use client"`, 대표 이미지 + 썸네일 전환). 상세 화면은 인증을 요구하지 않는다.
+
+스타일링은 **Tailwind CSS v4**(CSS-first)로 확정됐다 — 설정 파일은 `postcss.config.mjs` 하나뿐이고 `tailwind.config.js`는 만들지 않는다. 이미지는 `next/image`를 쓰며 허용 호스트는 `next.config.ts`의 `images.remotePatterns`에 등록된 `picsum.photos` 하나뿐이다. **이것은 실제 상품 이미지 호스트가 아니라 임시 플레이스홀더다** — 실제 호스팅이 정해지면 이 목록을 먼저 갱신해야 하며, 그 전에 실제 이미지 URL을 데이터에 넣으면 `next/image`가 런타임 오류를 낸다.
+
+갤러리는 의도적으로 작다: 확대·라이트박스·스와이프·자동 재생 캐러셀은 제공하지 않는다. 썸네일은 네이티브 `<button>`이라 Tab 이동·Enter/Space 활성화·포커스 링을 브라우저에서 그대로 받는다. 장바구니 담기 버튼, 헤더·푸터·전역 내비게이션, 상품 목록/검색 화면은 전부 이 SPEC의 범위 밖이며 별도 SPEC 대상이다.
+
+**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-STOREFRONT-001/progress.md` 참고): `npm run build`가 실패한다 — 원인은 이 SPEC이 아니라 `src/middleware.ts` → `src/lib/auth/jwt.ts` → `node:crypto` 경로의 기존 결함이며(Edge 런타임이 `node:crypto`를 번들하지 못함), 이 SPEC의 산출물을 전부 제거해도 동일하게 실패함을 확인했다. 칸반 백로그의 별도 카드로 분리해 추적한다. 폭 375px 뷰포트의 가로 스크롤 여부는 **아직 확인하지 않았다** — 브라우저 E2E 하네스가 없어 자동 판정이 불가능한 수동 확인 항목이며, 통과했다는 뜻이 아니라 아직 아무도 보지 않았다는 뜻이다. 빌드 게이트는 CI에 없어(`.github/workflows/ci.yml`에 `npm run build` 단계 없음) Tailwind 툴체인 회귀는 손으로 돌려야 잡힌다.
+
 ## Project documentation
 
 - `.moai/project/product.md`, `structure.md`, `tech.md` — project-wide docs
-- `.moai/specs/SPEC-AUTH-001/`, `.moai/specs/SPEC-CATALOG-001/`, `.moai/specs/SPEC-CATALOG-002/`, `.moai/specs/SPEC-CART-001/` — each feature's SPEC, plan, acceptance criteria, and progress record
+- `.moai/specs/SPEC-AUTH-001/`, `.moai/specs/SPEC-CATALOG-001/`, `.moai/specs/SPEC-CATALOG-002/`, `.moai/specs/SPEC-CART-001/`, `.moai/specs/SPEC-STOREFRONT-001/` — each feature's SPEC, plan, acceptance criteria, and progress record

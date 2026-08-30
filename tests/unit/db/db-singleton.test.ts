@@ -19,26 +19,27 @@ function clearGlobalPrismaCache(): void {
 // tests/unit/db/prisma-log-levels.test.ts — not duplicated here.
 
 describe("prisma client singleton caching behavior (SPEC-AUTH-001 M1)", () => {
-  const originalNodeEnv = process.env.NODE_ENV;
-
   beforeEach(() => {
     vi.resetModules();
     clearGlobalPrismaCache();
   });
 
   afterEach(() => {
-    process.env.NODE_ENV = originalNodeEnv;
+    // vi.stubEnv is the sanctioned way to write process.env.NODE_ENV: Next.js
+    // declares it `readonly` on NodeJS.ProcessEnv, so a direct assignment is a
+    // TS2540 compile error. unstubAllEnvs restores the pre-stub value.
+    vi.unstubAllEnvs();
     clearGlobalPrismaCache();
   });
 
   it("caches the instance on globalThis when NODE_ENV is not production", async () => {
-    process.env.NODE_ENV = "development";
+    vi.stubEnv("NODE_ENV", "development");
     const { prisma } = await import(MODULE_PATH);
     expect((globalThis as GlobalWithPrisma).prisma).toBe(prisma);
   });
 
   it("does not cache the instance on globalThis when NODE_ENV is production", async () => {
-    process.env.NODE_ENV = "production";
+    vi.stubEnv("NODE_ENV", "production");
     await import(MODULE_PATH);
     expect((globalThis as GlobalWithPrisma).prisma).toBeUndefined();
   });
@@ -46,7 +47,7 @@ describe("prisma client singleton caching behavior (SPEC-AUTH-001 M1)", () => {
   it("reuses an existing globalThis.prisma instance instead of constructing a new one", async () => {
     const sentinel = { __sentinel: true };
     (globalThis as GlobalWithPrisma).prisma = sentinel;
-    process.env.NODE_ENV = "development";
+    vi.stubEnv("NODE_ENV", "development");
     const { prisma } = await import(MODULE_PATH);
     expect(prisma).toBe(sentinel);
   });

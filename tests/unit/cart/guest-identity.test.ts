@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 /**
  * SPEC-CART-001 M2 — src/lib/auth/guest-identity.ts
@@ -17,10 +17,14 @@ const ORIGINAL_ENV = { ...process.env };
 beforeEach(() => {
   delete process.env.GUEST_CART_COOKIE_EXPIRY;
   delete process.env.COOKIE_DOMAIN;
-  process.env.NODE_ENV = "test";
+  // NODE_ENV is written via vi.stubEnv: Next.js declares it `readonly` on
+  // NodeJS.ProcessEnv, so a direct assignment is a TS2540 compile error.
+  vi.stubEnv("NODE_ENV", "test");
 });
 
 afterEach(() => {
+  // Drain the stub registry before swapping process.env for a fresh copy.
+  vi.unstubAllEnvs();
   process.env = { ...ORIGINAL_ENV };
 });
 
@@ -103,11 +107,11 @@ describe("SPEC-CART-001 M2 — guest cookie attributes (AC-CART-004)", () => {
   });
 
   it("sets Secure outside development and clears it in development", async () => {
-    process.env.NODE_ENV = "production";
+    vi.stubEnv("NODE_ENV", "production");
     const prod = await import("@/lib/auth/guest-identity");
     expect(prod.buildGuestCartCookie("g").options.secure).toBe(true);
 
-    process.env.NODE_ENV = "development";
+    vi.stubEnv("NODE_ENV", "development");
     expect(prod.buildGuestCartCookie("g").options.secure).toBe(false);
   });
 });

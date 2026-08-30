@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+/*
+ * SPEC-STOREFRONT-001 M1 — global stylesheet.
+ *
+ * The Tailwind entry point above plus the minimum body typography needed for
+ * readable Korean copy. No `@theme` block: a design-token system is excluded
+ * by spec.md §3, and inventing one here would fix project-wide styling
+ * decisions this SPEC has no mandate to make.
+ */
+
+body {
+  /* A Latin stack ahead of the platform Korean faces. Web-font subsetting is
+     out of scope; these are all system-resident. */
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    "Apple SD Gothic Neo",
+    "Malgun Gothic",
+    "Noto Sans KR",
+    sans-serif;
+  line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
+}
