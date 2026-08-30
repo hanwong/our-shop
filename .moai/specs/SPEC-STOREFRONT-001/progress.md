@@ -156,7 +156,7 @@ m1_to_mN_commit_strategy: "마일스톤별 개별 커밋 (M2 → M1 → M3 → M
 
 ```yaml
 sync_complete_at: 2026-08-30
-sync_commit_sha: pending-backfill-sync
+sync_commit_sha: f080f7b2089c72c918158d859d829917141e3897
 sync_status: complete-with-known-gaps
 b12_self_test_a: "grep -c 'SPEC-STOREFRONT-001' CHANGELOG.md → 0 (pre-emission); 1 (post-emission, no duplicate)"
 b12_self_test_b: "grep -oE 'AC-STOREFRONT-[0-9]+' acceptance.md | sort -u | wc -l → 15; CHANGELOG entry states 15 (14 PASS + 1 unverified manual). Non-zero, matches acceptance.md §1 header (현재 15개)"
