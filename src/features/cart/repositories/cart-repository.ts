@@ -43,6 +43,21 @@ const CART_INCLUDE = {
 
 export type CartWithItems = Prisma.CartGetPayload<{ include: typeof CART_INCLUDE }>;
 
+/**
+ * SPEC-ORDER-001 §4.1 — a client capable of running these queries: the module
+ * singleton above, or the one `prisma.$transaction` hands its callback. Both
+ * satisfy `Prisma.TransactionClient`, so no union is needed.
+ *
+ * Only findCartByGuestId() and deleteCart() accept one, and only as an OPTIONAL
+ * trailing parameter defaulting to the singleton — so every existing call site
+ * is unchanged. The order transaction must read the guest cart and delete it
+ * INSIDE its transaction (SPEC-ORDER-001 design.md §2 steps 1 and 6); the
+ * alternative was to copy the `where: { guestId }` ownership query into the
+ * order domain, forking the very authorization surface the module anchor above
+ * exists to keep in one place.
+ */
+type CartClient = Prisma.TransactionClient;
+
 export interface CartItemLookup {
   id: string;
   cartId: string;
@@ -92,9 +107,15 @@ export async function findCartByUserId(userId: string): Promise<CartWithItems | 
  * Also returns null for a guest id that no longer resolves — a tampered
  * cookie, or one whose cart was merged away at login. Both are handled as
  * "this identity has no cart yet" rather than as an error (acceptance.md §2).
+ *
+ * `client` is SPEC-ORDER-001 §4.1's optional transaction client. Omitting it
+ * gives the exact behaviour every pre-existing caller already had.
  */
-export async function findCartByGuestId(guestId: string): Promise<CartWithItems | null> {
-  return prisma.cart.findUnique({ where: { guestId }, include: CART_INCLUDE });
+export async function findCartByGuestId(
+  guestId: string,
+  client: CartClient = prisma
+): Promise<CartWithItems | null> {
+  return client.cart.findUnique({ where: { guestId }, include: CART_INCLUDE });
 }
 
 /**
@@ -186,8 +207,10 @@ export async function promoteGuestCartToUser(cartId: string, userId: string): Pr
  * CartItem.cartId, so they are not deleted separately here.
  *
  * Used on the merge path (plan.md §2.3 step 3) once the guest cart's contents
- * have been folded into an existing member cart.
+ * have been folded into an existing member cart, and — via `client` —
+ * SPEC-ORDER-001 §4.1's order transaction, which empties the cart as its final
+ * step once the order is known to have succeeded.
  */
-export async function deleteCart(cartId: string): Promise<void> {
-  await prisma.cart.delete({ where: { id: cartId } });
+export async function deleteCart(cartId: string, client: CartClient = prisma): Promise<void> {
+  await client.cart.delete({ where: { id: cartId } });
 }
