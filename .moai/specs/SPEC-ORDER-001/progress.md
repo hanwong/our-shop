@@ -65,11 +65,143 @@ tier: L
 
 ## §E.2 Run-phase Evidence
 
-_<pending run-phase>_
+cycle_type: **tdd** (RED-GREEN-REFACTOR). 마일스톤 M1~M7을 논리 단위별 커밋 7건으로 완료했다.
+브랜치 `WT-order-checkout`, plan-phase 기준 커밋 `c19ab47`, run-phase 종료 시점 HEAD `698dfd4`.
+
+| 마일스톤 | 커밋 | 산출물 |
+|---|---|---|
+| M1 데이터 모델 | `928ad88` | `prisma/schema.prisma`(OrderStatus/Order/OrderItem), `prisma/migrations/20260831120000_add_order_models/migration.sql`, `tests/unit/orders/schema.test.ts` |
+| M2 타입·리포지토리 | `f60f5e2` | `features/orders/types/order.ts`, `features/orders/repositories/order-repository.ts`, `cart-repository.ts`(§4.1 예외) |
+| M3 주문 생성 서비스 | `0271620` | `features/orders/services/order-service.ts` |
+| M4 API 라우트 | `dfe23d0` | `src/app/api/orders/route.ts` |
+| M5 주문서 화면 | `e5020dd` | `app/checkout/page.tsx`, `components/checkout/{OrderSummary,CheckoutForm,CheckoutUnavailable}.tsx` |
+| M6 완료 화면 | `74838a7` | `app/checkout/complete/[orderId]/page.tsx` |
+| M7 통합·경계 검증 | `698dfd4` | `tests/integration/orders/create-order.test.ts`, `tests/unit/orders/scope-boundaries.test.ts`, `tests/unit/components/checkout-form.test.tsx` |
+
+### 실행한 검증 명령과 관측된 출력 (HEAD `698dfd4` 기준, 증거 로그 `.moai/state/verify/spec-order-001/`)
+
+| 명령 | 종료 코드 | 관측 결과 |
+|---|---|---|
+| `npm run test` | 0 | `Test Files 50 passed (50)` / `Tests 631 passed (631)` |
+| `npm run test:coverage` | 0 | `All files 98.37 stmts / 95.72 branch / 100 funcs / 98.37 lines` — 임계값(85/80/85/85) 상회 |
+| `npm run lint` | 0 | 출력 없음 |
+| `npm run typecheck` | 0 | 출력 없음 |
+| `npm run prisma:validate` | 0 | `The schema at prisma/schema.prisma is valid 🚀` |
+| `npm run build` | **1** | **선행 결함 — 아래 참조. 이 SPEC이 만든 것이 아니다** |
+
+이 SPEC이 추가한 테스트 파일별 개수: `order-service` 39, `checkout-page` 21, `schema` 20,
+`create-order`(통합) 18, `api/orders/route` 17, `scope-boundaries` 15, `order-repository` 13,
+`checkout-complete-page` 11, `cart-repository-tx` 9, `checkout-form` 9 — 합계 **172건 신규**,
+기존 459건은 전부 무변경 통과(459 → 631).
+
+### `npm run build` 실패는 선행 결함이다 (근거를 남긴다)
+
+acceptance.md §3의 품질 게이트 6개 중 `npm run build`만 exit 1이다. **이 SPEC의 산출물 때문이
+아니라는 것을 추정이 아니라 실험으로 확인했다.**
+
+- 실패 원인: `src/middleware.ts`(Edge 런타임)가 `@/lib/auth/jwt`의 `verifyAccessToken`을 import하고,
+  `jwt.ts`가 `node:crypto`를 import한다. Edge 런타임은 `node:` 스킴을 처리하지 못한다.
+  webpack import trace가 `node:crypto ← ./src/lib/auth/jwt.ts` 한 줄만 가리킨다.
+- **귀속 실험**: `src/app/checkout/`과 `src/app/api/orders/`를 일시적으로 트리 밖으로 옮기고
+  `npm run build`를 다시 실행했다 → **동일한 오류로 exit 1**
+  (증거: `.moai/state/verify/spec-order-001/build-without-order-routes.log`). 이 SPEC이 만든 라우트가
+  전부 없는 상태에서도 재현되므로 원인은 이 SPEC 밖에 있다.
+- 두 파일 모두 이 SPEC의 PRESERVE 대상이며 diff 0줄이다
+  (`git diff --numstat c19ab47 -- src/middleware.ts src/lib/auth/jwt.ts` → 빈 출력).
+- **고치지 않았다.** plan.md §4가 `src/lib/auth/**`와 `src/middleware.ts`를 불변 조건으로 못 박았고,
+  SPEC-AUTH-001의 표면을 이 SPEC이 손대는 것은 범위 위반이다. 후속 조치가 필요한 항목으로 남긴다.
+
+### fake의 `$transaction` 롤백 구현 여부 (acceptance.md §0·§4가 요구한 기록)
+
+**구현했다.** `tests/integration/orders/create-order.test.ts`의 `$transaction`은 호출 전
+`structuredClone`으로 스토어 전체를 스냅샷하고, 콜백이 throw하면 스냅샷으로 되돌린다.
+그리고 그 성질 자체를 테스트로 고정했다 — `"restores every write when the transaction callback
+throws"`가 롤백이 실제로 일어나는지 직접 단언한다. 따라서 **AC-ORDER-011·012를 PASS로 계상한다**
+(§0의 전제 조건 충족).
+
+다른 세션이 커밋한 주문은 롤백 대상에서 제외되도록 별도 목록으로 모델링했다. 롤백은 자기
+트랜잭션의 쓰기만 되돌리기 때문이며, 이 구분이 없으면 design.md §5의 2차 방어(경합에서 진 요청이
+롤백한 뒤 승자의 주문을 **찾아내는** 경로)를 애초에 재현할 수 없다.
+
+### 이름 붙은 제외 3건 — 관측하지 않았다 (PASS로 계상하지 않음)
+
+acceptance.md §4가 요구한 대로 세 이름을 그대로 적어 미검증으로 남긴다.
+
+| 제외 ID | 관측하지 않은 것 | 왜 |
+|---|---|---|
+| `AC-012-EXCL-ROLLBACK` | PostgreSQL이 실제로 트랜잭션을 되돌리는지 | 살아 있는 PostgreSQL이 없다. fake가 되돌리는 것은 fake가 저장한 것이지 데이터베이스가 되돌린 것이 아니다. 여기서 관측한 것은 "서비스가 트랜잭션 콜백 안에서만 쓰고, 실패 시 throw로 콜백을 중단시킨다"까지다 |
+| `AC-013-EXCL-CONCURRENCY` | 동시 주문 두 건이 행 잠금으로 직렬화되어 한 건만 성공하는 것 | 위와 같다. 관측한 것은 재고 차감이 `updateMany` + `stock: { gte: quantity }` 형태로 작성되었고 `count !== 1`이면 실패 경로로 간다는 것까지다 |
+| `AC-016-EXCL-UNIQUE-RACE` | 동시 도착 두 요청이 `@unique` 위반으로 직렬화되는 2차 방어 | 위와 같다. 순차 재제출(1차 방어)과, unique 위반을 주입했을 때 최초 주문을 재조회해 반환하는 경로까지는 관측했다 |
+
+**초록불을 원자성·동시성의 증거로 제시하지 않는다.**
+
+### AC별 PASS/FAIL 매트릭스 (20건)
+
+| AC | 판정 | 검증 위치 |
+|---|---|---|
+| AC-ORDER-001 | PASS | `schema.test.ts`(guestId NOT NULL, userId/user/@@index([userId]) 부재, User diff 0), `scope-boundaries.test.ts` |
+| AC-ORDER-002 | PASS | `create-order.test.ts` — 주문 후 상품 가격·이름 변경 뒤 재조회 시 스냅샷 불변 |
+| AC-ORDER-003 | PASS | `order-service.test.ts`(주문번호 형식·비순차), `create-order.test.ts`(status=pending_payment, 금액 확정) |
+| AC-ORDER-004 | PASS | `order-service.test.ts`(수량 0·-3), `create-order.test.ts`(수량 0 주입 → 500, OrderItem 0건) |
+| AC-ORDER-005 | PASS | `checkout-page.test.tsx` — 서버 출력에 상품명·수량·단가·합계 존재 + 최초 렌더 경로 `fetch`/`useEffect` 0건 |
+| AC-ORDER-006 | PASS | `checkout-page.test.tsx` 6건 — 양식 미렌더, 단정 문구 부재, 회원 고지 존재, 쿠키 발급 시도 0건 |
+| AC-ORDER-007 | PASS | `checkout-page.test.tsx`(리다이렉트·404 없음, middleware matcher에 `/checkout` 부재), `route.test.ts`(401·403 아님) |
+| AC-ORDER-008 | PASS | `checkout-page.test.tsx` — 입력 5개 정확히, 결제수단·이메일 토큰 0건 |
+| AC-ORDER-010 | PASS | `order-service.test.ts` 8케이스 + `route.test.ts` — 400 + `fieldErrors`, 트랜잭션 미개시 |
+| AC-ORDER-011 | PASS | `create-order.test.ts` 5건 (fake 롤백 구현 확인 완료 — 위 전제 충족) |
+| AC-ORDER-012 | PASS(부분) | `create-order.test.ts` 2건 + `scope-boundaries.test.ts` 정적 검사(`prisma.` 사용처가 `$transaction` 단 하나). **`AC-012-EXCL-ROLLBACK`은 미검증으로 별도 기록** |
+| AC-ORDER-013 | PASS | `create-order.test.ts` 2건(경계 `stock === quantity` 포함), `route.test.ts`, `order-service.test.ts` |
+| AC-ORDER-014 | PASS | `create-order.test.ts`, `route.test.ts`, `order-service.test.ts` — 409 `PRICE_CHANGED` + 재계산 금액 |
+| AC-ORDER-015 | PASS | `create-order.test.ts` 2건(쿠키 있음/없음, 후자는 Set-Cookie 부착 확인), `route.test.ts` |
+| AC-ORDER-016 | PASS | `create-order.test.ts` 2건(순차 재제출, unique 경합), `order-service.test.ts` 3건, `route.test.ts` |
+| AC-ORDER-018 | PASS | `checkout-complete-page.test.tsx` 6건 — 주문번호·주문시점 단가·총액·배송지·결제 미완료 고지(양방향 단언) |
+| AC-ORDER-019 | PASS | `scope-boundaries.test.ts` 4건 — package.json/.env.example diff 0, PG 엔드포인트 0건, `paid` 전이 코드 0건 |
+| AC-ORDER-020 | PASS | `checkout-complete-page.test.tsx` 5건 — 다른 쿠키·무쿠키 모두 `notFound()`, 내용 미노출, 헤더 판독 코드 0건 |
+| AC-ORDER-021 | PASS | `checkout-page.test.tsx` 3건 — 금지 토큰 6종 0건, `"guest_cart_id"` 리터럴 0건 + `GUEST_CART_COOKIE_NAME` import 존재, `server-identity.ts` 부재 |
+| AC-ORDER-022 | PASS | `route.test.ts` 5건(실제 서명 토큰 사용) + `create-order.test.ts` 1건 — 409 `MEMBER_CHECKOUT_UNSUPPORTED`, `$transaction` 미호출, 주문·재고·카트 무변경 |
+
+### plan.md §4 불변 조건 / §4.1 예외 경계 (git diff로 확인)
+
+- `src/lib/auth/**` diff **0줄** — import·호출만 했다.
+- `src/middleware.ts` diff **0줄**.
+- `src/features/catalog/**`, `src/app/api/products/**` diff **0줄**.
+- `src/features/cart/**` 변경 파일 **1개**(`repositories/cart-repository.ts`)뿐이며, 변경은
+  `findCartByGuestId`·`deleteCart` 두 함수의 **선택적** 인자 추가로 한정된다. `findCartByUserId`는
+  무변경(회원 경로가 범위 밖이므로 열지 않았다).
+- 기존 호출부(`cart/services`, `cart/types`, `app/api/cart`, `app/api/auth`) diff **0줄** —
+  인자가 선택적이라는 사실의 기계적 증거다.
+- `prisma/schema.prisma`의 `User` 모델 diff **0줄**, `Product`는 역참조 1필드만 추가.
+- 위 항목 전부 `scope-boundaries.test.ts`가 `git diff --numstat`으로 매 실행마다 재확인한다.
+
+### plan.md §0 확정 결정 5건과의 일치
+
+#1 주문 선생성(`pending_payment` + 주문 생성 시점 재고 차감) 구현됨 · #2 재고 해제 정책 미구현
+(코드 없음) · #3 배송비 `calculateShippingFee()` 단일 함수, 0원 반환 · #4 이메일 미수집(타입·스키마·
+양식 어디에도 없음) · #5 회원 체크아웃 제외(스키마·서비스 시그니처·라우트 3중 방어).
+#2~#4의 **잠정 결정(재검토 가능)** 표기는 plan.md에 그대로 유지되어 있다.
+
+### 설계 문서에 없어 run-phase가 판단한 것 1건 (기록)
+
+REQ-ORDER-004(수량 1 미만 거부)에 대응하는 실패 코드가 design.md §8 표에 없다. 새 코드를 발명하는
+대신 같은 표의 마지막 행(**"그 외 예기치 못한 오류 → 500, 코드 없음"**)을 적용했다. 근거: 요청 자체는
+정상이고 서버 상태가 이상한 경우이므로 사용자가 고칠 수 있는 것이 없고, 사용자에게 알릴 이름이
+필요하지 않다. 표를 벗어나지 않으면서 AC-ORDER-004(거부 + 아무 것도 영속화하지 않음)를 만족한다.
 
 ## §E.3 Run-phase Audit-Ready Signal
 
-_<pending run-phase>_
+- run_status: **audit-ready**
+- run_complete_at: 2026-08-31
+- branch: `WT-order-checkout` / HEAD: `698dfd4` / base: `c19ab47`
+- 커밋 7건(M1~M7), 마일스톤별 1커밋 — 무관한 마일스톤을 한 커밋에 묶지 않았다.
+- 자동 검증 가능한 AC **20건 전부 PASS**. 이름 붙은 제외 3건은 위 표에 **미검증으로 명시 기록**했고
+  PASS로 계상하지 않았다.
+- 품질 게이트 6개 중 5개 exit 0. `npm run build`만 exit 1이며, **선행 결함임을 귀속 실험으로 확인**해
+  §E.2에 근거와 함께 기록했다(이 SPEC의 PRESERVE 파일 2개가 원인, diff 0줄).
+- sync-phase가 받아 갈 잔여 항목:
+  1. `npm run build` 선행 실패(Edge 런타임 ↔ `node:crypto`) — SPEC-AUTH-001 표면의 문제이므로 별도
+     SPEC 또는 이슈로 처리해야 한다. 이 SPEC이 도입하지 않았고 이 SPEC이 고칠 수도 없다.
+  2. 미결제 주문의 재고 점유 해제 정책 부재(plan.md §0 #2의 잠정 결정) — 설계상 필연이며 숨기지 않는다.
+  3. `/checkout`으로 가는 화면 링크 부재 — 장바구니 UI SPEC의 몫(plan.md §0 관련 메모).
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
