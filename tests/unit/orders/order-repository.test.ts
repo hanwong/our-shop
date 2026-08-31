@@ -24,15 +24,26 @@ const singleton = {
 
 vi.mock("@/lib/db", () => ({ prisma: singleton }));
 
-/** A stand-in for the client `prisma.$transaction` hands its callback. */
+/**
+ * A stand-in for the client `prisma.$transaction` hands its callback.
+ *
+ * Each mock declares its argument through vi.fn's TYPE PARAMETER rather than in
+ * the implementation. A bare `vi.fn(async () => ...)` infers a zero-argument
+ * signature, which makes `mock.calls[0]` an empty tuple under
+ * `noUncheckedIndexedAccess` and every call-inspection below a type error —
+ * while an unused `_args` parameter in the implementation would trip
+ * no-unused-vars. The type parameter satisfies both.
+ */
 function fakeTx() {
   return {
     order: {
-      findUnique: vi.fn(async () => null),
-      findFirst: vi.fn(async () => null),
-      create: vi.fn(async () => ({ id: "order-1" })),
+      findUnique: vi.fn<(args: unknown) => Promise<null>>(async () => null),
+      findFirst: vi.fn<(args: unknown) => Promise<null>>(async () => null),
+      create: vi.fn<(args: unknown) => Promise<{ id: string }>>(async () => ({ id: "order-1" })),
     },
-    product: { updateMany: vi.fn(async () => ({ count: 1 })) },
+    product: {
+      updateMany: vi.fn<(args: unknown) => Promise<{ count: number }>>(async () => ({ count: 1 })),
+    },
   };
 }
 

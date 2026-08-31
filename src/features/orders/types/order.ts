@@ -111,7 +111,12 @@ export type OrderFailure =
       code: "INSUFFICIENT_STOCK";
       products: InsufficientStockProduct[];
     }
-  | { status: 409; error: string; code: "PRICE_CHANGED"; totalAmount: number };
+  | { status: 409; error: string; code: "PRICE_CHANGED"; totalAmount: number }
+  // design.md §8's last row: an unexpected transaction failure answers 500 with
+  // NO code. A cart line stored at quantity <= 0 lands here (REQ-ORDER-004) —
+  // the request is well-formed and the server state is wrong, so there is
+  // nothing the shopper can correct and no code worth naming for them.
+  | { status: 500; error: string };
 
 /** The service's return shape: a value, or a refusal that maps to a response. */
 export type OrderResult<T> = { ok: true; data: T } | ({ ok: false } & OrderFailure);
