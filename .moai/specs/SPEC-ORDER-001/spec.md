@@ -2,7 +2,7 @@
 id: SPEC-ORDER-001
 title: "주문서 작성 화면 및 주문 생성 트랜잭션 (게스트 전용)"
 version: "0.2.0"
-status: draft
+status: in-progress
 created: 2026-08-31
 updated: 2026-08-31
 author: snake
