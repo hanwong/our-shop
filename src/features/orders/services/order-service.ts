@@ -293,8 +293,14 @@ export async function createOrder(guestId: string, body: unknown): Promise<Order
 
   // First line of defence for REQ-ORDER-016: a key that already produced an
   // order returns that order, unchanged, having touched nothing.
+  //
+  // The owner check is REQ-ORDER-020 (AC-ORDER-023). The key alone names an
+  // order but proves nothing about who is asking for it, so a replay is only a
+  // replay for the guest that minted the key; for anyone else the key is simply
+  // not theirs and this branch must not fire. Without this the endpoint hands a
+  // stranger the whole order, shipping PII included — the audit's F1.
   const replayed = await findOrderByIdempotencyKey(input.idempotencyKey);
-  if (replayed !== null) {
+  if (replayed !== null && replayed.guestId === guestId) {
     return { ok: true, data: toOrderDTO(replayed) };
   }
 
@@ -415,11 +421,25 @@ export async function createOrder(guestId: string, body: unknown): Promise<Order
     // Order.idempotencyKey's unique constraint. Its whole transaction rolled
     // back — so no stock was double-decremented — and the winner's order is now
     // visible under the same key.
+    //
+    // The same owner check as the fast path above, and for the same reason
+    // (AC-ORDER-023): this lookup is also by key alone, so a winner belonging to
+    // another guest must not be handed back here either. Losing the race is not
+    // a licence to read a stranger's order.
     if (isUniqueViolation(error)) {
       const winner = await findOrderByIdempotencyKey(input.idempotencyKey);
-      if (winner !== null) {
+      if (winner !== null && winner.guestId === guestId) {
         return { ok: true, data: toOrderDTO(winner) };
       }
+
+      // The key is taken by an order that is not this guest's. Answering with
+      // design.md §8's unexpected-transaction row — 500, no code — is
+      // deliberate: it is the same answer any other unnamed unique collision
+      // gets, so it tells the caller nothing about whether the key exists,
+      // following the non-disclosure precedent findOrderForGuest() sets for the
+      // read path (design.md §6.3). The rolled-back transaction means nothing
+      // was written, and the order that owns the key is untouched.
+      return fail({ status: 500, error: "주문을 처리할 수 없습니다" });
     }
 
     // Anything else is genuinely unexpected. It is rethrown rather than

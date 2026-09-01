@@ -630,6 +630,129 @@ describe("SPEC-ORDER-001 — a cart line below quantity 1 (AC-ORDER-004)", () =>
   });
 });
 
+/**
+ * SPEC-ORDER-001 — AC-ORDER-023.
+ *
+ * The security audit's F1: the two idempotency-key lookups returned whatever
+ * order the key named, without ever asking whose it was. Knowing a stranger's
+ * key was therefore enough to be handed their order — shipping PII included.
+ *
+ * F2 is why it shipped green: the replay path WAS covered (AC-ORDER-016 above),
+ * but every existing case replayed a key under the guest that minted it, so the
+ * cross-guest question was never put to it. These cases put it.
+ *
+ * The victim's shipping values below appear nowhere else in this file, which is
+ * what lets the assertions scan the WHOLE raw response body for them rather than
+ * naming fields. A field-by-field assertion would pass a response that leaked
+ * the same values under a different shape; a string scan cannot.
+ */
+const OTHER_GUEST = "another-guest-cookie-value";
+
+const VICTIM_SHIPPING = {
+  recipientName: "김영희",
+  recipientPhone: "010-9876-5432",
+  postalCode: "48058",
+  address: "부산시 해운대구 센텀중앙로 99",
+  deliveryMemo: "부재 시 경비실에 맡겨 주세요",
+};
+
+const VICTIM_ID = "order-victim";
+const VICTIM_NUMBER = "ORD-20260831-VICTIM";
+
+/** Everything AC-ORDER-023 (a) forbids appearing anywhere in the response. */
+const VICTIM_SECRETS = [VICTIM_ID, VICTIM_NUMBER, ...Object.values(VICTIM_SHIPPING)];
+
+function victimRow(idempotencyKey: string): FakeOrder {
+  return {
+    id: VICTIM_ID,
+    orderNumber: VICTIM_NUMBER,
+    status: "pending_payment",
+    guestId: GUEST,
+    ...VICTIM_SHIPPING,
+    itemsSubtotal: 30000,
+    shippingFee: 0,
+    totalAmount: 30000,
+    idempotencyKey,
+    createdAt: new Date("2026-08-31T00:00:00.000Z"),
+  };
+}
+
+function expectNoVictimDisclosure(rawBody: string) {
+  for (const secret of VICTIM_SECRETS) {
+    expect(rawBody).not.toContain(secret);
+  }
+}
+
+describe("SPEC-ORDER-001 — an idempotency key alone does not reach another guest's order (AC-ORDER-023)", () => {
+  const VICTIM_KEY = "victim-key";
+
+  it("does not disclose the order to a DIFFERENT guest replaying the key (initial lookup)", async () => {
+    store.orders.push(victimRow(VICTIM_KEY));
+    await addToCart("A", 3, `guest_cart_id=${OTHER_GUEST}`);
+
+    const response = await submitOrder(orderBody(30000, VICTIM_KEY), {
+      cookie: `guest_cart_id=${OTHER_GUEST}`,
+    });
+
+    // (a) nothing of the victim's order — id, number, or any of the five
+    //     shipping PII values — appears anywhere in the body.
+    expectNoVictimDisclosure(await response.text());
+
+    // (b) the victim's order is still one row, still theirs, still unedited.
+    const victim = store.orders.filter((o) => o.idempotencyKey === VICTIM_KEY);
+    expect(victim).toHaveLength(1);
+    expect(victim[0]).toEqual(victimRow(VICTIM_KEY));
+  });
+
+  it("does not disclose the order to a request carrying NO guest cookie (initial lookup)", async () => {
+    store.orders.push(victimRow(VICTIM_KEY));
+
+    const response = await submitOrder(orderBody(30000, VICTIM_KEY), {});
+
+    expectNoVictimDisclosure(await response.text());
+    expect(store.orders.filter((o) => o.idempotencyKey === VICTIM_KEY)).toHaveLength(1);
+    expect(store.orders.find((o) => o.id === VICTIM_ID)).toEqual(victimRow(VICTIM_KEY));
+  });
+
+  it("does not disclose a FOREIGN winner's order when the unique constraint fires (race recovery)", async () => {
+    const RACE_KEY = "foreign-race-key";
+    await addToCart("A", 3, `guest_cart_id=${OTHER_GUEST}`);
+
+    // The key is unused, so the pre-transaction lookup finds nothing and this
+    // request proceeds — reaching the SECOND lookup, in the P2002 recovery
+    // branch, which is a separate call site and needs its own evidence. The
+    // winner committed in another transaction and belongs to a different guest.
+    createOrderHook = () => {
+      externallyCommittedOrders.push(victimRow(RACE_KEY));
+      createOrderHook = null;
+      throw uniqueViolation("Order.idempotencyKey");
+    };
+
+    const response = await submitOrder(orderBody(30000, RACE_KEY), {
+      cookie: `guest_cart_id=${OTHER_GUEST}`,
+    });
+
+    expectNoVictimDisclosure(await response.text());
+    expect(store.orders.find((o) => o.id === VICTIM_ID)).toEqual(victimRow(RACE_KEY));
+  });
+
+  it("still returns the owner their OWN order on replay — AC-ORDER-016 is not narrowed", async () => {
+    store.orders.push(victimRow(VICTIM_KEY));
+
+    const response = await submitOrder(orderBody(30000, VICTIM_KEY), {
+      cookie: `guest_cart_id=${GUEST}`,
+    });
+
+    // (c) the ownership check must reject strangers without costing the owner
+    //     the replay behaviour REQ-ORDER-016 promises them.
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body.id).toBe(VICTIM_ID);
+    expect(body.orderNumber).toBe(VICTIM_NUMBER);
+    expect(body.shipping).toEqual(VICTIM_SHIPPING);
+  });
+});
+
 describe("SPEC-ORDER-001 — a member submission is refused end to end (AC-ORDER-022)", () => {
   it("returns 409 and leaves orders, stock and carts untouched", async () => {
     await addToCart("A", 3);
