@@ -2,9 +2,9 @@
 id: SPEC-ORDER-001
 title: "주문서 작성 화면 및 주문 생성 트랜잭션 (게스트 전용)"
 version: "0.2.0"
-status: in-progress
+status: completed
 created: 2026-08-31
-updated: 2026-08-31
+updated: 2026-09-01
 author: snake
 priority: P1
 phase: "v0.1.0 MVP"

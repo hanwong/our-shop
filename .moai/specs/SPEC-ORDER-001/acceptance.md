@@ -1,7 +1,7 @@
 ---
 id: SPEC-ORDER-001
-status: in-progress
-updated: 2026-08-31
+status: completed
+updated: 2026-09-01
 tier: L
 ---
 

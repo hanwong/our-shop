@@ -1,7 +1,7 @@
 ---
 id: SPEC-ORDER-001
-status: in-progress
-updated: 2026-08-31
+status: completed
+updated: 2026-09-01
 tier: L
 ---
 
@@ -205,4 +205,49 @@ REQ-ORDER-004(수량 1 미만 거부)에 대응하는 실패 코드가 design.md
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+sync_status: audit-ready
+sync_complete_at: 2026-09-01
+sync_commit_sha: pending-backfill-single-sync-commit
+branch: WT-order-checkout
+base_head_at_sync_entry: 0dd5454
+changelog_entry_position: "CHANGELOG.md [Unreleased] — 마지막 항목(SPEC-STOREFRONT-001 '알려진 한계' 블록 뒤에 추가)"
+b12_self_test_a: "PASS — grep -c 'SPEC-ORDER-001' CHANGELOG.md → 0 (중복 없음, 방출 진행)"
+b12_self_test_b: "PASS — acceptance.md의 고유 AC-ORDER-* 20개 == CHANGELOG가 명시한 20개"
+b12_self_test_c: "PASS — CHANGELOG/README가 주장하는 경로 12개 전부 ls로 확인"
+frontmatter_status_transitions:
+  spec.md: "in-progress → completed"
+  plan.md: "in-progress → completed"
+  acceptance.md: "in-progress → completed"
+  progress.md: "in-progress → completed"
+  updated_field: "2026-08-31 → 2026-09-01 (4개 전부)"
+canary_compliance_check: "N/A — 이 SPEC은 향후 정책(forward-looking policy)을 정의하지 않는다"
+```
+
+### sync-phase가 직접 실행한 검증 (재실행이며, run-phase 결과의 인용이 아니다)
+
+run-phase의 §E.2 표를 옮겨 적지 않았다. **이 트리에서, 이번에 다시 돌린 것**이다.
+
+| 명령 | 종료 코드 | 관측한 출력 |
+|---|---|---|
+| `npm run lint` | 0 | 출력 없음 |
+| `npm run typecheck` | 0 | 출력 없음 |
+| `npm run test` | 0 | `Test Files 50 passed (50)` / `Tests 631 passed (631)` |
+| `npm run test:coverage` | 0 | `All files 98.37 / 95.72 / 100 / 98.37` — 임계값(85/80/85/85) 상회 |
+| `npx prisma validate` | 0 | `The schema at prisma/schema.prisma is valid 🚀` |
+| `npm run build` | **1** | `Failed to compile.` + `UnhandledSchemeError: Reading from "node:crypto"` + import trace `./src/lib/auth/jwt.ts` |
+
+`npm run build`의 실패는 **선행 결함이며 고치지 않았다.** 실패 지문이 `./src/lib/auth/jwt.ts` 한 줄만 가리키는 것을 이번 실행에서 직접 관측했고, run-phase가 §E.2에 남긴 귀속 실험(주문 라우트를 트리 밖으로 옮겨도 동일 실패)과 일치한다. 두 원인 파일이 이 SPEC의 불변 조건 대상임도 재확인했다 — `git diff --numstat c19ab47 HEAD -- src/middleware.ts src/lib/auth/jwt.ts src/features/catalog src/app/api/products` → **빈 출력**. SPEC-AUTH-001 표면의 문제이므로 백로그 카드 `t16`으로 남긴다.
+
+### 문서 동기화 산출물
+
+- `CHANGELOG.md` — `[Unreleased]`에 `### 추가 — SPEC-ORDER-001` + `### 알려진 한계 — SPEC-ORDER-001` 두 블록 추가. 기존 6개 SPEC이 쓰는 한국어 제목 형식(`### 추가 — SPEC-XXX: 제목` / `### 알려진 한계 — SPEC-XXX`)을 그대로 따랐다. 기존 항목은 한 줄도 고치지 않았다.
+- `README.md` — (1) 최상단 구현 목록에 SPEC-ORDER-001 한 줄, (2) `## 주문/체크아웃 (SPEC-ORDER-001)` 절 신설(SPEC-CART-001·SPEC-STOREFRONT-001 절과 같은 구성: 엔드포인트 표 → 핵심 성질 → 알려진 한계), (3) 하단 문서 목록에 SPEC 디렉터리 추가. `documentation: ko` 설정에 따라 한국어로 작성했다(기존 절들과 동일).
+- **docs 사이트는 존재하지 않는다.** `ls -d docs .moai/docs` → `docs: No such file or directory`, `.moai/docs`는 하네스 내부 문서(`agent-lint.md`, `generic-patterns-guide.md`)로 제품 문서 사이트가 아니다. 따라서 동기화할 docs-site 페이지가 없다 — 건너뛴 것이 아니라 대상이 없다.
+
+### 정직하게 남기는 미검증 항목
+
+- **`sync_commit_sha`는 자리표시자다.** 커밋은 자기 해시를 알 수 없다. 단일 sync 커밋 지시에 따라 별도 backfill 커밋을 만들지 않았으므로, 실제 SHA는 이 커밋을 만든 세션의 보고서에 기록되며 이 필드는 자리표시자로 남는다.
+- **문서의 서술적 정확성은 사람이 읽어야 확인된다.** 기계적으로 확인한 것은 경로 존재·AC 개수·중복 부재까지다. CHANGELOG/README 산문이 구현을 정확히 묘사하는지는 구현 파일을 직접 읽고 쓴 것이지 도구가 판정한 것이 아니다.
+- **run-phase가 남긴 잔여 항목 3건은 이 sync-phase가 해소하지 않았다** — `npm run build` 선행 실패(범위 밖, `t16`), 미결제 주문 재고 해제 정책 부재(설계상 필연), `/checkout` 진입 링크 부재(장바구니 UI SPEC의 몫). 세 건 모두 CHANGELOG와 README의 "알려진 한계"에 그대로 기록해 문서에서 사라지지 않게 했다.
+- **이름 붙은 제외 3건은 여전히 미검증이다**(`AC-012-EXCL-ROLLBACK` · `AC-013-EXCL-CONCURRENCY` · `AC-016-EXCL-UNIQUE-RACE`). sync-phase는 PostgreSQL을 확보하지 않았으므로 이 상태를 바꾸지 못했고, PASS로 승격하지도 않았다.
