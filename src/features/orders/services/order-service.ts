@@ -231,6 +231,20 @@ function isUniqueViolation(error: unknown): boolean {
   return isRecord(error) && error.code === "P2002";
 }
 
+/**
+ * Prisma's write-conflict / deadlock signal — how PostgreSQL's 40P01 (deadlock
+ * detected) and 40001 (serialization failure) reach us (SPEC-ORDER-002
+ * REQ-ORDER-027, plan.md §4 M2).
+ *
+ * Both mean the same thing to a caller: the database chose this transaction as
+ * the victim, nothing it wrote survives, and the identical request may be sent
+ * again. That is a different answer from every other refusal, where retrying
+ * unchanged would fail identically.
+ */
+function isTransactionConflict(error: unknown): boolean {
+  return isRecord(error) && error.code === "P2034";
+}
+
 // ---------------------------------------------------------------------------
 // Projection
 // ---------------------------------------------------------------------------
@@ -259,6 +273,24 @@ function toOrderDTO(order: OrderWithItems): OrderDTO {
     },
     createdAt: order.createdAt.toISOString(),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Locking order (SPEC-ORDER-002 REQ-ORDER-023)
+// ---------------------------------------------------------------------------
+
+/**
+ * Ascending by product id, compared as code units.
+ *
+ * NOT `localeCompare`: its result depends on the runtime's active collation, so
+ * two application instances could order the same two ids differently and
+ * reintroduce the very cycle this ordering removes. A deadlock-avoidance order
+ * has to be the same everywhere or it is not an order at all.
+ */
+function byProductId(a: OrderItemDTO, b: OrderItemDTO): number {
+  if (a.productId < b.productId) return -1;
+  if (a.productId > b.productId) return 1;
+  return 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -397,7 +429,19 @@ export async function createOrder(guestId: string, body: unknown): Promise<Order
       //    because insufficient stock is the commonest failure, so filtering it
       //    first keeps the failure path cheap. The loop stops at the first
       //    refusal — the rollback would undo any further decrement anyway.
-      for (const [index, item] of items.entries()) {
+      //
+      //    SPEC-ORDER-002 REQ-ORDER-023: taken in ascending product-id order,
+      //    NOT cart order. Cart order is per-cart (CartItem.createdAt), so two
+      //    shoppers holding the same two products in opposite orders would
+      //    request the same row locks in opposite orders and deadlock — and
+      //    PostgreSQL would abort one of them with an error that used to reach
+      //    the shopper as an unexplained 500 (spec.md §2 G1).
+      //
+      //    A COPY is sorted. `items` itself stays in cart order because it is
+      //    what gets stored and displayed, and the completion screen must list
+      //    the lines the way the order summary did (plan.md §5 PRESERVE).
+      const lockingOrder = [...items].sort(byProductId);
+      for (const [index, item] of lockingOrder.entries()) {
         const changed = await decrementStockIfAvailable(tx, item.productId, item.quantity);
         if (changed !== 1) {
           // SPEC-ORDER-002 REQ-ORDER-025: read the stock AGAIN, here, inside the
@@ -413,9 +457,9 @@ export async function createOrder(guestId: string, body: unknown): Promise<Order
             status: 409,
             error: "재고가 부족한 상품이 있습니다",
             code: "INSUFFICIENT_STOCK",
-            // From the refused line onward: the earlier ones were taken
-            // successfully, so their stock was never the problem.
-            products: shortLines(items.slice(index), currentStock),
+            // From the refused line onward IN LOCKING ORDER: the earlier ones
+            // were taken successfully, so their stock was never the problem.
+            products: shortLines(lockingOrder.slice(index), currentStock),
           });
         }
       }
@@ -459,6 +503,23 @@ export async function createOrder(guestId: string, body: unknown): Promise<Order
   } catch (error) {
     if (error instanceof OrderAbort) {
       return fail(error.failure);
+    }
+
+    // SPEC-ORDER-002 REQ-ORDER-027. The database aborted this transaction to
+    // break a deadlock or a serialization conflict. Nothing it wrote survives,
+    // and — unlike every other refusal here — the identical submission may
+    // simply be sent again, so saying so is the whole point: the previous
+    // behaviour rethrew this into an unclassified 500, which tells a shopper
+    // whose order would succeed on the next attempt to give up.
+    //
+    // Sits at the transaction boundary rather than beside the decrement: the
+    // order insert takes locks too, so the conflict can surface from either.
+    if (isTransactionConflict(error)) {
+      return fail({
+        status: 409,
+        error: "주문이 몰려 처리하지 못했습니다. 잠시 후 다시 시도해 주세요",
+        code: "CONCURRENCY_RETRY",
+      });
     }
 
     // Second line of defence for REQ-ORDER-016 (design.md §5): two requests

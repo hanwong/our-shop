@@ -219,6 +219,24 @@ describe("SPEC-ORDER-001 M4 — refusals map to design.md §8's bodies", () => {
     expect(body.products).toEqual([{ productId: "p-1", name: "Tee", available: 2 }]);
   });
 
+  it("409s an aborted transaction with CONCURRENCY_RETRY (SPEC-ORDER-002 AC-ORDER-029)", async () => {
+    orderRepo.decrementStockIfAvailable.mockRejectedValue(
+      Object.assign(new Error("Transaction failed due to a write conflict or a deadlock"), {
+        code: "P2034",
+      })
+    );
+
+    const response = await submit(validBody());
+    const body = await response.json();
+
+    // The route rebuilds nothing — it spreads whatever the service refused
+    // with, so a new refusal shape reaches the wire without an edit here. This
+    // asserts that property holds for the code SPEC-ORDER-002 adds.
+    expect(response.status).toBe(409);
+    expect(body.code).toBe("CONCURRENCY_RETRY");
+    expect(body.error).toBeTruthy();
+  });
+
   it("409s a changed price and reports the recomputed total (AC-ORDER-014)", async () => {
     cartRepo.findCartByGuestId.mockResolvedValue(cartRow(20000, 10, 2));
 

@@ -92,6 +92,16 @@ let store: Store;
 let createOrderHook: (() => void) | null = null;
 
 /**
+ * Product ids in the order stock writes were actually attempted
+ * (SPEC-ORDER-002 REQ-ORDER-023).
+ *
+ * Recorded rather than inferred: the locking order and the stored line order
+ * are now deliberately different, and only a log taken at the write itself can
+ * show both at once.
+ */
+let stockWriteLog: string[] = [];
+
+/**
  * Orders another session committed while this transaction was open.
  *
  * A rollback undoes only the rolling-back transaction's own writes; rows some
@@ -223,6 +233,7 @@ const client = {
       data: { stock: { decrement: number } };
     }) => {
       const product = store.products.find((p) => p.id === where.id);
+      stockWriteLog.push(where.id);
       if (!product || product.stock < where.stock.gte) return { count: 0 };
       product.stock -= data.stock.decrement;
       return { count: 1 };
@@ -338,6 +349,7 @@ const SHIPPING = {
 beforeEach(() => {
   createOrderHook = null;
   externallyCommittedOrders = [];
+  stockWriteLog = [];
   store = {
     carts: [],
     cartItems: [],
@@ -450,6 +462,42 @@ describe("SPEC-ORDER-001 — all four effects land (AC-ORDER-011)", () => {
     await submitOrder(orderBody(30000));
 
     expect(store.orders[0]!.status).toBe("pending_payment");
+  });
+});
+
+describe("SPEC-ORDER-002 M2 — locking order and line order are different things (AC-ORDER-025)", () => {
+  /**
+   * The cart is built B-then-A, so `CartItem.createdAt` order (B, A) and
+   * ascending id order (A, B) disagree. That disagreement is what makes this
+   * test able to fail: with a single shared order, one of the two assertions
+   * below would have to give.
+   */
+  beforeEach(async () => {
+    await addToCart("B", 1);
+    await addToCart("A", 1);
+  });
+
+  it("locks by ascending product id, whatever order the cart was built in", async () => {
+    await submitOrder(orderBody(15000));
+
+    expect(stockWriteLog).toEqual(["A", "B"]);
+  });
+
+  it("stores the lines in cart order, and reads them back that way", async () => {
+    const created = await (await submitOrder(orderBody(15000))).json();
+
+    // Written in cart order...
+    expect(store.orderItems.map((item) => item.productId)).toEqual(["B", "A"]);
+    // ...returned to the submitting screen in cart order...
+    expect(created.items.map((item: { productId: string }) => item.productId)).toEqual(["B", "A"]);
+
+    // ...and, the one that matters for plan.md §5, read back to the COMPLETION
+    // screen in cart order too. If the locking sort ever reached the stored
+    // rows, this is the assertion that would catch it.
+    const { getOrderForGuest } = await import("@/features/orders/services/order-service");
+    const reread = await getOrderForGuest(created.id, GUEST);
+
+    expect(reread!.items.map((item) => item.productId)).toEqual(["B", "A"]);
   });
 });
 

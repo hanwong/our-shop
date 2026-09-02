@@ -79,15 +79,22 @@ export interface OrderDTO {
 }
 
 /**
- * The four ways an otherwise well-formed submission can be refused
- * (design.md §8). Each is a 409, not a 400: the request itself is fine, it is
- * the server's state that disagrees with it.
+ * The five ways an otherwise well-formed submission can be refused
+ * (design.md §8, extended by SPEC-ORDER-002 plan.md §2). Each is a 409, not a
+ * 400: the request itself is fine, it is the server's state that disagrees with
+ * it.
+ *
+ * `CONCURRENCY_RETRY` is the one that says nothing is wrong with the request AT
+ * ALL — the database aborted the transaction to break a deadlock or a
+ * serialization conflict, nothing was written, and the identical submission may
+ * simply be sent again (REQ-ORDER-027).
  */
 export type OrderFailureCode =
   | "MEMBER_CHECKOUT_UNSUPPORTED"
   | "CART_EMPTY"
   | "INSUFFICIENT_STOCK"
-  | "PRICE_CHANGED";
+  | "PRICE_CHANGED"
+  | "CONCURRENCY_RETRY";
 
 /** One product the cart wanted more of than the catalogue currently has. */
 export interface InsufficientStockProduct {
@@ -112,6 +119,11 @@ export type OrderFailure =
       products: InsufficientStockProduct[];
     }
   | { status: 409; error: string; code: "PRICE_CHANGED"; totalAmount: number }
+  // Deliberately carries NO product list. The database aborted the transaction
+  // to break a conflict; it never told us which line lost, and inventing one
+  // would name a product that may be perfectly available (SPEC-ORDER-002
+  // plan.md §3).
+  | { status: 409; error: string; code: "CONCURRENCY_RETRY" }
   // design.md §8's last row: an unexpected transaction failure answers 500 with
   // NO code. A cart line stored at quantity <= 0 lands here (REQ-ORDER-004) —
   // the request is well-formed and the server state is wrong, so there is

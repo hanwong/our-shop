@@ -536,6 +536,175 @@ describe("SPEC-ORDER-002 M1 — the failure report is re-read, not remembered (R
   });
 });
 
+describe("SPEC-ORDER-002 M2 — deduction order is decided by id, not by the cart (REQ-ORDER-023)", () => {
+  /** Records the order in which lines are actually taken. */
+  function recordDeductionOrder(): string[] {
+    const taken: string[] = [];
+    orderRepo.decrementStockIfAvailable.mockImplementation(
+      async (_tx: unknown, productId: string) => {
+        taken.push(productId);
+        return 1;
+      }
+    );
+    return taken;
+  }
+
+  /** Three lines of 1 × 10,000, named so that id order ≠ insertion order. */
+  const OUT_OF_ORDER = [
+    { productId: "p-9", name: "머그컵", price: 10000, stock: 10, quantity: 1 },
+    { productId: "p-2", name: "텀블러", price: 10000, stock: 10, quantity: 1 },
+    { productId: "p-5", name: "티팟", price: 10000, stock: 10, quantity: 1 },
+  ];
+
+  it("takes the lines in ascending product-id order (AC-ORDER-025)", async () => {
+    cartRepo.findCartByGuestId.mockResolvedValue(cartWith(OUT_OF_ORDER));
+    const taken = recordDeductionOrder();
+
+    await service.createOrder("G1", body({ confirmedTotal: 30000 }));
+
+    // Cart order is p-9 → p-2 → p-5 (CartItem.createdAt). Following it would
+    // make two shoppers request the same rows in opposite orders and deadlock
+    // (spec.md §2 G1); a total order on the id removes the cycle.
+    expect(taken).toEqual(["p-2", "p-5", "p-9"]);
+  });
+
+  it("leaves the ORDER's own item order exactly as the cart stored it (plan.md §5)", async () => {
+    cartRepo.findCartByGuestId.mockResolvedValue(cartWith(OUT_OF_ORDER));
+
+    const result = await service.createOrder("G1", body({ confirmedTotal: 30000 }));
+
+    // The sort is a LOCKING order, not a presentation order. Letting it reach
+    // the stored rows would reshuffle the completion screen against what the
+    // order summary showed — SPEC-ORDER-001's ORDER_INCLUDE orders by
+    // createdAt precisely so the two screens agree.
+    const [, row] = orderRepo.createOrderWithItems.mock.calls[0]! as [
+      unknown,
+      { items: Array<{ productId: string }> },
+    ];
+    expect(row.items.map((item) => item.productId)).toEqual(["p-9", "p-2", "p-5"]);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.items.map((item) => item.productId)).toEqual(["p-9", "p-2", "p-5"]);
+  });
+
+  it("takes two carts holding the same products in opposite order identically (AC-ORDER-034)", async () => {
+    const lines = [
+      { productId: "p-1", name: "머그컵", price: 10000, stock: 10, quantity: 1 },
+      { productId: "p-2", name: "텀블러", price: 10000, stock: 10, quantity: 1 },
+    ];
+
+    cartRepo.findCartByGuestId.mockResolvedValue(cartWith(lines));
+    const first = recordDeductionOrder();
+    await service.createOrder("G1", body({ confirmedTotal: 20000 }));
+
+    cartRepo.findCartByGuestId.mockResolvedValue(cartWith([lines[1]!, lines[0]!]));
+    const second = recordDeductionOrder();
+    await service.createOrder("G2", body({ confirmedTotal: 20000, idempotencyKey: "key-2" }));
+
+    // Identical request order is what makes the deadlock impossible: a cycle
+    // needs two transactions wanting the same rows in opposite orders.
+    expect(first).toEqual(["p-1", "p-2"]);
+    expect(second).toEqual(["p-1", "p-2"]);
+  });
+
+  it("sorts by code unit, not by locale (a locale-dependent order is not deterministic)", async () => {
+    // localeCompare would order these by the active locale's collation, which
+    // differs between machines — the one thing a deadlock-avoidance order
+    // cannot afford. Digits before uppercase before lowercase is the code-unit
+    // order every machine agrees on.
+    cartRepo.findCartByGuestId.mockResolvedValue(
+      cartWith([
+        { productId: "b", name: "b", price: 10000, stock: 10, quantity: 1 },
+        { productId: "A", name: "A", price: 10000, stock: 10, quantity: 1 },
+        { productId: "a", name: "a", price: 10000, stock: 10, quantity: 1 },
+        { productId: "1", name: "1", price: 10000, stock: 10, quantity: 1 },
+      ])
+    );
+    const taken = recordDeductionOrder();
+
+    await service.createOrder("G1", body({ confirmedTotal: 40000 }));
+
+    expect(taken).toEqual(["1", "A", "a", "b"]);
+  });
+});
+
+describe("SPEC-ORDER-002 M2 — an aborted transaction is retryable, not a mystery (REQ-ORDER-027)", () => {
+  /**
+   * Prisma's write-conflict / deadlock signal — what PostgreSQL's 40P01
+   * (deadlock detected) and 40001 (serialization failure) surface as.
+   */
+  function deadlock(): Error {
+    return Object.assign(
+      new Error("Transaction failed due to a write conflict or a deadlock"),
+      { code: "P2034" }
+    );
+  }
+
+  it("answers 409 CONCURRENCY_RETRY (AC-ORDER-029)", async () => {
+    orderRepo.decrementStockIfAvailable.mockRejectedValue(deadlock());
+
+    const result = await service.createOrder("G1", body());
+
+    // Nothing was committed and the same submission can simply be sent again —
+    // which the shopper can only act on if the answer says so. An unclassified
+    // 500 tells them to give up (spec.md §2 G1).
+    expect(result).toMatchObject({ ok: false, status: 409, code: "CONCURRENCY_RETRY" });
+  });
+
+  it("does not let the abort escape as an unclassified error", async () => {
+    orderRepo.decrementStockIfAvailable.mockRejectedValue(deadlock());
+
+    // Before this mapping the error matched neither OrderAbort nor P2002 and
+    // was rethrown, surfacing as a 500 with no code.
+    await expect(service.createOrder("G1", body())).resolves.toMatchObject({ ok: false });
+    const result = await service.createOrder("G1", body());
+    expect(result.ok === false && result.status).not.toBe(500);
+  });
+
+  it("creates no order and empties no cart when the transaction is aborted", async () => {
+    orderRepo.decrementStockIfAvailable.mockRejectedValue(deadlock());
+
+    await service.createOrder("G1", body());
+
+    expect(orderRepo.createOrderWithItems).not.toHaveBeenCalled();
+    expect(cartRepo.deleteCart).not.toHaveBeenCalled();
+  });
+
+  it("maps the conflict wherever in the transaction it surfaces", async () => {
+    // The deadlock is detected when a lock is requested, which is the
+    // decrement — but the order insert takes locks too, so the mapping lives at
+    // the transaction boundary rather than beside one call.
+    orderRepo.createOrderWithItems.mockRejectedValue(deadlock());
+
+    const result = await service.createOrder("G1", body());
+
+    expect(result).toMatchObject({ ok: false, status: 409, code: "CONCURRENCY_RETRY" });
+  });
+
+  it("still treats a unique-key collision as the idempotency replay it is", async () => {
+    // P2002 and P2034 are different answers to different races; widening the
+    // catch must not swallow one into the other (design.md §5).
+    orderRepo.createOrderWithItems.mockRejectedValue(
+      Object.assign(new Error("Unique constraint failed"), { code: "P2002" })
+    );
+    orderRepo.findOrderByIdempotencyKey.mockResolvedValueOnce(null).mockResolvedValue(null);
+
+    const result = await service.createOrder("G1", body());
+
+    expect(result).toMatchObject({ ok: false, status: 500 });
+    expect(result.ok === false && "code" in result).toBe(false);
+  });
+
+  it("still rethrows a genuinely unexpected failure", async () => {
+    orderRepo.decrementStockIfAvailable.mockRejectedValue(new Error("connection reset"));
+
+    // Flattening every error into a retryable 409 would tell shoppers to retry
+    // something that will never succeed.
+    await expect(service.createOrder("G1", body())).rejects.toThrow("connection reset");
+  });
+});
+
 describe("SPEC-ORDER-001 M3 — a cart line below quantity 1 (REQ-ORDER-004, AC-ORDER-004)", () => {
   // The schema permits CartItem.quantity <= 0 (no CHECK constraint; the >= 1
   // rule lives in the cart API's parseQuantity). So unlike PRODUCT_GONE this
