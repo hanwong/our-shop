@@ -30,6 +30,7 @@ const orderRepo = {
   findOrderByIdempotencyKey: vi.fn(),
   findOrderForGuest: vi.fn(),
   decrementStockIfAvailable: vi.fn(),
+  findStockByProductIds: vi.fn(),
   createOrderWithItems: vi.fn(),
 };
 vi.mock("@/features/orders/repositories/order-repository", () => orderRepo);
@@ -91,6 +92,7 @@ beforeEach(() => {
   orderRepo.findOrderByIdempotencyKey.mockResolvedValue(null);
   orderRepo.findOrderForGuest.mockResolvedValue(null);
   orderRepo.decrementStockIfAvailable.mockResolvedValue(1);
+  orderRepo.findStockByProductIds.mockResolvedValue([]);
   orderRepo.createOrderWithItems.mockResolvedValue(createdOrder());
   cartRepo.findCartByGuestId.mockResolvedValue(cartWith(ONE_LINE));
   cartRepo.deleteCart.mockResolvedValue(undefined);
@@ -353,6 +355,10 @@ describe("SPEC-ORDER-001 M3 — insufficient stock (REQ-ORDER-013, AC-ORDER-013)
       cartWith([{ productId: "p-1", name: "Tee", price: 10000, stock: 2, quantity: 5 }])
     );
     orderRepo.decrementStockIfAvailable.mockResolvedValue(0);
+    // SPEC-ORDER-002 REQ-ORDER-025 moved `available` from the transaction's
+    // opening snapshot to a re-read taken at the moment of failure. The figure
+    // this test asserts is unchanged; where it comes from is not.
+    orderRepo.findStockByProductIds.mockResolvedValue([{ id: "p-1", stock: 2 }]);
 
     const result = await service.createOrder("G1", body({ confirmedTotal: 50000 }));
 
@@ -388,6 +394,145 @@ describe("SPEC-ORDER-001 M3 — insufficient stock (REQ-ORDER-013, AC-ORDER-013)
     // The rollback would undo a second decrement anyway; not issuing it keeps
     // the failure path from doing pointless work.
     expect(orderRepo.decrementStockIfAvailable).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("SPEC-ORDER-002 M1 — the failure report is re-read, not remembered (REQ-ORDER-025/026)", () => {
+  /**
+   * Three lines of 2, all with plenty of stock AS OF the transaction's opening
+   * read. The re-query is what disagrees — which is the whole point: the
+   * snapshot is what a lost race makes obsolete (spec.md §2 G2).
+   */
+  const THREE_LINES = [
+    { productId: "p-1", name: "머그컵", price: 10000, stock: 10, quantity: 2 },
+    { productId: "p-2", name: "텀블러", price: 10000, stock: 10, quantity: 2 },
+    { productId: "p-3", name: "티팟", price: 10000, stock: 10, quantity: 2 },
+  ];
+
+  /** 3 × 2 × 10,000. */
+  const THREE_LINE_TOTAL = 60000;
+
+  beforeEach(() => {
+    cartRepo.findCartByGuestId.mockResolvedValue(cartWith(THREE_LINES));
+    orderRepo.decrementStockIfAvailable.mockResolvedValue(0);
+  });
+
+  async function submit() {
+    return service.createOrder("G1", body({ confirmedTotal: THREE_LINE_TOTAL }));
+  }
+
+  it("reports EVERY short line, not just the one that failed (AC-ORDER-027)", async () => {
+    orderRepo.findStockByProductIds.mockResolvedValue([
+      { id: "p-1", stock: 0 },
+      { id: "p-2", stock: 5 },
+      { id: "p-3", stock: 1 },
+    ]);
+
+    const result = await submit();
+
+    // Stopping at the first refusal makes a shopper with three short lines fix
+    // one, resubmit, and be refused again — three times over (spec.md §2 G3).
+    expect(result).toMatchObject({
+      ok: false,
+      status: 409,
+      code: "INSUFFICIENT_STOCK",
+      products: [
+        { productId: "p-1", name: "머그컵", available: 0 },
+        { productId: "p-3", name: "티팟", available: 1 },
+      ],
+    });
+  });
+
+  it("leaves out the line that has enough stock (AC-ORDER-027)", async () => {
+    orderRepo.findStockByProductIds.mockResolvedValue([
+      { id: "p-1", stock: 0 },
+      { id: "p-2", stock: 5 },
+      { id: "p-3", stock: 1 },
+    ]);
+
+    const result = await submit();
+
+    if (result.ok || result.status !== 409 || result.code !== "INSUFFICIENT_STOCK") {
+      throw new Error("expected an INSUFFICIENT_STOCK refusal");
+    }
+    expect(result.products.map((product) => product.productId)).not.toContain("p-2");
+  });
+
+  it("never reports a quantity the shopper could actually have bought (AC-ORDER-028)", async () => {
+    orderRepo.findStockByProductIds.mockResolvedValue([
+      { id: "p-1", stock: 0 },
+      { id: "p-2", stock: 5 },
+      { id: "p-3", stock: 1 },
+    ]);
+
+    const result = await submit();
+
+    if (result.ok || result.status !== 409 || result.code !== "INSUFFICIENT_STOCK") {
+      throw new Error("expected an INSUFFICIENT_STOCK refusal");
+    }
+    // "Not enough stock — 5 available" against a request for 2 is a response
+    // that contradicts itself. The snapshot produced exactly that.
+    for (const product of result.products) {
+      const line = THREE_LINES.find((candidate) => candidate.productId === product.productId)!;
+      expect(product.available).toBeLessThan(line.quantity);
+    }
+  });
+
+  it("re-reads inside the SAME transaction that failed (REQ-ORDER-025)", async () => {
+    orderRepo.findStockByProductIds.mockResolvedValue([]);
+
+    await submit();
+
+    // Read on the singleton it would sit outside the transaction, where the
+    // rolled-back decrements of this very attempt are invisible and a competing
+    // transaction's uncommitted state is too.
+    expect(orderRepo.findStockByProductIds).toHaveBeenCalledWith(TX, ["p-1", "p-2", "p-3"]);
+  });
+
+  it("does not report a line this transaction already decremented", async () => {
+    // p-1 was taken successfully, so its stock WAS sufficient; the row now
+    // reads 0 only because this transaction — about to roll back — took it.
+    // Reporting it would name a product that is not the shopper's problem.
+    orderRepo.decrementStockIfAvailable.mockResolvedValueOnce(1).mockResolvedValue(0);
+    orderRepo.findStockByProductIds.mockResolvedValue([
+      { id: "p-1", stock: 0 },
+      { id: "p-2", stock: 0 },
+      { id: "p-3", stock: 9 },
+    ]);
+
+    const result = await submit();
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: "INSUFFICIENT_STOCK",
+      products: [{ productId: "p-2", name: "텀블러", available: 0 }],
+    });
+  });
+
+  it("refuses with an EMPTY product list when the re-read shows restocking (acceptance.md §2)", async () => {
+    // Restocked between the failed decrement and the re-read. The transaction
+    // has already made a judgement it cannot take back, so the order is still
+    // refused — but naming a short product here would be an invention.
+    orderRepo.findStockByProductIds.mockResolvedValue([
+      { id: "p-1", stock: 10 },
+      { id: "p-2", stock: 10 },
+      { id: "p-3", stock: 10 },
+    ]);
+
+    const result = await submit();
+
+    expect(result).toMatchObject({ ok: false, status: 409, code: "INSUFFICIENT_STOCK" });
+    if (result.ok || result.status !== 409 || result.code !== "INSUFFICIENT_STOCK") return;
+    expect(result.products).toEqual([]);
+  });
+
+  it("persists nothing on the re-read path", async () => {
+    orderRepo.findStockByProductIds.mockResolvedValue([{ id: "p-1", stock: 0 }]);
+
+    await submit();
+
+    expect(orderRepo.createOrderWithItems).not.toHaveBeenCalled();
+    expect(cartRepo.deleteCart).not.toHaveBeenCalled();
   });
 });
 

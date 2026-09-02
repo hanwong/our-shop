@@ -227,6 +227,14 @@ const client = {
       product.stock -= data.stock.decrement;
       return { count: 1 };
     },
+    // SPEC-ORDER-002 REQ-ORDER-025's re-read of the failure path. It reads the
+    // SAME mutable store the decrement above writes, so it observes this
+    // transaction's own effects exactly as a real one inside the transaction
+    // would — including the decrements a subsequent rollback will undo.
+    findMany: ({ where }: { where: { id: { in: string[] } } }) =>
+      store.products
+        .filter((p) => where.id.in.includes(p.id))
+        .map((p) => ({ id: p.id, stock: p.stock })),
   },
   order: {
     findUnique: ({ where }: { where: { idempotencyKey: string } }) =>

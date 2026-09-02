@@ -7,6 +7,7 @@ import {
   decrementStockIfAvailable,
   findOrderByIdempotencyKey,
   findOrderForGuest,
+  findStockByProductIds,
   type OrderWithItems,
 } from "@/features/orders/repositories/order-repository";
 import type {
@@ -261,6 +262,45 @@ function toOrderDTO(order: OrderWithItems): OrderDTO {
 }
 
 // ---------------------------------------------------------------------------
+// Insufficient-stock reporting (SPEC-ORDER-002 REQ-ORDER-025/026)
+// ---------------------------------------------------------------------------
+
+/**
+ * The short lines a refused decrement can honestly name, given the stock read
+ * back at the moment of the refusal.
+ *
+ * `pending` is the lines this transaction has NOT yet taken — the one that was
+ * just refused, and every line after it. Lines already decremented are excluded
+ * deliberately: their stock WAS sufficient, and the row now reads lower only
+ * because this transaction — about to roll back — took it. Naming them would
+ * report a product that is not the shopper's problem, which is the same
+ * self-contradicting answer the stale snapshot used to give (spec.md §2 G2).
+ *
+ * A line whose re-read stock now covers its quantity is dropped, so the list can
+ * legitimately come back EMPTY when the product was restocked in between. The
+ * order is refused all the same — the transaction has made a judgement it
+ * cannot take back — but an empty list says "cannot name which", which is true,
+ * rather than naming one anyway (acceptance.md §2).
+ *
+ * Pure on purpose: the read happens at the call site where the transaction
+ * client is in scope, so this function is the decision alone.
+ */
+function shortLines(
+  pending: OrderItemDTO[],
+  currentStock: Array<{ id: string; stock: number }>
+): InsufficientStockProduct[] {
+  const stockById = new Map(currentStock.map((row) => [row.id, row.stock]));
+
+  return pending.flatMap((item) => {
+    // A product that no longer has a row cannot be bought at all, which is
+    // "none available" rather than a reason to omit the line.
+    const available = stockById.get(item.productId) ?? 0;
+    if (available >= item.quantity) return [];
+    return [{ productId: item.productId, name: item.productName, available }];
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Order creation (REQ-ORDER-011/012)
 // ---------------------------------------------------------------------------
 
@@ -357,20 +397,25 @@ export async function createOrder(guestId: string, body: unknown): Promise<Order
       //    because insufficient stock is the commonest failure, so filtering it
       //    first keeps the failure path cheap. The loop stops at the first
       //    refusal — the rollback would undo any further decrement anyway.
-      for (const item of items) {
+      for (const [index, item] of items.entries()) {
         const changed = await decrementStockIfAvailable(tx, item.productId, item.quantity);
         if (changed !== 1) {
-          const line = cart.items.find((cartItem) => cartItem.productId === item.productId)!;
-          const product: InsufficientStockProduct = {
-            productId: item.productId,
-            name: item.productName,
-            available: line.product.stock,
-          };
+          // SPEC-ORDER-002 REQ-ORDER-025: read the stock AGAIN, here, inside the
+          // transaction that just lost. Step 1's snapshot is what the winner
+          // invalidated by committing, so answering from it says "not enough
+          // stock" and "5 available" in the same breath. One findMany, on the
+          // failure path only — the happy path's query count is unchanged.
+          const currentStock = await findStockByProductIds(
+            tx,
+            items.map((line) => line.productId)
+          );
           throw new OrderAbort({
             status: 409,
             error: "재고가 부족한 상품이 있습니다",
             code: "INSUFFICIENT_STOCK",
-            products: [product],
+            // From the refused line onward: the earlier ones were taken
+            // successfully, so their stock was never the problem.
+            products: shortLines(items.slice(index), currentStock),
           });
         }
       }

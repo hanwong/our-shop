@@ -21,6 +21,7 @@ const orderRepo = {
   findOrderByIdempotencyKey: vi.fn(),
   findOrderForGuest: vi.fn(),
   decrementStockIfAvailable: vi.fn(),
+  findStockByProductIds: vi.fn(),
   createOrderWithItems: vi.fn(),
 };
 vi.mock("@/features/orders/repositories/order-repository", () => orderRepo);
@@ -91,6 +92,7 @@ beforeEach(() => {
   );
   orderRepo.findOrderByIdempotencyKey.mockResolvedValue(null);
   orderRepo.decrementStockIfAvailable.mockResolvedValue(1);
+  orderRepo.findStockByProductIds.mockResolvedValue([]);
   orderRepo.createOrderWithItems.mockResolvedValue({ id: "order-1" });
   cartRepo.findCartByGuestId.mockResolvedValue(cartRow());
   cartRepo.deleteCart.mockResolvedValue(undefined);
@@ -204,6 +206,10 @@ describe("SPEC-ORDER-001 M4 — refusals map to design.md §8's bodies", () => {
   it("409s insufficient stock, naming the product and what is left (AC-ORDER-013)", async () => {
     cartRepo.findCartByGuestId.mockResolvedValue(cartRow(10000, 2, 5));
     orderRepo.decrementStockIfAvailable.mockResolvedValue(0);
+    // SPEC-ORDER-002 REQ-ORDER-025: `available` is now the figure re-read at
+    // the moment of refusal rather than the transaction's opening snapshot.
+    // The body this route serialises is unchanged; its source is not.
+    orderRepo.findStockByProductIds.mockResolvedValue([{ id: "p-1", stock: 2 }]);
 
     const response = await submit(validBody({ confirmedTotal: 50000 }));
     const body = await response.json();
