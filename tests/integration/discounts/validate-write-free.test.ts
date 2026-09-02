@@ -101,7 +101,19 @@ describe.skipIf(!reachable)("SPEC-DISCOUNT-001 M6a — AC-DISCOUNT-025 (write-fr
 
     const orderCountBefore = await prisma.order.count();
 
+    // Post-sync-audit addition: this route now calls checkIpRateLimit
+    // (5 requests/60s per IP, see route.ts's module doc). This test's 10
+    // rapid same-endpoint calls carry no x-forwarded-for header, so without
+    // a reset they would themselves trip the limit at the 6th call — the
+    // same shape of self-interference login.test.ts's AC-AUTH-005 test
+    // already documents and resets around. Reset before EACH call so every
+    // one is measured as an isolated request, matching what the test is
+    // actually modeling (10 separate shoppers' precheck calls, not one
+    // client bursting the endpoint).
+    const { __resetRateLimitStoreForTests } = await import("@/lib/auth/rate-limit");
+
     for (let i = 0; i < 10; i += 1) {
+      __resetRateLimitStoreForTests();
       const response = await submit({ code, itemsSubtotal: 30000 });
       // Every call must actually succeed — a validate call that failed would
       // trivially leave redeemedCount untouched for the wrong reason.

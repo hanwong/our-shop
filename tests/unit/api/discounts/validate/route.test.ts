@@ -34,8 +34,16 @@ function submit(body: unknown): Promise<Response> {
   );
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
+  // Post-sync-audit addition: this route now calls checkIpRateLimit
+  // (5 requests/60s per IP). This file's ~13 `submit()` calls across its
+  // test cases carry no x-forwarded-for header, so without a reset they
+  // would share one bucket and start 429ing partway through the file —
+  // the same self-interference login.test.ts's rate-limit tests already
+  // document and reset around.
+  const { __resetRateLimitStoreForTests } = await import("@/lib/auth/rate-limit");
+  __resetRateLimitStoreForTests();
 });
 
 describe("SPEC-DISCOUNT-001 M6a — malformed request (400, no call to validateCoupon)", () => {

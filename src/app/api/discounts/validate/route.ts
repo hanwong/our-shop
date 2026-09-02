@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { validateCoupon } from "@/features/discounts/services/discount-service";
+import { checkIpRateLimit } from "@/lib/auth/rate-limit";
 
 /**
  * SPEC-DISCOUNT-001 M6a — POST /api/discounts/validate (design.md §5,
@@ -22,10 +23,16 @@ import { validateCoupon } from "@/features/discounts/services/discount-service";
  * the time the shopper submits the order, and that later refusal is correct
  * (design.md §5).
  *
- * Deliberately out of scope: rate limiting / abuse defense on this
- * enumeration-shaped endpoint (design.md §5's "남용 방지 관찰", research.md §5)
- * — the surface is documented, not defended, per this SPEC's explicit
- * boundary.
+ * Rate limiting: design.md §5 / research.md §5 originally left this
+ * enumeration-shaped endpoint's abuse risk deliberately undefended — an
+ * honestly-disclosed gap, not a hidden one, but never confirmed with the
+ * user as an accepted risk and never given a tracking card either. A
+ * sync-phase security review flagged it (4 distinguishable failure codes +
+ * no rate limiting = a scriptable coupon-code oracle) and the user chose to
+ * close it now rather than defer it: this route reuses the SAME
+ * `checkIpRateLimit` utility `/api/auth/login` already uses (REQ-AUTH-021),
+ * keyed under its own `"discount-validate"` bucket so it does not share
+ * budget with login attempts.
  *
  * Body validation mirrors orders/route.ts's shape (malformed JSON -> 400,
  * field-level errors -> 400 with `fieldErrors`), scaled down to this
@@ -64,6 +71,12 @@ function parseBody(body: unknown): ParsedBody {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  // Runs before any parsing or DB access — an unthrottled coupon-code oracle
+  // is exactly what this check exists to close (see the module doc above).
+  if (!checkIpRateLimit("discount-validate", request).allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
+
   let body: unknown;
   try {
     body = await request.json();
