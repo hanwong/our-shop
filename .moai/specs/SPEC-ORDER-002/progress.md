@@ -703,11 +703,189 @@ $ git diff --numstat 13ffb3e -- prisma src/components src/app src/lib src/featur
 - **`isTransactionConflict`를 export했다.** 순수 술어이고 부작용이 없으며, 이 파일은 이미 `calculateShippingFee` / `generateOrderNumber` 등을 테스트를 위해 export하는 선례를 갖고 있다. 그래도 이는 테스트 이음새를 위한 가시성 확대이며, 실 오류 객체에 진짜 함수를 적용하는 값어치가 그 대가보다 크다고 판단했다.
 - **M2의 기존 `{ code: "P2034" }` 픽스처 테스트는 남겨 두었다.** 그 형태는 이 환경에서 발생하지 않지만, `P2034` 분기가 살아 있음을 고정하는 값어치가 있다. 다만 그 describe의 테스트들은 **현실에서 발생하지 않는 형태**를 검증한다는 사실을 M4-fix describe 머리말에 명시해 두었다 — 초록이 무엇을 보증하고 무엇을 보증하지 않는지 읽는 사람이 오해하지 않도록.
 
-**M5**: _<pending>_
+---
+
+### M5 — 보존 검증 (REQ-ORDER-031)
+
+카드 `t6` · M4-fix 커밋 `8de6c71` 위. **run-phase의 마지막 마일스톤.**
+
+**결론부터: 이 마일스톤은 새 결함을 찾지 못했고, 새 테스트 표면을 만들지 않았다.** M1~M4가 이미 각자의 증거로 덮은 것을 전수 확인하고, 아직 명시적으로 확인되지 않은 PRESERVE 항목만 마저 쓸어냈다. 제품 코드 변경은 **0줄**이다.
+
+#### 1. Claim (주장)
+
+1. SPEC-ORDER-001 · SPEC-PAYMENT-001 · SPEC-STOREFRONT-001의 기존 테스트가 전부 통과한다 (AC-ORDER-033).
+2. 완료 화면의 항목 순서(`createdAt` 오름차순)는 변경되지 않았다.
+3. plan.md §5 PRESERVE 6개 항목 **전부**가 무변경이거나 이미 보고된 의도적 변경이다.
+4. 어떤 산출물도 초록불을 행 잠금 직렬화의 증거로 제시하지 않는다 (AC-ORDER-036).
+5. 이 마일스톤은 `status` 전이를 수행하지 **않는다** — 규칙상 이 단계의 소유자가 아니다.
+
+#### 2. Evidence (증거)
+
+**전체 회귀** — 선행 SPEC 스위트가 모두 초록이다:
+
+```
+$ npm test
+ Test Files  64 passed (64)
+      Tests  801 passed (801)
+   Duration  16.61s (transform 1.39s, setup 0ms, collect 3.53s, tests 32.05s, environment 5.75s, prepare 3.36s)
+exit=0
+```
+
+선행 SPEC의 자체 가드가 살아 있음을 개별로 확인한다:
+
+```
+ ✓ tests/unit/orders/scope-boundaries.test.ts (15 tests) 87ms   ← SPEC-ORDER-001 자체 PRESERVE 가드
+ ✓ tests/unit/components/product-detail-view.test.tsx (5 tests) ← SPEC-STOREFRONT-001 품절 표시
+ ✓ tests/unit/payments/payment-repository.test.ts (12 tests)    ← SPEC-PAYMENT-001 복원 경로
+ ✓ tests/unit/payments/payment-service.test.ts (20 tests)
+ ✓ tests/integration/payments/webhook-flow.test.ts (10 tests)
+ ✓ tests/unit/payments/guest-only-scope.test.ts (4 tests)
+ ✓ tests/integration/cart/guest-merge.test.ts (9 tests)
+```
+
+`scope-boundaries.test.ts`가 특히 값어치 있다 — SPEC-ORDER-001이 **자기 PRESERVE 목록을 스스로 검사**하도록 만든 파일이고, 이 SPEC의 5개 마일스톤을 거친 뒤에도 15건 전부 통과한다.
+
+**PRESERVE 6항목 전수 확인** (plan-phase 커밋 `0908b43` 기준 — M1 이전):
+
+| plan.md §5 항목 | 확인 방법 | 결과 |
+|---|---|---|
+| `ProductDetailView.tsx` 품절 표시 | `git diff --numstat 0908b43 -- src/components/product/ProductDetailView.tsx` | 빈 출력 (무변경) |
+| `payment-repository.ts` `markOrderCancelledAndRestoreStock()` | `git diff --numstat 0908b43 -- src/features/payments` | 빈 출력 (무변경) |
+| `Order`·`OrderItem`·`Product` 스키마 | `git diff --numstat 0908b43 -- prisma` | 빈 출력 — **마이그레이션 0건**(plan.md §5가 "마이그레이션이 발생하면 설계가 어긋난 것"이라 한 기준을 충족) |
+| `decrementStockIfAvailable()`의 조건부 갱신 형태 | 해당 함수 본문의 diff 라인 검사 | 본문 변경 0줄. 같은 파일에 `findStockByProductIds`가 **추가**되었을 뿐 |
+| 주문 항목의 저장·표시 순서 (`createdAt` 오름차순) | `ORDER_INCLUDE`의 `orderBy` diff | `+`/`-` 없음. 현재도 `orderBy: [{ createdAt: "asc" }, { id: "asc" }]` |
+| 기존 4개 실패 코드의 의미 | `order.ts` diff 전수 | `MEMBER_CHECKOUT_UNSUPPORTED`·`CART_EMPTY`·`INSUFFICIENT_STOCK`·`PRICE_CHANGED` 4개 모두 문자열·형태 무변경. 유니온에 `CONCURRENCY_RETRY` **추가**만 발생(plan.md §2가 예고한 계약 변경) |
+
+**항목 순서 보존은 M2에서 이미 고정했다 — 중복 생성하지 않고 이름으로 인용한다**(M2 잔여 위험의 메모대로):
+
+| 층위 | 테스트 | 무엇을 고정하는가 |
+|---|---|---|
+| 단위 | `order-service.test.ts` → "leaves the ORDER's own item order exactly as the cart stored it (plan.md §5)" | `createOrderWithItems`에 넘어가는 행과 응답 DTO가 장바구니 순서 |
+| 통합 | `create-order.test.ts` → "stores the lines in cart order, and reads them back that way" | `store.orderItems` · 응답 · `getOrderForGuest()` 재조회 3지점 |
+| 통합 | `create-order.test.ts` → "locks by ascending product id, whatever order the cart was built in" | 잠금 순서가 표시 순서와 **다름**을 같은 픽스처로 대조 |
+
+M3도 요약의 기존 표시(이름·단가·합계) 보존을 `order-summary.test.tsx` → "still shows every line's name, price and total"로 고정해 두었다.
+
+**AC-ORDER-036 — 정직성 정적 검사**: `progress.md` 전수 확인 결과, 초록불을 직렬화의 증거로 제시한 서술은 **없다**. 반대로 세 지점에서 명시적으로 부정한다(155행 M1, 292행 M2, 564행 M4). 두 제외 항목은 열린 항목으로 이름 붙어 있다:
+
+```
+155: 위 초록불은 전부 인메모리 fake 기준이며, 행 잠금 직렬화가 성립한다는 증거가 **아니다**(REQ-ORDER-033).
+     `AC-026-EXCL-CONCURRENCY`·`AC-034-EXCL-DEADLOCK`은 여전히 **열린 항목**이다.
+564: ... `AC-026-EXCL-CONCURRENCY`·`AC-034-EXCL-DEADLOCK`은 **CI 기준으로는 닫히지 않았다**. 개발자 기계에서만 닫혔다.
+```
+
+**status 전이는 수행하지 않았다 — 규칙을 확인한 결과다.** `spec-frontmatter-schema.md` § Status Transition Ownership Matrix:
+
+```
+| draft → in-progress                     | manager-develop (on M1 commit start) |
+| in-progress → implemented → completed   | manager-docs (on the single sync commit) |
+```
+
+그리고 § Forbidden ownership crossings: "manager-develop MUST NOT modify spec.md / plan.md / acceptance.md body content (frontmatter `status:` + `updated:` updates on the **`draft → in-progress`** transition are allowed; ALL other body modifications are forbidden)."
+
+즉 run-phase 완료에 대응하는 전이는 **존재하지 않는다**. 다음 전이(`in-progress → implemented → completed`)는 sync 커밋에서 manager-docs가 한 번에 수행한다. 4개 산출물은 `status: in-progress`로 **그대로 둔다** — 여기서 `implemented`로 올리면 소유권 매트릭스를 위반하고 `OwnershipTransitionInvalid` 린트를 유발한다.
+
+#### 3. Baseline-attribution (baseline 귀속)
+
+- 트리: `WT-inventory-concurrency`, M4-fix 커밋 `8de6c71` + 이 마일스톤의 `progress.md` 변경(제품 코드 0줄).
+- PRESERVE 스윕의 비교 기준점은 **plan-phase 커밋 `0908b43`** — M1 이전, 즉 이 SPEC이 아무것도 건드리기 전이다. 마일스톤 간 diff가 아니라 SPEC 전체 diff를 본다.
+- 801건은 이번 실행에서 이 트리를 대상으로 관측했다. 이전 마일스톤의 수치를 옮겨 적지 않았다.
+- 회귀 산술: M4-fix 종료 시점 **801건** → M5 신규 **0건** = **801건**. M5는 테스트를 추가하지 않았다.
+
+#### 4. Gaps (미검증)
+
+- **"기존 4개 실패 코드의 의미"는 형태로만 확인했다.** 유니온 멤버의 문자열·필드가 무변경임은 diff로 관측했지만, 각 코드가 발생하는 *조건*이 의미상 그대로인지는 정적 diff가 아니라 선행 SPEC의 테스트가 보증한다(전부 통과). 의미 변경을 다른 방식으로 별도 검증하지는 않았다.
+- **선행 SPEC 테스트의 "충분성"은 검증 대상이 아니었다.** M5가 확인한 것은 그 테스트들이 통과한다는 사실이지, 그것들이 선행 SPEC의 동작을 빠짐없이 덮는다는 것이 아니다.
+- **M4의 CI 공백은 M5가 닫지 못한다.** `AC-026-EXCL-CONCURRENCY`·`AC-034-EXCL-DEADLOCK`은 CI 기준으로 열린 채이며, 이는 plan.md §0에서 (B)로 확정된 범위 밖 사항이다.
+- **`git diff` 기반 확인은 워킹 트리 기준이다.** 선행 SPEC의 파일이 이 SPEC 밖에서(다른 세션·다른 카드) 변경되었을 가능성은 이 스윕이 구분하지 못한다 — `0908b43` 이후 이 브랜치에서 일어난 변경만 본다.
+
+#### 5. Residual-risk (잔여 위험)
+
+- **`scope-boundaries.test.ts`는 고정된 과거 구간을 검사한다.** 그 파일은 `PLAN_PHASE_HEAD`~`SPEC_MERGE_HEAD`(c19ab47~733e320)라는 **핀 박힌 역사 구간**을 diff한다. 즉 SPEC-ORDER-001이 무엇을 바꿨는지에 대한 역사적 사실을 계속 참으로 유지할 뿐, 이 SPEC이 그 경로를 새로 건드렸는지는 판정하지 않는다. 그 판정은 위 표의 `0908b43` 기준 스윕이 한다 — 두 검사는 대상이 다르며 서로를 대신하지 못한다.
+- **`payment-repository.ts`의 복원 경로는 여전히 순서 규칙 밖이다**(plan.md §5가 관찰 사항으로만 남긴 항목, M2 잔여 위험에서 재확인). 차감과 복원 사이의 교착 가능성은 이 SPEC이 없애지 않았고, REQ-ORDER-027의 매핑이 흡수하도록 남겨 두었다 — 그 매핑은 M4-fix에서 실제 오류 형태에 맞춰졌다.
+- **run-phase가 여기서 끝나지만 SPEC은 닫히지 않았다.** `status`는 `in-progress`이고, `implemented → completed` 전이와 CHANGELOG·문서 동기화는 sync 단계(manager-docs)의 몫이다. 이 브랜치는 아직 push되지 않았고 PR도 없다 — 통합은 리드가 수행한다.
 
 ## §E.3 Run-phase Audit-Ready Signal
 
-_<pending run-phase>_
+```yaml
+run_complete_at: 2026-09-02
+run_commit_sha: pending-backfill-m5   # 이 커밋 자신의 SHA는 착륙 전에는 알 수 없다 (D3 placeholder 예외)
+run_status: audit-ready
+spec_tier: M
+development_cycle: tdd (RED-GREEN-REFACTOR)
+
+ac_pass_count: 13
+ac_fail_count: 0
+ac_total: 13
+ac_qualifier: >-
+  13건 전부 개발자 기계에서 PASS. 단 AC-ORDER-035는 `Where` 능력 게이트이며
+  데이터베이스 도달 불가 환경(CI 포함)에서는 SKIP이다 — 건너뜀은 통과가 아니다.
+
+preserve_list_post_run_count: 6/6      # plan.md §5의 6개 항목 전부 확인 (M5 §2 표)
+schema_migrations: 0                   # prisma/ diff 0줄
+
+total_run_phase_files: 18              # 소스 5 + 테스트 9 + SPEC 산출물 4
+source_files_changed: 5
+test_files_changed: 9
+spec_artifacts_changed: 4
+
+final_suite: "64 files / 801 tests / exit 0"
+typecheck: "tsc --noEmit — exit 0"
+lint: "eslint . — exit 0, 경고 0건"
+new_warnings_or_lints_introduced: 0
+coverage_changed_files:
+  order-service.ts: "96.69% stmts / 96.84% branch"
+  order-repository.ts: "100%"
+  OrderSummary.tsx: "100%"
+  CheckoutForm.tsx: "100% stmts / 94.87% branch"
+cross_platform_build: n/a              # Go 전용 항목. 이 프로젝트는 TypeScript이며
+                                       # 교차 컴파일 대상이 없다 — 해당 없음을 명시한다
+
+m1_to_mN_commit_strategy: 마일스톤별 1커밋 + 결함 수정 1커밋 (총 6)
+commits:
+  M1: a0f38aa   # 재고 부족 실패 보고를 트랜잭션 내 재조회로 교체 (REQ-025/026)
+  M2: 0ab8e74   # 상품 id 오름차순 잠금 + 트랜잭션 중단 매핑 (REQ-022/023/027)
+  M3: 6d1fad4   # 주문서 화면 재고 표면화 (REQ-028/029/030)
+  M4: 13ffb3e   # 실 PostgreSQL 동시성 하네스 (REQ-024/032/033)
+  M4-fix: 8de6c71  # REQ-027 술어를 실제 교착 오류 형태에 맞춤 (M4 2-bis 후속)
+  M5: pending-backfill-m5   # 보존 검증 (REQ-031)
+
+branch: WT-inventory-concurrency
+pushed: false                          # 아직 push하지 않았다. 통합은 리드가 수행한다
+pr: none
+status_transition_performed: "draft → in-progress (M1, a0f38aa)"
+status_now: in-progress                # 다음 전이는 sync 커밋에서 manager-docs가 수행
+```
+
+### 이 run-phase가 실제로 한 일
+
+SPEC-ORDER-002는 동시성 전략을 새로 고르지 않았다. 조건부 원자 갱신은 이미 있었고(`order-repository.ts`, SPEC-ORDER-001), 이 SPEC은 그 전략이 **성립하지 않는 네 구멍**을 막고 그 성립을 **처음으로 관측**했다.
+
+| 구멍 (spec.md §2) | 닫은 마일스톤 | 무엇이 바뀌었나 |
+|---|---|---|
+| G1 — 잠금 순서 미결정 → 교착 | M2 | 상품 id 오름차순 잠금. 정렬은 잠금 순서에만 적용되고 표시 순서는 불변 |
+| G2 — 실패 응답의 `available`이 스냅샷이라 거짓 | M1 | 같은 트랜잭션에서 재조회한 값으로 교체 |
+| G3 — 부족 상품을 한 건만 보고 | M1 | 요청 수량보다 적은 **모든** 미차감 항목 보고 |
+| G4 — 화면이 재고를 전혀 안 보여줌 | M3 | 항목별 품절/재고 부족 표시 + 거부 시 상품 목록 렌더 |
+
+그리고 M4가 **관측**을 더했다: 재고 1을 두 주문이 동시에 노렸을 때 정확히 하나만 성공하고 재고가 0에서 멈추는 것을, 살아 있는 PostgreSQL 16.15에서 확인했다. 이는 SPEC-ORDER-001이 "실 DB에서만 관측 가능"이라 적어 두고 미검증으로 남긴 주장이다.
+
+**M4는 결함도 하나 찾았다.** plan.md §4 M2가 전제한 "40P01은 Prisma `P2034`로 도달한다"가 반증되었고(실제로는 `code` 없는 `PrismaClientUnknownRequestError`), 그 결과 REQ-ORDER-027은 단위 테스트가 초록인 채로 미충족 상태였다. M4-fix가 관측된 형태에 맞춰 술어를 고치고, 진짜 중단 트랜잭션의 오류 객체에 production 함수를 적용하는 실 DB 단언으로 닫았다.
+
+### 아직 열려 있는 것 (sync/audit가 알아야 할 것)
+
+1. **CI에서는 동시성 하네스가 실행되지 않는다.** `.github/workflows/ci.yml:60`의 `DATABASE_URL`은 어떤 데이터베이스도 열지 않는 자리표시자다. 하네스는 사유를 남기고 건너뛴다. 따라서 `AC-026-EXCL-CONCURRENCY`·`AC-034-EXCL-DEADLOCK`은 **CI 기준으로 열린 채**이며, 개발자 기계에서만 닫혔다. plan.md §0에서 (B)로 확정된 **받아들인 공백**이고, CI 승격은 후속 CI SPEC(SPEC-CI-001 소유)의 몫이다.
+2. **서비스가 교착 희생자가 되는 장면은 관측하지 못했다.** 4회 시도 모두 PostgreSQL이 대조군 트랜잭션을 희생자로 골랐다. REQ-ORDER-027의 매핑은 (a) 실제 오류 객체에 대한 술어 반환값과 (b) 서비스 매핑 경로의 단위 테스트로 나뉘어 검증되었지, 끝단 한 번으로 관측되지 않았다.
+3. **`40001`(직렬화 실패)은 실 DB에서 만들어 보지 못했다.** Read Committed + 조건부 UPDATE 패턴은 이를 생성하지 않는다. 픽스처는 관측된 `40P01`과 **같은 커넥터 렌더링 형태**를 따른 추론이며, 그 가정 자체는 미관측이다.
+4. **메시지 문자열 매칭은 API 계약이 아니다.** `isTransactionConflict()`의 SQLSTATE 검사는 커넥터의 `code: "…"` 렌더링에 의존한다. 취약하지만 조용히 깨지지 않는다 — 실 DB 단언이 먼저 빨개진다.
+5. **`payment-repository.ts`의 재고 복원 경로는 순서 규칙 밖이다**(plan.md §5 관찰 사항). 차감과 복원 사이의 교착 가능성은 남으며, `CONCURRENCY_RETRY`가 흡수한다.
+6. **미결제 주문의 재고 해제는 이 SPEC 범위 밖**이고 백로그 카드 `t21`이 추적한다(plan.md §0 확정).
+
+### sync 단계로 넘기는 상태
+
+- 4개 산출물 모두 `status: in-progress`. `implemented → completed` 전이는 sync 커밋에서 manager-docs가 수행한다(소유권 매트릭스).
+- 브랜치 `WT-inventory-concurrency`, 6커밋, **push 안 됨**, PR 없음. 통합은 리드가 수행한다.
+- 워킹 트리 깨끗함. 공유 개발 DB는 실행 전 상태(products 5 / categories 2 / orders 0 / carts 0)로 복원되어 있다.
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
