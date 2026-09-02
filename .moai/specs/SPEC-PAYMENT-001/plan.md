@@ -1,6 +1,6 @@
 ---
 id: SPEC-PAYMENT-001
-status: draft
+status: implemented
 updated: 2026-09-02
 tier: L
 ---

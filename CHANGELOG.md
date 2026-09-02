@@ -188,3 +188,28 @@ A post-implementation security audit (independent quality + security review) fou
 - **결제는 이 SPEC에 없다.** 주문은 `pending_payment`에 머물며 `paid`로 가는 전이 코드가 존재하지 않는다(AC-ORDER-019가 PG 엔드포인트 0건·`paid` 전이 코드 0건을 정적으로 확인한다). `package.json`·`.env.example` diff 0줄 — 결제 SDK도 크레덴셜도 추가하지 않았다.
 - **`npm run build`는 여전히 실패하며, 이 SPEC이 고칠 수 있는 것이 아니다.** SPEC-STOREFRONT-001이 이미 기록한 것과 **동일한** 선행 결함이다 — `src/middleware.ts` → `@/lib/auth/jwt` → `node:crypto` 경로에서 Edge 런타임이 `node:` 스킴을 처리하지 못한다. 추정이 아니라 **귀속 실험으로 확인**했다: `src/app/checkout/`과 `src/app/api/orders/`를 트리 밖으로 옮기고 다시 빌드해도 동일한 오류로 실패했다. 두 파일 모두 이 SPEC의 불변 조건 대상이라 diff 0줄이며, SPEC-AUTH-001의 표면을 이 SPEC이 손대는 것은 범위 위반이다. 칸반 백로그 카드 `t16`으로 추적한다.
 - **설계 문서에 없어 run-phase가 판단한 항목 1건**(기록): REQ-ORDER-004(수량 1 미만 거부)에 대응하는 실패 코드가 design.md §8 표에 없다. 새 코드를 발명하는 대신 같은 표의 "그 외 예기치 못한 오류 → 500, 코드 없음" 행을 적용했다 — 요청 자체는 정상이고 서버 상태가 이상한 경우라 사용자가 고칠 수 있는 것이 없고, 따라서 알릴 이름도 필요하지 않다.
+
+### 추가 — SPEC-PAYMENT-001: PG 결제 연동과 결제 승인·취소 웹훅 처리 (게스트 전용)
+
+SPEC-ORDER-001이 명시적으로 유예한 두 책임 — 결제 승인·웹훅 처리, `pending_payment` 이후의 상태 전이 — 을 이 SPEC이 인수한다. PG사는 토스페이먼츠(사용자 확정). 이 SPEC이 다루는 주문은 SPEC-ORDER-001이 만든 게스트 주문뿐이며, 회원 결제는 다루지 않는다(회원 귀속 주문이 이 저장소에 아예 존재하지 않기 때문).
+
+- Prisma 스키마: `Order.paymentKey`(unique) 추가, `PaymentEventSource`(`CONFIRM_API`·`WEBHOOK`) enum 신설, `PaymentAuditLog` 테이블 신설(전이 전/후 상태·트리거 출처·관련 주문 id·발생 시각 보존, update/delete/upsert 경로 없음 — append-only).
+- `src/features/payments/`(`types`·`repositories`·`services`) — `payment-repository`가 `markOrderPaid`/`markOrderCancelledAndRestoreStock`을 조건부 `updateMany` 형태로 제공(read-modify-write 아님), `payment-service`가 확인(confirm)·웹훅 양쪽에서 `paymentKey` 일치 여부로 분기.
+- `src/lib/payment/toss-server.ts` — 토스 결제 승인 API 호출 + 웹훅 HMAC 서명 검증(서버 전용, `next/*` import 없음).
+- `POST /api/payments/confirm` — 결제창 승인 콜백 리다이렉트 처리. 금액 불일치 시 확인 API 미호출·트랜잭션 미개시. API 실패 시 트랜잭션 미개시, 이미 처리된(paymentKey 일치) 주문은 멱등 재응답.
+- `POST /api/payments/webhook` — `PAYMENT_STATUS_CHANGED` 웹훅 수신. 서명 검증 실패 시 주문 조회 이전에 차단. `DONE` 웹훅이 `pending_payment→paid` 전이, 취소 웹훅이 재고 복원 + `cancelled` 전이(단일 트랜잭션). 금액 불일치 웹훅은 기록만 남기고 전이 없음. 재전송(known `transmissionId`)은 no-op.
+- `src/components/checkout/PayButton.tsx` + `src/lib/payment/toss-client.ts` — 결제창 트리거(orderId/amount/orderName/successUrl/failUrl 전달, `NEXT_PUBLIC_PG_CLIENT_KEY`만 클라이언트에 노출 — 비밀키는 클라이언트 번들에 없음).
+- `checkout/complete/[orderId]` 화면 확장 — `pending_payment` 상태이면서 `payment_failed=1` 쿼리가 있을 때만 재시도 배너 노출(상태 우선 원칙 — 이미 `paid`인 주문에는 배너를 표시하지 않음).
+- `.env.example`에 `PG_SECRET_KEY`/`PG_WEBHOOK_SECRET`/`NEXT_PUBLIC_PG_CLIENT_KEY` 추가.
+- 인수 기준 20개 중 19개 PASS, 1개(`AC-004-EXCL-CONCURRENCY`)는 아래 알려진 한계에서 이름 붙여 제외. 테스트는 717개(61개 파일)로 전부 통과, 커버리지는 97.56% stmts / 93.09% branch / 100% funcs / 97.56% lines로 임계값(85/85/80/85)을 상회한다.
+
+### 알려진 한계 — SPEC-PAYMENT-001
+
+- **`AC-004-EXCL-CONCURRENCY`는 미검증이다.** 이 환경에 살아 있는 PostgreSQL이 없어, 확인(confirm) API 경로와 웹훅 경로가 실제로 동시에 도착할 때의 행 잠금 직렬화는 관측할 수 없다. 순차 요청으로 관측 가능한 `paymentKey` 불일치 거부·기록은 테스트로 확인했지만, 진짜 경합 상황의 동작은 **PASS로 계상하지 않는다**.
+- **관리자·사용자 주도 취소·환불은 이 범위 밖이다.** 이 SPEC이 처리하는 취소는 **PG가 먼저 알린 웹훅(또는 확인 API 실패 경로)뿐**이다. 관리자가 직접 요청하는 취소·환불 API, 부분 취소·부분 환불 UI는 다루지 않는다 — 사전에 사용자가 확인한 범위 결정이며, 향후 백오피스 주문 관리 SPEC(칸반 백로그 카드 `t12`)의 몫이다.
+- **미결제 주문의 재고 점유 해제 만료 작업(스케줄러/배치)은 없다.** 이 SPEC이 다루는 재고 복원은 이벤트 주도(웹훅이 취소를 알렸을 때)뿐이며, 시간 경과만으로 트리거되는 예약 작업은 별도 운영 SPEC의 몫이다(SPEC-ORDER-001도 동일한 결정을 이미 기록).
+- **확인 실패·결제창 중단 시 새 상태값을 만들지 않는다.** 주문은 `pending_payment`에 그대로 남아 재시도를 허용한다 — 재시도 의미론을 복잡하게 만들지 않기 위한 설계상 결정.
+- **가상계좌·정기결제·해외 간편결제·정산 웹훅·ARS 결제는 이 범위 밖이다.** 요청받은 범위는 카드/일반 결제 승인 + `PAYMENT_STATUS_CHANGED` 웹훅 두 이벤트로 한정된다.
+- **회원 결제 경로는 이 범위 밖이다.** SPEC-ORDER-001이 회원 체크아웃 자체를 구조적으로 제외했으므로 이 저장소에는 회원에게 귀속된 주문이 존재하지 않는다.
+- **`npm run build`는 여전히 실패하며, 이 SPEC이 고칠 수 있는 것이 아니다.** SPEC-STOREFRONT-001·SPEC-ORDER-001이 이미 기록한 것과 **동일한** 선행 결함이다 — `src/middleware.ts` → `src/lib/auth/jwt.ts` → `node:crypto` 경로에서 Edge 런타임이 `node:` 스킴을 처리하지 못한다. 이 SPEC은 두 원인 파일을 전혀 건드리지 않았다(diff 0줄, 이번 세션에서 직접 확인). 칸반 백로그 카드 `t16`으로 추적한다.
+- **`tests/integration/auth/login.test.ts`의 AC-AUTH-005는 알려진 플레이크다.** bcrypt 타이밍-허용오차 비교 테스트로 전체 스위트 동시 실행 시 CPU 경합에 민감하다. 단독 실행하면 통과한다. SPEC-AUTH-001 소유이며 이 SPEC이 만들지도 고치지도 않았다 — sync-phase에서도 재현해 동일한 특성을 확인했다.

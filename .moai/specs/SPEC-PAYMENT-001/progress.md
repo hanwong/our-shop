@@ -1,6 +1,6 @@
 ---
 id: SPEC-PAYMENT-001
-status: in-progress
+status: implemented
 updated: 2026-09-02
 tier: L
 ---
@@ -129,7 +129,56 @@ pre-commit 훅 우회는 임의가 아니라 각 시점에 커밋 메시지 본�
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+sync_status: **audit-ready**
+sync_complete_at: 2026-09-02
+sync_commit_sha: `pending-backfill-sync-payment-001`(이 문서를 담는 커밋 자신은 자기 SHA를 알 수 없다 — SPEC-ORDER-001 §E.4 선례와 동일하게, 실제 SHA는 커밋 직후 별도 백필 커밋으로 채운다)
+branch: `WT-payment-pg-webhook`
+base_head_at_sync_entry: `f39edc8`(run-phase 종료 HEAD, closeout 커밋 포함)
+changelog_entry_position: `CHANGELOG.md` `[Unreleased]` 섹션, SPEC-ORDER-001 항목(추가+알려진 한계) 다음, 최하단에 신규 추가(`### 추가 — SPEC-PAYMENT-001: ...` + `### 알려진 한계 — SPEC-PAYMENT-001`)
+
+**§G 관련 정정**: 이 문서의 `§G Run-phase Blocker`는 이전 세션에서 `Agent(manager-develop)` 위임이 잘못된 워크트리로 자동 격리되며 발생한 블로커 보고다. 그 블로커는 이후 세션에서 해소되어 M1~M5가 정상적으로 이 브랜치(`WT-payment-pg-webhook`)에 순차 커밋되었다 — `git log --oneline`으로 `b243a97`(M1)부터 `f39edc8`(closeout)까지 8개 커밋이 실제로 이 브랜치에 존재함을 sync-phase에서 직접 확인했다. `§G`는 삭제하지 않고 이력으로 보존하되, **더 이상 유효한 차단 상태가 아님**을 여기 명시한다.
+
+### sync-phase에서 재실행한 품질 게이트 (이 세션에서 직접 관측, HEAD `f39edc8`)
+
+| 명령 | 종료 코드 | 관측 결과 |
+|---|---|---|
+| `npm run lint` | 0 | 출력 없음 |
+| `npm run typecheck` | 0 | 출력 없음 |
+| `npx prisma validate` | 0 | `The schema at prisma/schema.prisma is valid 🚀` |
+| `npm run test -- --run` | 0 | `Test Files 61 passed (61)` / `Tests 717 passed (717)` — 이 실행에서는 AC-AUTH-005도 통과(부하 낮음, 플레이크 미발현) |
+| `npx vitest run --coverage` | **1** | `Test Files 1 failed \| 60 passed (61)` / `Tests 1 failed \| 716 passed (717)` — 실패 1건은 `tests/integration/auth/login.test.ts` AC-AUTH-005(`diff=69.92ms > tolerance=64.30ms`), run-phase가 §E.2에 이미 기록한 것과 동일한 특성의 재현. SPEC-AUTH-001 소유, 이 SPEC과 무관 |
+| `npx vitest run --coverage --exclude tests/integration/auth/login.test.ts` | 0 | `Test Files 60 passed (60)` / `Tests 716 passed (716)` / `All files 97.56 stmts / 93.09 branch / 100 funcs / 97.56 lines` — 임계값(85/85/80/85) 상회, run-phase §E.2 수치와 일치 |
+| `npm run build` | **1** | `UnhandledSchemeError: Reading from "node:crypto" is not handled by plugins` + import trace `./src/lib/auth/jwt.ts` — run-phase가 §E.2에 이미 귀속 확인한 것과 동일한 선행 결함. 이 세션은 run-phase의 귀속 결론을 재인용하지 않고, 실패 지문 자체를 이 세션에서 직접 재관측했다 |
+
+증거 로그: `.moai/state/verify/spec-payment-001-sync/{lint,typecheck,prisma,test,coverage,coverage-excl,build}.log`(이 트리에 로컬 저장, gitignore 대상).
+
+### B12 CHANGELOG 발행 자기검증 (3종)
+
+1. **발행 전 grep**: `grep -c 'SPEC-PAYMENT-001' CHANGELOG.md` → 이 커밋 작성 직전 0건(중복 발행 없음 확인 후 신규 섹션 2개 추가).
+2. **AC 개수 일치**: `grep -oE 'AC-PAYMENT-[0-9]+' .moai/specs/SPEC-PAYMENT-001/acceptance.md | sort -u | wc -l` → **20**. CHANGELOG 추가 항목 본문이 "인수 기준 20개 중 19개 PASS, 1개 제외"로 동일한 개수를 명시한다.
+3. **파일 경로 검증**: CHANGELOG·README에 언급된 경로(`src/features/payments/`, `src/lib/payment/`, `src/app/api/payments/`, `src/components/checkout/PayButton.tsx`, `.env.example`) 전부 `ls`로 존재 확인 완료.
+
+### frontmatter_status_transitions
+
+- `spec.md`: `draft → implemented`
+- `plan.md`: `draft → implemented`
+- `acceptance.md`: `draft → implemented`
+- `progress.md`: `in-progress → implemented`
+- (`status:`/`updated:` 필드만 변경, 본문 내용은 변경하지 않음 — spec-frontmatter-schema.md § Forbidden ownership crossings 준수)
+
+### canary_compliance_check
+
+이 SPEC은 자기 자신이 테스트하는 forward-looking 정책을 정의하지 않는다(canary 항목 해당 없음).
+
+### docs-site 동기화 확인
+
+`ls -d docs .moai/docs` → `docs` 없음, `.moai/docs` 있음(디렉터리 내용은 프로젝트 문서 스캐폴딩용이며 별도의 다국어 docs-site가 아니다). 이 저장소에는 `adk.mo.ai.kr` 유형의 docs-site가 **존재하지 않는다** — 동기화를 건너뛴 것이 아니라 동기화 대상 자체가 없다(SPEC-ORDER-001 sync-phase의 동일한 확인과 일치).
+
+### 잔여 항목 (sync-phase가 물려받아 재확인만 하고 고치지 않은 것)
+
+1. `npm run build` 선행 실패(Edge 런타임 ↔ `node:crypto`) — 백로그 카드 `t16`.
+2. `AC-004-EXCL-CONCURRENCY` — 실 PostgreSQL 없이는 여전히 미검증.
+3. `tests/integration/auth/login.test.ts` AC-AUTH-005 — 머신 부하 플레이크, 이번 세션에서도 재현(coverage 실행에서 실패, 단독/저부하 실행에서는 통과).
 
 ## §F Phase 4 Mode Selection
 
