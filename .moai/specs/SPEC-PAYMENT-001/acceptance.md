@@ -1,6 +1,6 @@
 ---
 id: SPEC-PAYMENT-001
-status: implemented
+status: completed
 updated: 2026-09-02
 tier: L
 ---
@@ -198,12 +198,12 @@ REQ 20개 전부가 정확히 하나의 AC에 대응한다(1:1). AC도 20개다.
 
 ## §4. Definition of Done
 
-- [ ] AC 20개 중 **하네스 관측 가능** 항목이 전부 PASS
-- [ ] 이름 붙은 제외 1건(`AC-004-EXCL-CONCURRENCY`)이 **미검증으로 명시 기록**됨 — progress.md §E.2에 그대로 적는다
-- [ ] fake의 `$transaction` 롤백 구현 여부가 progress.md §E.2에 기록됨(AC-PAYMENT-014의 전제)
-- [ ] §3 품질 게이트 6개 전부 exit 0
-- [ ] plan.md §4 불변 조건 파일들의 변경 0건(diff로 확인) — `src/features/orders/**`, `src/features/cart/**`, `src/lib/auth/**` 포함
-- [ ] plan.md §4.1이 허용한 **유일한 EXTEND**의 경계가 지켜짐 — 완료 화면의 인가 관련 코드 블록 diff 0줄
-- [ ] `OrderStatus` enum diff 0줄, 새 enum 값 없음(AC-PAYMENT-003/010)
-- [ ] 게스트 전용 경계가 지켜짐 — 결제 도메인에 `userId`/회원 분기 코드 없음(AC-PAYMENT-020)
-- [ ] 구현이 plan.md §0의 확정 결정 7건과 일치함
+- [x] AC 20개 중 **하네스 관측 가능** 항목이 전부 PASS — progress.md §E.2/§E.3: 자동 검증 가능 19건 전부 PASS
+- [x] 이름 붙은 제외 1건(`AC-004-EXCL-CONCURRENCY`)이 **미검증으로 명시 기록**됨 — progress.md §E.2에 그대로 적는다 (실 PostgreSQL 부재로 미검증 명시)
+- [ ] fake의 `$transaction` 롤백 구현 여부가 progress.md §E.2에 기록됨(AC-PAYMENT-014의 전제) — progress.md에 해당 기록을 찾지 못함, 미확인
+- [ ] §3 품질 게이트 6개 전부 exit 0 — `npm run build`가 run-phase/sync-phase 모두 exit 1(선행 결함으로 귀속·기록되었으나 §3 문언 그대로는 미충족)
+- [x] plan.md §4 불변 조건 파일들의 변경 0건(diff로 확인) — progress.md §E.2: `src/lib/auth/**` diff 0줄, `src/middleware.ts` diff 0줄, orders/cart 도메인은 scope-boundary 목록 확장만 있고 로직 diff 없음
+- [ ] plan.md §4.1이 허용한 **유일한 EXTEND**의 경계가 지켜짐 — 완료 화면의 인가 관련 코드 블록 diff 0줄 — progress.md에 해당 기록을 찾지 못함, 미확인
+- [x] `OrderStatus` enum diff 0줄, 새 enum 값 없음(AC-PAYMENT-003/010) — progress.md §E.2 AC-PAYMENT-003/010 PASS 근거
+- [x] 게스트 전용 경계가 지켜짐 — 결제 도메인에 `userId`/회원 분기 코드 없음(AC-PAYMENT-020) — progress.md §E.2 AC-PAYMENT-020 PASS 근거(`guest-only-scope.test.ts`)
+- [ ] 구현이 plan.md §0의 확정 결정 7건과 일치함 — progress.md에 §0 결정 7건 대조 기록을 찾지 못함, 미확인

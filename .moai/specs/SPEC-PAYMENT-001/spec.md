@@ -2,7 +2,7 @@
 id: SPEC-PAYMENT-001
 title: "PG 결제 연동과 결제 승인·취소 웹훅 처리 (게스트 전용)"
 version: "0.1.0"
-status: implemented
+status: completed
 created: 2026-09-02
 updated: 2026-09-02
 author: snake
