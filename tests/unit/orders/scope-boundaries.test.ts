@@ -113,9 +113,30 @@ describe("SPEC-ORDER-001 — no payment integration exists (AC-ORDER-019)", () =
     expect(diffStat("package.json")).toBe("");
   });
 
-  it("adds no environment variable", () => {
-    // .env.example may not exist in this checkout; either way, unchanged.
-    expect(diffStat(".env.example")).toBe("");
+  it("adds no environment variable outside SPEC-PAYMENT-001's own scope (its legitimate follow-up, REQ-ORDER-019)", () => {
+    // .env.example may not exist in this checkout; either way, no line that
+    // existed at plan-phase was touched or removed. SPEC-PAYMENT-001 has
+    // since added its own PG_SECRET_KEY / PG_WEBHOOK_SECRET /
+    // NEXT_PUBLIC_PG_CLIENT_KEY block (plan.md §3 M5) as a pure addition —
+    // the same "the follow-up SPEC's own domain is excluded, everything else
+    // stays checked" treatment PAYMENT_DOMAIN_PATHS applies to the grep-based
+    // checks above.
+    const stat = diffStat(".env.example");
+    if (stat === "") return;
+
+    const deleted = Number(stat.split("\t")[1]);
+    expect(deleted).toBe(0);
+
+    const diffBody = execFileSync("git", ["diff", PLAN_PHASE_HEAD, "--", ".env.example"], {
+      encoding: "utf8",
+    });
+    const addedLines = diffBody
+      .split("\n")
+      .filter((line) => line.startsWith("+") && !line.startsWith("+++"));
+
+    for (const line of addedLines) {
+      expect(line).toMatch(/^\+($|#.*|PG_SECRET_KEY=|PG_WEBHOOK_SECRET=|NEXT_PUBLIC_PG_CLIENT_KEY=)/);
+    }
   });
 
   it("calls no external payment endpoint anywhere in src/ outside SPEC-PAYMENT-001's own domain", () => {
