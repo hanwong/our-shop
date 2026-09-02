@@ -195,3 +195,126 @@ describe("SPEC-ORDER-001 — how a refusal reaches the shopper (design.md §8)",
     release(jsonResponse(201, { id: "order-1" }));
   });
 });
+
+describe("SPEC-ORDER-002 M3 — a refusal names the products (REQ-ORDER-030)", () => {
+  /** AC-ORDER-032's body, verbatim. */
+  const INSUFFICIENT = {
+    error: "재고가 부족한 상품이 있습니다",
+    code: "INSUFFICIENT_STOCK",
+    products: [
+      { productId: "p-1", name: "머그컵", available: 0 },
+      { productId: "p-2", name: "텀블러", available: 1 },
+    ],
+  };
+
+  it("shows every named product, not one line the shopper cannot act on (AC-ORDER-032)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(409, INSUFFICIENT));
+    fillRequired();
+    submit();
+
+    // Before this, the form read `failure.error` and discarded `products`
+    // entirely — so a shopper with three short lines was told "some product is
+    // short" and had to guess which (spec.md §2 G4).
+    await screen.findByText(/머그컵/);
+    expect(screen.getByText(/텀블러/)).toBeDefined();
+  });
+
+  it("shows each product's currently available quantity (AC-ORDER-032)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(409, INSUFFICIENT));
+    fillRequired();
+    submit();
+
+    const mug = await screen.findByText(/머그컵/);
+    // The figure is what makes the message actionable: it says what quantity
+    // WOULD go through, so the shopper can adjust rather than retry blindly.
+    expect(mug.textContent).toMatch(/0/);
+    expect(screen.getByText(/텀블러/).textContent).toMatch(/1/);
+  });
+
+  it("keeps the server's summary line alongside the list", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(409, INSUFFICIENT));
+    fillRequired();
+    submit();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("재고가 부족한 상품이 있습니다");
+  });
+
+  it("names no product when the response identified none (acceptance.md §2)", async () => {
+    // The re-read found the stock restored, so the transaction refused without
+    // being able to say which line lost. Inventing one here would be a lie.
+    fetchMock.mockResolvedValue(
+      jsonResponse(409, {
+        error: "재고가 부족한 상품이 있습니다",
+        code: "INSUFFICIENT_STOCK",
+        products: [],
+      })
+    );
+    fillRequired();
+    submit();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("재고가 부족한 상품이 있습니다");
+    expect(screen.queryByRole("list")).toBeNull();
+  });
+
+  it("clears a previous product list when the next submission fails differently", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(409, INSUFFICIENT));
+    fillRequired();
+    submit();
+    await screen.findByText(/머그컵/);
+
+    fetchMock.mockResolvedValue(jsonResponse(409, { error: "장바구니가 비어 있습니다" }));
+    submit();
+
+    // A stale list left on screen would name products that have nothing to do
+    // with the refusal the shopper is now looking at.
+    await waitFor(() => expect(screen.queryByText(/머그컵/)).toBeNull());
+  });
+});
+
+describe("SPEC-ORDER-002 M3 — an aborted transaction reads as retryable (plan.md §3)", () => {
+  /** What the server sends for the code SPEC-ORDER-002 M2 added. */
+  const RETRY = {
+    error: "주문이 몰려 처리하지 못했습니다. 잠시 후 다시 시도해 주세요",
+    code: "CONCURRENCY_RETRY",
+  };
+
+  it("tells the shopper to try again", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(409, RETRY));
+    fillRequired();
+    submit();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/다시 시도/);
+  });
+
+  it("names no product, because the database never said which line lost", async () => {
+    // plan.md §3: the deadlock victim is chosen by the database, not by stock.
+    // Listing a product here would point at one that may be fully available.
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(409, {
+        error: "재고가 부족한 상품이 있습니다",
+        code: "INSUFFICIENT_STOCK",
+        products: [{ productId: "p-1", name: "머그컵", available: 0 }],
+      })
+    );
+    fillRequired();
+    submit();
+    await screen.findByText(/머그컵/);
+
+    fetchMock.mockResolvedValue(jsonResponse(409, RETRY));
+    submit();
+
+    await waitFor(() => expect(screen.queryByText(/머그컵/)).toBeNull());
+  });
+
+  it("leaves the button usable so the retry it advises is actually possible", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(409, RETRY));
+    fillRequired();
+    submit();
+
+    await screen.findByRole("alert");
+    expect(screen.getByRole("button", { name: /주문하기/ })).not.toHaveProperty("disabled", true);
+  });
+});

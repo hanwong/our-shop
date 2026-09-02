@@ -7,6 +7,7 @@ import {
   decrementStockIfAvailable,
   findOrderByIdempotencyKey,
   findOrderForGuest,
+  findStockByProductIds,
   type OrderWithItems,
 } from "@/features/orders/repositories/order-repository";
 import type {
@@ -230,6 +231,56 @@ function isUniqueViolation(error: unknown): boolean {
   return isRecord(error) && error.code === "P2002";
 }
 
+/**
+ * The connector's SQLSTATE field for the two aborts REQ-ORDER-027 names:
+ * `40P01` (deadlock detected) and `40001` (serialization failure).
+ *
+ * Anchored to the `code: "…"` field rather than the bare digits. `40001` is
+ * five ordinary digits and can appear in an error as a total, a quantity or an
+ * id; matching it loose would classify an unrelated permanent failure as
+ * retryable and tell the shopper to try again forever — the same defect this
+ * predicate fixes, pointed the other way.
+ */
+const CONFLICT_SQLSTATE = /code:\s*"(?:40P01|40001)"/;
+
+/**
+ * Whether the database aborted this transaction to break a deadlock or a
+ * serialization conflict (SPEC-ORDER-002 REQ-ORDER-027).
+ *
+ * Either way the caller gets the same news: the database chose this transaction
+ * as the victim, nothing it wrote survives, and the identical request may be
+ * sent again. That is a different answer from every other refusal, where
+ * retrying unchanged would fail identically.
+ *
+ * TWO CHECKS, because the plan's assumption turned out to be half the story:
+ *
+ *  - `P2034` is Prisma's documented write-conflict code. Retained for other
+ *    paths that may already emit it, and as forward compatibility if a future
+ *    client classifies what this one does not.
+ *  - The SQLSTATE in the message is what a REAL abort actually delivers. The M4
+ *    harness drove a genuine deadlock against PostgreSQL 16 through Prisma 6.1
+ *    and observed a `PrismaClientUnknownRequestError` carrying NO `code` at
+ *    all, with `40P01` readable only inside the message text. The original
+ *    predicate tested `code === "P2034"` alone and therefore never matched a
+ *    real deadlock — REQ-ORDER-027 was unsatisfied in production while its
+ *    unit test passed against an invented shape (progress.md §E.2 M4, 2-bis).
+ *
+ * Matching prose is brittle, and knowingly so: the message is not an API
+ * contract. The live-database assertion in
+ * tests/integration/orders/concurrency.postgres.test.ts is what keeps that
+ * brittleness honest — it calls THIS function against a real aborted
+ * transaction, so a Prisma change that reshapes the message fails a test rather
+ * than silently restoring the 500.
+ *
+ * Exported for that assertion: verifying the real predicate against a real
+ * error is worth more than a copy of its logic in a test.
+ */
+export function isTransactionConflict(error: unknown): boolean {
+  if (!isRecord(error)) return false;
+  if (error.code === "P2034") return true;
+  return typeof error.message === "string" && CONFLICT_SQLSTATE.test(error.message);
+}
+
 // ---------------------------------------------------------------------------
 // Projection
 // ---------------------------------------------------------------------------
@@ -258,6 +309,63 @@ function toOrderDTO(order: OrderWithItems): OrderDTO {
     },
     createdAt: order.createdAt.toISOString(),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Locking order (SPEC-ORDER-002 REQ-ORDER-023)
+// ---------------------------------------------------------------------------
+
+/**
+ * Ascending by product id, compared as code units.
+ *
+ * NOT `localeCompare`: its result depends on the runtime's active collation, so
+ * two application instances could order the same two ids differently and
+ * reintroduce the very cycle this ordering removes. A deadlock-avoidance order
+ * has to be the same everywhere or it is not an order at all.
+ */
+function byProductId(a: OrderItemDTO, b: OrderItemDTO): number {
+  if (a.productId < b.productId) return -1;
+  if (a.productId > b.productId) return 1;
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Insufficient-stock reporting (SPEC-ORDER-002 REQ-ORDER-025/026)
+// ---------------------------------------------------------------------------
+
+/**
+ * The short lines a refused decrement can honestly name, given the stock read
+ * back at the moment of the refusal.
+ *
+ * `pending` is the lines this transaction has NOT yet taken — the one that was
+ * just refused, and every line after it. Lines already decremented are excluded
+ * deliberately: their stock WAS sufficient, and the row now reads lower only
+ * because this transaction — about to roll back — took it. Naming them would
+ * report a product that is not the shopper's problem, which is the same
+ * self-contradicting answer the stale snapshot used to give (spec.md §2 G2).
+ *
+ * A line whose re-read stock now covers its quantity is dropped, so the list can
+ * legitimately come back EMPTY when the product was restocked in between. The
+ * order is refused all the same — the transaction has made a judgement it
+ * cannot take back — but an empty list says "cannot name which", which is true,
+ * rather than naming one anyway (acceptance.md §2).
+ *
+ * Pure on purpose: the read happens at the call site where the transaction
+ * client is in scope, so this function is the decision alone.
+ */
+function shortLines(
+  pending: OrderItemDTO[],
+  currentStock: Array<{ id: string; stock: number }>
+): InsufficientStockProduct[] {
+  const stockById = new Map(currentStock.map((row) => [row.id, row.stock]));
+
+  return pending.flatMap((item) => {
+    // A product that no longer has a row cannot be bought at all, which is
+    // "none available" rather than a reason to omit the line.
+    const available = stockById.get(item.productId) ?? 0;
+    if (available >= item.quantity) return [];
+    return [{ productId: item.productId, name: item.productName, available }];
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -357,20 +465,37 @@ export async function createOrder(guestId: string, body: unknown): Promise<Order
       //    because insufficient stock is the commonest failure, so filtering it
       //    first keeps the failure path cheap. The loop stops at the first
       //    refusal — the rollback would undo any further decrement anyway.
-      for (const item of items) {
+      //
+      //    SPEC-ORDER-002 REQ-ORDER-023: taken in ascending product-id order,
+      //    NOT cart order. Cart order is per-cart (CartItem.createdAt), so two
+      //    shoppers holding the same two products in opposite orders would
+      //    request the same row locks in opposite orders and deadlock — and
+      //    PostgreSQL would abort one of them with an error that used to reach
+      //    the shopper as an unexplained 500 (spec.md §2 G1).
+      //
+      //    A COPY is sorted. `items` itself stays in cart order because it is
+      //    what gets stored and displayed, and the completion screen must list
+      //    the lines the way the order summary did (plan.md §5 PRESERVE).
+      const lockingOrder = [...items].sort(byProductId);
+      for (const [index, item] of lockingOrder.entries()) {
         const changed = await decrementStockIfAvailable(tx, item.productId, item.quantity);
         if (changed !== 1) {
-          const line = cart.items.find((cartItem) => cartItem.productId === item.productId)!;
-          const product: InsufficientStockProduct = {
-            productId: item.productId,
-            name: item.productName,
-            available: line.product.stock,
-          };
+          // SPEC-ORDER-002 REQ-ORDER-025: read the stock AGAIN, here, inside the
+          // transaction that just lost. Step 1's snapshot is what the winner
+          // invalidated by committing, so answering from it says "not enough
+          // stock" and "5 available" in the same breath. One findMany, on the
+          // failure path only — the happy path's query count is unchanged.
+          const currentStock = await findStockByProductIds(
+            tx,
+            items.map((line) => line.productId)
+          );
           throw new OrderAbort({
             status: 409,
             error: "재고가 부족한 상품이 있습니다",
             code: "INSUFFICIENT_STOCK",
-            products: [product],
+            // From the refused line onward IN LOCKING ORDER: the earlier ones
+            // were taken successfully, so their stock was never the problem.
+            products: shortLines(lockingOrder.slice(index), currentStock),
           });
         }
       }
@@ -414,6 +539,23 @@ export async function createOrder(guestId: string, body: unknown): Promise<Order
   } catch (error) {
     if (error instanceof OrderAbort) {
       return fail(error.failure);
+    }
+
+    // SPEC-ORDER-002 REQ-ORDER-027. The database aborted this transaction to
+    // break a deadlock or a serialization conflict. Nothing it wrote survives,
+    // and — unlike every other refusal here — the identical submission may
+    // simply be sent again, so saying so is the whole point: the previous
+    // behaviour rethrew this into an unclassified 500, which tells a shopper
+    // whose order would succeed on the next attempt to give up.
+    //
+    // Sits at the transaction boundary rather than beside the decrement: the
+    // order insert takes locks too, so the conflict can surface from either.
+    if (isTransactionConflict(error)) {
+      return fail({
+        status: 409,
+        error: "주문이 몰려 처리하지 못했습니다. 잠시 후 다시 시도해 주세요",
+        code: "CONCURRENCY_RETRY",
+      });
     }
 
     // Second line of defence for REQ-ORDER-016 (design.md §5): two requests

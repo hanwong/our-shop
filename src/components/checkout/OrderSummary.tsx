@@ -1,4 +1,4 @@
-import type { CartDTO } from "@/features/cart/types/cart";
+import type { CartDTO, CartItemDTO } from "@/features/cart/types/cart";
 
 /**
  * SPEC-ORDER-001 M5 — the order summary beside the shipping form
@@ -23,6 +23,27 @@ function formatWon(amount: number): string {
   return `${new Intl.NumberFormat("ko-KR").format(amount)}원`;
 }
 
+/**
+ * What this line's stock is worth saying, or null when it is worth saying
+ * nothing (SPEC-ORDER-002 REQ-ORDER-028).
+ *
+ * Three states, and the silent one is deliberate: a badge on every line would
+ * bury the two that actually need attention among the ones that do not.
+ *
+ * The figure comes from `CartItemDTO.stock`, which the cart already sends — no
+ * new query (plan.md §3). It is therefore a RENDER-TIME reading and may be out
+ * of date by the time the shopper submits, which is precisely why this notice
+ * informs and never blocks: REQ-ORDER-029 leaves the verdict to the
+ * transaction. `<= 0` rather than `=== 0` because `Product.stock` is a plain
+ * integer column with no CHECK constraint, and "품절" is the honest reading of a
+ * negative anomaly — "재고 부족 — 현재 -1개" is not.
+ */
+function stockNotice(item: CartItemDTO): string | null {
+  if (item.stock <= 0) return "품절";
+  if (item.stock < item.quantity) return `재고 부족 — 현재 ${item.stock}개`;
+  return null;
+}
+
 export function OrderSummary({
   cart,
   itemsSubtotal,
@@ -41,19 +62,26 @@ export function OrderSummary({
       </h2>
 
       <ul className="mt-4 divide-y divide-neutral-100">
-        {cart.items.map((item) => (
-          <li key={item.id} className="flex items-baseline justify-between gap-4 py-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-neutral-900">{item.name}</p>
-              {/* The unit price is shown next to the quantity so the line total
-                  below is checkable by eye rather than taken on trust. */}
-              <p className="mt-1 text-xs text-neutral-500">
-                {formatWon(item.price)} × {item.quantity}개
-              </p>
-            </div>
-            <p className="shrink-0 text-sm text-neutral-900">{formatWon(item.lineTotal)}</p>
-          </li>
-        ))}
+        {cart.items.map((item) => {
+          const notice = stockNotice(item);
+
+          return (
+            <li key={item.id} className="flex items-baseline justify-between gap-4 py-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-neutral-900">{item.name}</p>
+                {/* The unit price is shown next to the quantity so the line total
+                    below is checkable by eye rather than taken on trust. */}
+                <p className="mt-1 text-xs text-neutral-500">
+                  {formatWon(item.price)} × {item.quantity}개
+                </p>
+                {notice === null ? null : (
+                  <p className="mt-1 text-xs font-medium text-red-600">{notice}</p>
+                )}
+              </div>
+              <p className="shrink-0 text-sm text-neutral-900">{formatWon(item.lineTotal)}</p>
+            </li>
+          );
+        })}
       </ul>
 
       <dl className="mt-4 space-y-2 border-t border-neutral-200 pt-4 text-sm">

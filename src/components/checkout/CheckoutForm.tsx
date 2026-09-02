@@ -3,6 +3,8 @@
 import { useId, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import type { InsufficientStockProduct } from "@/features/orders/types/order";
+
 /**
  * SPEC-ORDER-001 M5 — the shipping form (REQ-ORDER-008/010/013/014).
  *
@@ -48,6 +50,16 @@ interface SubmitFailure {
   code?: string;
   fieldErrors?: Record<string, string>;
   totalAmount?: number;
+  /**
+   * The lines the transaction found short, re-read at the moment it refused
+   * (SPEC-ORDER-002 REQ-ORDER-030). Optional like every field here: this shape
+   * is parsed from a response, so nothing is assumed present.
+   *
+   * MAY be empty even on an INSUFFICIENT_STOCK refusal — the re-read can find
+   * the stock restored, leaving the server unable to name which line lost
+   * (acceptance.md §2). An empty list is rendered as no list at all.
+   */
+  products?: InsufficientStockProduct[];
 }
 
 export function CheckoutForm({
@@ -63,6 +75,7 @@ export function CheckoutForm({
   const [values, setValues] = useState<Record<FieldName, string>>(EMPTY);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [shortProducts, setShortProducts] = useState<InsufficientStockProduct[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -72,6 +85,9 @@ export function CheckoutForm({
     setSubmitting(true);
     setFieldErrors({});
     setFormError(null);
+    // Cleared with the rest: a list left over from a previous attempt would
+    // name products that have nothing to do with the refusal now on screen.
+    setShortProducts([]);
 
     try {
       const response = await fetch("/api/orders", {
@@ -101,6 +117,16 @@ export function CheckoutForm({
         setFieldErrors(failure.fieldErrors);
       }
       setFormError(failure.error ?? "주문을 완료하지 못했습니다");
+      // SPEC-ORDER-002 REQ-ORDER-030. The response already identifies each
+      // short line and what is left of it; dropping that on the floor is what
+      // made a lost race arrive as one sentence the shopper could not act on
+      // (spec.md §2 G4). Rendered only for the refusal that carries it — a
+      // CONCURRENCY_RETRY names no product because the database never said
+      // which line lost, and guessing one would point at a product that may be
+      // fully available (plan.md §3).
+      if (failure.code === "INSUFFICIENT_STOCK" && Array.isArray(failure.products)) {
+        setShortProducts(failure.products);
+      }
       // A changed price is the one refusal the shopper can act on immediately,
       // so the new figure is surfaced rather than left in the response body.
       if (failure.code === "PRICE_CHANGED" && typeof failure.totalAmount === "number") {
@@ -160,6 +186,20 @@ export function CheckoutForm({
         <p role="alert" className="text-sm text-red-600">
           {formError}
         </p>
+      ) : null}
+
+      {/* One line per short product, under the summary the server sent. The
+          quantity is stated as a plain number — including 0 — because that
+          figure is what tells the shopper how far to lower the quantity, and a
+          bare "품절" label would drop it (AC-ORDER-032). */}
+      {shortProducts.length > 0 ? (
+        <ul className="space-y-1 text-sm text-red-600">
+          {shortProducts.map((product) => (
+            <li key={product.productId}>
+              {product.name} — 현재 {product.available}개
+            </li>
+          ))}
+        </ul>
       ) : null}
 
       <button

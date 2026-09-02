@@ -139,6 +139,32 @@ export async function decrementStockIfAvailable(
 }
 
 /**
+ * The stock those products hold RIGHT NOW, read on the given transaction client
+ * (SPEC-ORDER-002 REQ-ORDER-025, plan.md §1).
+ *
+ * This is a read, but unlike the two above it takes no singleton default. The
+ * only caller is the failure path of a decrement that has just been refused,
+ * and the figure it needs is the one visible INSIDE that transaction — which is
+ * the whole difference between reporting what is true now and repeating the
+ * snapshot the transaction opened with. A singleton fallback would quietly read
+ * outside the transaction and reintroduce the stale figure this function exists
+ * to replace, so the client is required rather than defaulted.
+ *
+ * Returns the rows as read. Products missing from the result (deleted since the
+ * cart was written) simply do not appear; the caller decides what an absent row
+ * means rather than having a default invented here.
+ */
+export async function findStockByProductIds(
+  tx: Prisma.TransactionClient,
+  productIds: string[]
+): Promise<Array<{ id: string; stock: number }>> {
+  return tx.product.findMany({
+    where: { id: { in: productIds } },
+    select: { id: true, stock: true },
+  });
+}
+
+/**
  * Writes the order and all of its lines as ONE nested create.
  *
  * Nested rather than an order insert followed by item inserts: a single

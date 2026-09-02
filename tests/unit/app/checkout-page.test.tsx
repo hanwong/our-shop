@@ -2,7 +2,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import type { CartDTO } from "@/features/cart/types/cart";
 
@@ -306,5 +306,80 @@ describe("SPEC-ORDER-001 M5 — the read path makes no identity judgement (AC-OR
     // this assertion is what stops it coming back with the member branch
     // attached (progress.md, iteration 2).
     expect(existsSync("src/features/orders/lib/server-identity.ts")).toBe(false);
+  });
+});
+
+describe("SPEC-ORDER-002 M3 — the screen informs but never blocks (AC-ORDER-031)", () => {
+  /** Every line sold out — the strongest case for the screen to overreach. */
+  const ALL_SOLD_OUT = cart([
+    {
+      id: "i-1",
+      productId: "p-1",
+      name: "클래식 데님 재킷",
+      price: 89000,
+      image: null,
+      stock: 0,
+      quantity: 1,
+      lineTotal: 89000,
+    },
+    {
+      id: "i-2",
+      productId: "p-2",
+      name: "코튼 볼캡",
+      price: 25000,
+      image: null,
+      stock: 0,
+      quantity: 2,
+      lineTotal: 50000,
+    },
+  ]);
+
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    vi.mocked(cookies).mockResolvedValue(
+      jarWith({ guest_cart_id: GUEST }) as unknown as Awaited<ReturnType<typeof cookies>>
+    );
+    cartService.getCart.mockResolvedValue(ALL_SOLD_OUT);
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: async () => ({ id: "order-1" }),
+    } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  it("marks both lines sold out", async () => {
+    render(await CheckoutPage());
+
+    // The premise of the two assertions below: the screen KNOWS the stock is
+    // gone. Without this they would pass on a screen that simply never looked.
+    expect(screen.getAllByText(/품절/).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("leaves the submit button enabled anyway", async () => {
+    render(await CheckoutPage());
+
+    // The stock the screen read is a render-time figure; a restock between
+    // render and submit would leave a shopper blocked from an order that would
+    // now succeed. The transaction is the only authority on availability
+    // (REQ-ORDER-029) — the screen advises, it does not adjudicate.
+    expect(screen.getByRole("button", { name: /주문하기/ })).not.toHaveProperty("disabled", true);
+  });
+
+  it("actually issues the order request when submitted", async () => {
+    render(await CheckoutPage());
+
+    fireEvent.change(screen.getByLabelText(/수령인/), { target: { value: "홍길동" } });
+    fireEvent.change(screen.getByLabelText(/연락처/), { target: { value: "010-1234-5678" } });
+    fireEvent.change(screen.getByLabelText(/우편번호/), { target: { value: "06236" } });
+    fireEvent.change(screen.getByLabelText(/^주소/), { target: { value: "서울시 강남구" } });
+    fireEvent.click(screen.getByRole("button", { name: /주문하기/ }));
+
+    // Not merely "the button was clickable" — the request left the screen. A
+    // guard that silently swallowed the submit would satisfy the assertion
+    // above while still blocking the shopper.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/orders", expect.anything()));
   });
 });

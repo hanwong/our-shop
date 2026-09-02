@@ -19,7 +19,7 @@ import { readFileSync } from "node:fs";
 
 const singleton = {
   order: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
-  product: { updateMany: vi.fn() },
+  product: { updateMany: vi.fn(), findMany: vi.fn() },
 };
 
 vi.mock("@/lib/db", () => ({ prisma: singleton }));
@@ -43,6 +43,9 @@ function fakeTx() {
     },
     product: {
       updateMany: vi.fn<(args: unknown) => Promise<{ count: number }>>(async () => ({ count: 1 })),
+      findMany: vi.fn<(args: unknown) => Promise<Array<{ id: string; stock: number }>>>(
+        async () => []
+      ),
     },
   };
 }
@@ -55,6 +58,7 @@ beforeEach(() => {
   singleton.order.findFirst.mockResolvedValue(null);
   singleton.order.create.mockResolvedValue({ id: "order-singleton" });
   singleton.product.updateMany.mockResolvedValue({ count: 1 });
+  singleton.product.findMany.mockResolvedValue([]);
 });
 
 describe("SPEC-ORDER-001 M2 — findOrderByIdempotencyKey (REQ-ORDER-016)", () => {
@@ -111,6 +115,42 @@ describe("SPEC-ORDER-001 M2 — decrementStockIfAvailable (REQ-ORDER-013, design
     await repo.decrementStockIfAvailable(tx as never, "p-1", 1);
 
     expect(singleton.product.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("SPEC-ORDER-002 M1 — findStockByProductIds (REQ-ORDER-025)", () => {
+  it("reads the current stock of exactly the products it was given", async () => {
+    const tx = fakeTx();
+    await repo.findStockByProductIds(tx as never, ["p-1", "p-2"]);
+
+    expect(tx.product.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ["p-1", "p-2"] } },
+      select: { id: true, stock: true },
+    });
+  });
+
+  it("returns the rows as read, with no reshaping", async () => {
+    const tx = fakeTx();
+    tx.product.findMany.mockResolvedValue([
+      { id: "p-1", stock: 0 },
+      { id: "p-2", stock: 3 },
+    ]);
+
+    await expect(repo.findStockByProductIds(tx as never, ["p-1", "p-2"])).resolves.toEqual([
+      { id: "p-1", stock: 0 },
+      { id: "p-2", stock: 3 },
+    ]);
+  });
+
+  it("takes the transaction client with no singleton default (REQ-ORDER-025)", async () => {
+    const tx = fakeTx();
+    await repo.findStockByProductIds(tx as never, ["p-1"]);
+
+    // The whole value of this read is that it sees the CURRENT stock inside the
+    // failing transaction. A singleton fallback would read outside it and hand
+    // back the same stale figure the failure report exists to replace.
+    expect(singleton.product.findMany).not.toHaveBeenCalled();
+    expect(repo.findStockByProductIds.length).toBe(2);
   });
 });
 

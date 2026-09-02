@@ -1,6 +1,6 @@
 ---
 id: SPEC-ORDER-002
-status: draft
+status: completed
 updated: 2026-09-02
 tier: M
 ---
@@ -135,8 +135,8 @@ Tier M — AC 상한 20개 이내(현재 13개). 각 항목은 REQ-ORDER-022 ~ 0
 
 ## §3. Definition of Done
 
-- [ ] AC-ORDER-024 ~ 034, 036이 자동 하네스에서 통과한다(§0의 두 제외 항목은 열린 상태로 명시).
-- [ ] AC-ORDER-035는 데이터베이스 도달 가능 환경에서 통과하거나, 건너뛴 사실이 기록된다. **건너뜀은 통과가 아니다.**
-- [ ] `npm run typecheck` · `npm run lint` · `npm test` 종료 코드 0.
-- [ ] `prisma/schema.prisma`의 git diff가 0줄이다(이 SPEC은 스키마를 바꾸지 않는다).
+- [x] AC-ORDER-024 ~ 034, 036이 자동 하네스에서 통과한다(§0의 두 제외 항목은 열린 상태로 명시).
+- [x] AC-ORDER-035는 데이터베이스 도달 가능 환경에서 통과하거나, 건너뛴 사실이 기록된다. **건너뜀은 통과가 아니다.**
+- [x] `npm run typecheck` · `npm run lint` · `npm test` 종료 코드 0.
+- [x] `prisma/schema.prisma`의 git diff가 0줄이다(이 SPEC은 스키마를 바꾸지 않는다).
 - [x] plan.md §0의 결정 2건이 해소되었다(2026-09-02 사용자 확정 — CI DB 배선 (B), 미결제 주문 재고 해제는 범위 밖 유지 + 백로그 `t21`).
