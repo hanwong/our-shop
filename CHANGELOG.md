@@ -49,9 +49,10 @@ plan-audit는 세 차례 실행되어 점수가 0.79 → 0.90 → 0.95로 올랐
 
 ### Fixed — sync-phase quality review (2026-09-03)
 
-두 건의 독립적인 sync-phase 검토가 run-phase 종료 후 실제 결함을 찾았고, 둘 다 이 SPEC이 머지되기 전에 닫혔다:
+세 건의 독립적인 sync-phase 검토가 run-phase 종료 후 실제 결함을 찾았고, 모두 이 SPEC이 머지되기 전에 닫혔다:
 
 - **F1 [High, blocking] — 통합 테스트 2종의 DB 도달성 게이트 누락**(sync-auditor `--deep`, 초기 판정 FAIL): `tests/integration/discounts/coupon-model.test.ts`와 `tests/integration/discounts/validate-write-free.test.ts`가 도달성 게이트 없이 실제 PostgreSQL 연결을 열었다. 이 저장소의 CI `DATABASE_URL`은 영구적으로 도달 불가능한 자리표시자라, 다음 push에서 CI의 필수 `verify` 검사를 확실히 실패시켰을 결함이다. `concurrency.postgres.test.ts`(SPEC-ORDER-002 M4)가 세운 선례(모듈 로드 시 1회 도달성 프로브 → 이름 붙은 사유로 스킵 → "조용히 스킵하지 않음" 게이트 무결성 테스트)를 그대로 미러링해 닫았다. 커밋 `f2d8cc2`.
+- **F2 [Medium, blocking] — `incrementRedeemedCountIfAvailable`(쿠폰 초과사용 방지 가드)에 fast/mocked 유닛 테스트 부재**(sync-auditor `--deep`, F1과 같은 보고서): 라이브 DB 통합 테스트만 이 함수를 실행했는데 그 경로는 CI에서 능력 게이트로 막혀 있어, CI 대표 조건에서 이 가드가 전혀 테스트되지 않고 있었다(`coupon-repository.ts` 60.71%). 최초 sync 커밋에서 F1·H1만 닫고 이 항목을 그대로 놓쳤다 — kanban lead가 보고서를 직접 대조해 잡아냈다. 자매 함수 `decrementRedeemedCountIfPositive`의 기존 테스트 패턴을 그대로 미러링해 닫았다. 커밋 `ed8118a`. 수정 후 `coupon-repository.ts`는 라이브 DB 없이도 100% stmts/branch/funcs/lines.
 - **H1 [High] — `POST /api/discounts/validate`의 속도 제한 부재 + 코드 열거 오라클**(보안 리뷰, OWASP): 인증도 속도 제한도 없이 쿠폰 코드마다 서로 구별되는 4가지 실패 상태를 반환해, 유효한 쿠폰 코드를 스크립트로 탐색할 수 있는 오라클이었다. plan-phase(design.md §5 / research.md §5)에서 이미 정직하게 공개된 공백이었지만 사용자에게 수용 위험으로 확인받은 적이 없었고 추적 카드도 없었다. 사용자에게 제시했고 **지금 고치기**로 결정되었다. `/api/auth/login`이 이미 쓰는 `checkIpRateLimit`을 `"discount-validate"` 전용 버킷으로 재사용해 닫았다. 커밋 `da5f75d`.
 
 ### 알려진 한계 — SPEC-DISCOUNT-001
