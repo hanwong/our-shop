@@ -57,7 +57,7 @@ function grepFiles(pattern: string, flags: string, exclude: string[] = []): stri
 }
 
 /** SPEC-PAYMENT-001's own directories — the follow-up SPEC's legitimate scope. */
-const PAYMENT_DOMAIN_PATHS = ["src/features/payments", "src/lib/payment"];
+const PAYMENT_DOMAIN_PATHS = ["src/features/payments", "src/lib/payment", "src/app/api/payments"];
 
 const orderService = readFileSync("src/features/orders/services/order-service.ts", "utf8");
 
