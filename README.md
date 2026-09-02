@@ -11,6 +11,7 @@ A TypeScript / Next.js e-commerce backend. This repository currently implements:
 - **SPEC-CI-001** — GitHub Actions CI: lint/typecheck/schema-validate/test run automatically on every PR and push to `main`.
 - **SPEC-STOREFRONT-001** — the first UI surface: a root document shell (Tailwind CSS v4) and the `/products/{productId}` detail page with an image gallery.
 - **SPEC-ORDER-001** — guest checkout: the `/checkout` order form and the single-transaction order-creation endpoint (price snapshot, stock decrement, idempotency).
+- **SPEC-PAYMENT-001** — Toss Payments PG integration: payment-window trigger, confirm callback, and payment/cancellation webhook processing (guest-only).
 
 ## Stack
 
@@ -164,7 +165,29 @@ Key security properties (see `.moai/specs/SPEC-AUTH-001/` for the full spec/acce
 
 **알려진 한계**(자세한 내용은 `.moai/specs/SPEC-ORDER-001/progress.md` 참고): PostgreSQL이 없는 환경이라 **트랜잭션 원자성·동시 주문 직렬화·unique 경합의 실동작은 관측하지 않았다** — 계획 단계에서 이름을 붙여 제외한 3건이며 통과로 계상하지 않았다. 통합 테스트의 fake가 롤백을 구현하긴 하지만, fake가 되돌리는 것은 fake가 저장한 것이지 데이터베이스가 되돌린 것이 아니다. 마이그레이션도 손으로 작성했고 실제 DB에 적용된 적이 없다. **미결제 주문의 재고 점유를 해제하는 정책이 없다** — 주문 시점에 차감한 재고를 결제로 이어지지 않은 주문에 대해 돌려주지 않는다(잠정 결정, 타임아웃 해제가 향후 방향). 배송비는 `calculateShippingFee()` 한 곳에 격리돼 0원을 반환하는 잠정값이다. `/checkout`으로 가는 화면 링크는 아직 없다(장바구니 UI SPEC의 몫). 결제는 이 범위에 없어 주문은 `pending_payment`에 머문다. `npm run build`는 여전히 실패하는데, 원인은 SPEC-STOREFRONT-001이 이미 기록한 것과 동일한 선행 결함(`src/middleware.ts` → `src/lib/auth/jwt.ts` → `node:crypto`)이며 이 SPEC의 산출물을 트리 밖으로 옮기고 빌드해도 동일하게 실패함을 확인했다 — 백로그 카드로 별도 추적한다.
 
+## 결제 (SPEC-PAYMENT-001)
+
+**게스트 전용, 웹훅 주도 취소만 처리한다.** SPEC-ORDER-001이 명시적으로 유예한 두 책임 — 결제 승인·웹훅 처리, `pending_payment` 이후의 상태 전이 — 을 이 SPEC이 인수한다. PG사는 토스페이먼츠. 이 SPEC이 다루는 주문은 SPEC-ORDER-001이 만든 게스트 주문뿐이다.
+
+| 경로 | 메서드 | 설명 |
+|---|---|---|
+| `/api/payments/confirm` | POST | 결제창 승인 콜백 리다이렉트 처리. 금액 불일치·API 실패 시 트랜잭션 미개시, 이미 처리된 주문은 멱등 재응답 |
+| `/api/payments/webhook` | POST | `PAYMENT_STATUS_CHANGED` 웹훅 수신. `DONE`은 `paid` 전이, 취소는 재고 복원 + `cancelled` 전이(단일 트랜잭션), 재전송은 no-op |
+
+핸들러는 `src/app/api/payments/`에, 도메인 로직은 `src/features/payments/`에, PG 어댑터는 `src/lib/payment/`에, 결제창 트리거 UI는 `src/components/checkout/PayButton.tsx`에 있다.
+
+핵심 성질:
+
+- **감사 로그(append-only)** — `Order.status`의 모든 전이마다 `PaymentAuditLog` 행이 정확히 하나 남는다(전이 전/후 상태, 트리거 출처 CONFIRM_API/WEBHOOK, 관련 주문 id, 발생 시각). update/delete/upsert 경로 없음.
+- **`paymentKey` 일치 검증** — 확인(confirm)·웹훅 양쪽 모두 `paymentKey`가 일치할 때만 전이를 허용한다. 이미 다른 `paymentKey`로 확정된 주문은 오류가 아니라 멱등 재응답(같은 키) 또는 명시적 거부(다른 키)로 분기한다.
+- **웹훅은 토스 재조회로 검증한다** — 일반 결제 웹훅(`PAYMENT_STATUS_CHANGED`)에는 서명 헤더가 오지 않는다(토스 공식 문서 확인, PR #9 CodeRabbit 리뷰 Finding 1). 웹훅이 알려온 `paymentKey`로 토스 결제 조회(Payment Query) API를 다시 호출해, 그 응답만을 상태 전이의 근거로 삼는다 — 웹훅 payload 자체의 주장은 신뢰하지 않는다.
+- **상태 우선 배너 게이팅** — 완료 화면의 재시도 배너는 `pending_payment` 상태이면서 `payment_failed=1` 쿼리가 있을 때만 뜬다. 이미 `paid`인 주문에는 절대 표시하지 않는다.
+- **비밀키는 클라이언트에 없다** — `PG_SECRET_KEY`(확인 API·조회 API 공용)는 서버 전용, 클라이언트는 `NEXT_PUBLIC_PG_CLIENT_KEY`만 사용한다. `PG_WEBHOOK_SECRET`은 더 이상 쓰이지 않는다(서명 검증 방식 자체가 없어짐에 따라 제거).
+- **웹훅 요청 폭주 방어** — `/api/payments/webhook`은 IP 기준 요청 빈도 제한을 거친다(PR #9 CodeRabbit 리뷰 Finding B).
+
+**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-PAYMENT-001/progress.md` 참고): PostgreSQL이 없는 환경이라 **확인 API와 웹훅이 실제로 동시 도착할 때의 행 잠금 직렬화(`AC-004-EXCL-CONCURRENCY`)는 미검증**이며 PASS로 계상하지 않는다. 관리자·사용자 주도 취소·환불 API는 이 범위 밖이다(칸반 백로그 카드 `t12`, 향후 백오피스 주문 관리 SPEC의 몫) — 이 SPEC이 처리하는 취소는 PG가 먼저 알린 웹훅뿐이다. 미결제 주문의 재고 점유를 시간 경과로 해제하는 만료 작업(스케줄러/배치)도 없다(이벤트 주도 복원만 지원). 확인 실패·결제창 중단 시 새 상태값 없이 `pending_payment`에 남아 재시도를 허용한다. 가상계좌·정기결제·해외 간편결제·정산 웹훅·ARS 결제, 회원 결제 경로는 모두 범위 밖이다. `npm run build`는 여전히 실패하는데, SPEC-STOREFRONT-001·SPEC-ORDER-001이 이미 기록한 것과 동일한 선행 결함(`src/middleware.ts` → `src/lib/auth/jwt.ts` → `node:crypto`)이며 이 SPEC이 도입하지 않았다(diff 0줄로 확인, 백로그 카드 `t16`).
+
 ## Project documentation
 
 - `.moai/project/product.md`, `structure.md`, `tech.md` — project-wide docs
-- `.moai/specs/SPEC-AUTH-001/`, `.moai/specs/SPEC-CATALOG-001/`, `.moai/specs/SPEC-CATALOG-002/`, `.moai/specs/SPEC-CART-001/`, `.moai/specs/SPEC-STOREFRONT-001/`, `.moai/specs/SPEC-ORDER-001/` — each feature's SPEC, plan, acceptance criteria, and progress record
+- `.moai/specs/SPEC-AUTH-001/`, `.moai/specs/SPEC-CATALOG-001/`, `.moai/specs/SPEC-CATALOG-002/`, `.moai/specs/SPEC-CART-001/`, `.moai/specs/SPEC-STOREFRONT-001/`, `.moai/specs/SPEC-ORDER-001/`, `.moai/specs/SPEC-PAYMENT-001/` — each feature's SPEC, plan, acceptance criteria, and progress record
