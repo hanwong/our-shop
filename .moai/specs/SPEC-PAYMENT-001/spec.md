@@ -78,12 +78,12 @@ Tier L — 요구사항 상한 25개 이내(현재 20개).
 - **REQ-PAYMENT-009** (When): 게스트가 결제창에서 인증을 완료하지 못하고 실패 경로(failUrl)로 돌아오면, 대상 주문의 상태는 `pending_payment`로 남아야 하며, 그 주문의 완료 화면은 같은 주문에 대해 결제를 다시 시작할 수 있는 수단을 제시해야 한다.
 - **REQ-PAYMENT-010** (Unwanted, shall not): 결제 도메인은 결제 실패·중단을 표현하기 위한 새 `OrderStatus` 값을 추가해서는 안 된다.
 
-### 웹훅 수신 및 서명 검증
+### 웹훅 수신 및 Toss 결제 조회 재확인
 
-- **REQ-PAYMENT-011** (When): 결제 웹훅 엔드포인트에 요청이 도착하면, 결제 서비스는 사전에 공유된 웹훅 시크릿으로 전송 시각·서명·전송 id 헤더에 대한 HMAC-SHA256 서명을 검증한 뒤에만 페이로드를 처리해야 한다.
-- **REQ-PAYMENT-012** (When — 이벤트 탐지형): 웹훅 서명 검증이 실패하면, 결제 서비스는 페이로드를 처리하지 않고 어떤 주문 상태도 변경하지 않으며 어떤 `PaymentAuditLog`도 기록하지 않아야 한다.
-- **REQ-PAYMENT-013** (When): 서명이 유효한 `PAYMENT_STATUS_CHANGED` 웹훅이 상태 `DONE`을 보고하고 그 주문이 그 시점에 `pending_payment`이면, 결제 서비스는 금액을 대조한 뒤 그 주문을 `paid`로 전이시켜야 한다(REQ-PAYMENT-007과 동일한 최종 상태에 도달하는 대체 경로).
-- **REQ-PAYMENT-014** (When): 서명이 유효한 `PAYMENT_STATUS_CHANGED` 웹훅이 상태 `CANCELED` 또는 `PARTIAL_CANCELED`를 보고하고 그 주문이 그 시점에 `paid`이면, 결제 서비스는 하나의 트랜잭션 안에서 주문을 `cancelled`로 전이시키고 그 주문에 속한 각 주문 항목의 수량만큼 해당 상품의 재고를 되돌려야 한다.
+- **REQ-PAYMENT-011** (When): 결제 웹훅 엔드포인트에 요청이 도착하면, 결제 서비스는 페이로드가 실어 온 `paymentKey`로 Toss의 결제 조회(Payment Query) API를 호출해 그 결제의 권위 있는 기록을 다시 가져온 뒤에만 상태 전이를 진행해야 한다 — **정정(CodeRabbit PR #9 리뷰 Finding 1)**: `PAYMENT_STATUS_CHANGED` 웹훅에는 `tosspayments-webhook-signature` 헤더가 실려 오지 않으므로(그 헤더는 `payout.changed`·`seller.changed` 전용), 이전 버전의 이 요구사항이 전제했던 HMAC-SHA256 서명 검증은 애초에 이 이벤트에 적용될 수 없었다. research.md §4 정정 참조.
+- **REQ-PAYMENT-012** (When — 이벤트 탐지형): 결제 조회 API 호출 자체가 실패하거나(네트워크 오류·타임아웃·Toss의 비-2xx 응답), 조회된 기록이 웹훅 페이로드가 주장한 `orderId`와 어긋나면, 결제 서비스는 페이로드를 처리하지 않고 어떤 주문 상태도 변경하지 않으며 어떤 `PaymentAuditLog`도 기록하지 않아야 한다.
+- **REQ-PAYMENT-013** (When): 결제 조회 API로 재확인된 `PAYMENT_STATUS_CHANGED` 웹훅이 상태 `DONE`을 보고하고 그 주문이 그 시점에 `pending_payment`이면, 결제 서비스는 (조회된 기록의) 금액을 대조한 뒤 그 주문을 `paid`로 전이시켜야 한다(REQ-PAYMENT-007과 동일한 최종 상태에 도달하는 대체 경로).
+- **REQ-PAYMENT-014** (When): 결제 조회 API로 재확인된 `PAYMENT_STATUS_CHANGED` 웹훅이 상태 `CANCELED`를 보고하고, 그 주문이 그 시점에 `paid`이며, 조회된 기록의 `paymentKey`가 그 주문에 저장된 `paymentKey`와 일치하면, 결제 서비스는 하나의 트랜잭션 안에서 주문을 `cancelled`로 전이시키고 그 주문에 속한 각 주문 항목의 수량만큼 해당 상품의 재고를 되돌려야 한다. `paymentKey`가 일치하지 않으면 취소를 적용하지 않아야 한다. 상태 `PARTIAL_CANCELED`는 이 SPEC이 모델링하지 않는 부분 취소이므로 이 전이 대상이 아니다 — 실제 전이 없이 기록만 남겨야 한다.
 - **REQ-PAYMENT-015** (Ubiquitous): 웹훅이 보고하는 금액은 어떤 상태 전이가 일어나기 전에 대상 주문의 저장된 금액과 대조되어야 하며, 대조에 실패하면 전이는 일어나지 않고 그 사실이 기록되어야 한다.
 
 ### 멱등성

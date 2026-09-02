@@ -8,7 +8,7 @@ import {
   markOrderPaid,
   type OrderForPayment,
 } from "@/features/payments/repositories/payment-repository";
-import { confirmTossPayment, verifyWebhookSignature } from "@/lib/payment/toss-server";
+import { confirmTossPayment, queryTossPayment } from "@/lib/payment/toss-server";
 import type {
   ConfirmPaymentResult,
   PaymentStatusChangedPayload,
@@ -19,8 +19,10 @@ import type {
  * SPEC-PAYMENT-001 M2 — confirm(승인) orchestration + webhook processing.
  *
  * Traces: REQ-PAYMENT-004 (paymentKey attribution), REQ-PAYMENT-006/007/008
- * (confirm flow), REQ-PAYMENT-011/012 (signature gate), REQ-PAYMENT-013/014
- * (webhook DONE/CANCELED), REQ-PAYMENT-015 (webhook amount mismatch),
+ * (confirm flow), REQ-PAYMENT-011/012 (Toss Payment Query re-verification —
+ * see processWebhook()'s own doc comment for the CodeRabbit PR #9 Finding 1
+ * correction), REQ-PAYMENT-013/014 (webhook DONE/CANCELED), REQ-PAYMENT-015
+ * (webhook amount mismatch),
  * REQ-PAYMENT-016/017 (idempotency + conditional transition). design.md §2,
  * §3, §3.1, §4, §5.
  *
@@ -136,31 +138,35 @@ export async function confirmPayment(
 }
 
 /**
- * REQ-PAYMENT-011/012/013/014/015/016 — verifies, then processes, one webhook
- * delivery. Ordering is load-bearing throughout:
+ * REQ-PAYMENT-011/012/013/014/015/016 — re-verifies, then processes, one
+ * webhook delivery. Ordering is load-bearing throughout:
  *
- * 1. Signature verification over the RAW body FIRST (design.md §5) — nothing
- *    below this line runs on an unsigned payload.
- * 2. The transmissionId lookup runs BEFORE parsing the payload (design.md
- *    §3) — a resend short-circuits without re-deriving anything from it.
- * 3. The amount check runs BEFORE any transition (REQ-PAYMENT-015).
+ * 1. The transmissionId lookup runs FIRST (design.md §3) — a resend
+ *    short-circuits before parsing the payload or calling Toss at all.
+ * 2. The payload is parsed only to extract `paymentKey` — the field used to
+ *    ask Toss which payment to look up. Nothing else in the parsed payload
+ *    is trusted (CodeRabbit PR #9 Finding 1 correction, below).
+ * 3. `queryTossPayment` re-fetches the authoritative record from Toss's own
+ *    servers. Every downstream decision (orderId, amount, status) is driven
+ *    by THIS record, never by the webhook payload's own claims.
+ * 4. The amount check runs BEFORE any transition (REQ-PAYMENT-015).
  *
- * Every outcome except an invalid signature answers `ok: true` — PG must be
- * told "received" even for a duplicate or a rejected event, or it will keep
- * retrying (design.md §3).
+ * CORRECTION (Finding 1): earlier versions of this function gated on an
+ * HMAC-SHA256 signature header. Toss's own docs confirm the general
+ * PAYMENT_STATUS_CHANGED webhook carries no such header — only
+ * payout.changed/seller.changed webhooks do — so a signature check here was
+ * always a no-op the payload could never satisfy honestly. Toss's documented
+ * recommendation is exactly the query-and-compare flow implemented below.
+ *
+ * Every `ok: true` outcome answers PG with 200 — PG must be told "received"
+ * even for a duplicate or a rejected event, or it will keep retrying
+ * (design.md §3). A `toss-query-failed` `ok: false` is transient (PG should
+ * retry); `malformed-payload` and `query-mismatch` are not.
  */
 export async function processWebhook(
   rawBody: string,
-  headers: { transmissionTime: string; signature: string; transmissionId: string }
+  headers: { transmissionId: string }
 ): Promise<ProcessWebhookResult> {
-  const validSignature = verifyWebhookSignature(rawBody, {
-    transmissionTime: headers.transmissionTime,
-    signature: headers.signature,
-  });
-  if (!validSignature) {
-    return { ok: false, reason: "invalid-signature" };
-  }
-
   const existingLog = await findAuditLogByTransmissionId(headers.transmissionId);
   if (existingLog !== null) {
     return { ok: true, outcome: "already-applied" };
@@ -173,54 +179,65 @@ export async function processWebhook(
     return { ok: false, reason: "malformed-payload" };
   }
 
-  const order = await findOrderById(payload.orderId);
+  const queried = await queryTossPayment(payload.paymentKey);
+  if (!queried.ok) {
+    return { ok: false, reason: "toss-query-failed" };
+  }
+
+  if (queried.payment.orderId !== payload.orderId) {
+    // Toss's own record disagrees with what the webhook claimed — reject
+    // without trusting either side.
+    return { ok: false, reason: "query-mismatch" };
+  }
+
+  const order = await findOrderById(queried.payment.orderId);
   if (order === null) {
     return { ok: true, outcome: "order-not-pending" };
   }
 
-  if (order.totalAmount !== payload.amount) {
+  if (order.totalAmount !== queried.payment.totalAmount) {
     // REQ-PAYMENT-015 — logged, no transition. Both statuses are the
     // CURRENT one: nothing actually changed.
     await createAuditLog(prisma, {
-      orderId: payload.orderId,
+      orderId: queried.payment.orderId,
       source: "WEBHOOK",
       previousStatus: order.status,
       newStatus: order.status,
-      paymentKey: payload.paymentKey,
+      paymentKey: queried.payment.paymentKey,
       transmissionId: headers.transmissionId,
     });
     return { ok: true, outcome: "amount-mismatch" };
   }
 
-  if (payload.status === "DONE") {
+  if (queried.payment.status === "DONE") {
     return prisma.$transaction(async (tx) => {
       const count = await markOrderPaid(tx, {
-        orderId: payload.orderId,
-        paymentKey: payload.paymentKey,
+        orderId: queried.payment.orderId,
+        paymentKey: queried.payment.paymentKey,
       });
       if (count === 1) {
         await createAuditLog(tx, {
-          orderId: payload.orderId,
+          orderId: queried.payment.orderId,
           source: "WEBHOOK",
           previousStatus: "pending_payment",
           newStatus: "paid",
-          paymentKey: payload.paymentKey,
+          paymentKey: queried.payment.paymentKey,
           transmissionId: headers.transmissionId,
         });
         return { ok: true, outcome: "paid" };
       }
 
-      const outcome = await disambiguateNonApplied(tx, payload.orderId, payload.paymentKey);
+      const outcome = await disambiguateNonApplied(tx, queried.payment.orderId, queried.payment.paymentKey);
       if (outcome.kind === "already-applied") {
         return { ok: true, outcome: "already-applied" };
       }
       const current = outcome.current ?? order;
       await createAuditLog(tx, {
-        orderId: payload.orderId,
+        orderId: queried.payment.orderId,
         source: "WEBHOOK",
         previousStatus: current.status,
         newStatus: current.status,
-        paymentKey: payload.paymentKey,
+        paymentKey: queried.payment.paymentKey,
         transmissionId: headers.transmissionId,
       });
       return {
@@ -230,16 +247,25 @@ export async function processWebhook(
     });
   }
 
-  if (payload.status === "CANCELED" || payload.status === "PARTIAL_CANCELED") {
+  if (queried.payment.status === "CANCELED") {
+    // Finding 2 — never cancel on a paymentKey the stored order does not
+    // itself carry, even though the QUERIED record already names this exact
+    // paymentKey. Defence in depth: guards the case where the order's own
+    // paymentKey was never actually attributed to this value (e.g. a cancel
+    // arriving before any confirm/DONE ever attributed it).
+    if (order.paymentKey !== queried.payment.paymentKey) {
+      return { ok: true, outcome: "payment-key-mismatch" };
+    }
+
     return prisma.$transaction(async (tx) => {
-      const count = await markOrderCancelledAndRestoreStock(tx, payload.orderId);
+      const count = await markOrderCancelledAndRestoreStock(tx, queried.payment.orderId);
       if (count === 1) {
         await createAuditLog(tx, {
-          orderId: payload.orderId,
+          orderId: queried.payment.orderId,
           source: "WEBHOOK",
           previousStatus: "paid",
           newStatus: "cancelled",
-          paymentKey: payload.paymentKey,
+          paymentKey: queried.payment.paymentKey,
           transmissionId: headers.transmissionId,
         });
         return { ok: true, outcome: "cancelled" };
@@ -249,6 +275,23 @@ export async function processWebhook(
       // under a different transmissionId). Idempotent no-op; nothing to log.
       return { ok: true, outcome: "order-not-pending" };
     });
+  }
+
+  if (queried.payment.status === "PARTIAL_CANCELED") {
+    // Finding 3 — this SPEC does not model partial cancellation (plan.md
+    // scope). Recorded via an audit-log entry with no actual transition —
+    // deliberately NOT routed into the full-cancellation path above, which
+    // would over-restore stock and wrongly mark a still-partially-paid order
+    // as fully cancelled.
+    await createAuditLog(prisma, {
+      orderId: queried.payment.orderId,
+      source: "WEBHOOK",
+      previousStatus: order.status,
+      newStatus: order.status,
+      paymentKey: queried.payment.paymentKey,
+      transmissionId: headers.transmissionId,
+    });
+    return { ok: true, outcome: "unhandled" };
   }
 
   // An event this SPEC does not act on (spec.md §3 — out-of-scope statuses).

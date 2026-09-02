@@ -206,12 +206,45 @@ Justification: SPEC-PAYMENT-001's 5 milestones form a strict dependency chain or
 
 fold-at: 2026-09-02T00:00:00Z (session start)
 
-## §G Run-phase Blocker — M1 Dispatch (environment mismatch)
+## §G Run-phase Blocker — M1 Dispatch (environment mismatch) — RESOLVED, historical record
 
-**Status: BLOCKED, escalated to orchestrator. No implementation files touched.**
+**Status: RESOLVED.** This blocker occurred at the START of the run-phase, before any milestone landed. It was resolved and M1-M5 subsequently completed across 7 commits — see §E.2 above (`b243a97` through `a36eef3`) for the full milestone-to-commit record. This section is retained as a historical account of the dispatch failure and its diagnosis; it does NOT describe the current state of this SPEC's implementation.
 
 M1 (Prisma schema) was dispatched to `Agent(manager-develop, cycle_type=tdd)` from within this `t5` worktree (branch `WT-payment-pg-webhook`, HEAD `13f567b`). The spawn auto-isolated into a NEW worktree (`.claude/worktrees/agent-a7220c3c5f96b3d3f`, branch `worktree-agent-a7220c3c5f96b3d3f`) based on the PRIMARY checkout's `origin/main` tip (`bf075d3f`) — not on `WT-payment-pg-webhook`. That tree has no `.moai/specs/SPEC-PAYMENT-001/` directory at all. The leaf worker's own worktree-session guard refused any git operation reaching into `t5`, so it correctly returned a blocker report with zero file changes rather than fabricating work.
 
 Confirmed via `git worktree list` that this is systemic, not a one-off: four pre-existing orphaned `agent-*` worktrees already exist in this repository from prior, unrelated spawns (branches `worktree-agent-aa41069806d133733`, `worktree-agent-aaa110e3320666a7f`, `worktree-agent-aec75fcdc20b707f5`, plus the one from this spawn) — every `Agent()` spawn in this environment auto-isolates into a fresh L1 worktree off the primary checkout's current branch, regardless of the calling session's own worktree/branch and regardless of whether `isolation:` was requested.
 
 This contradicts the explicit task instruction to work directly in `t5` without creating a new worktree, and no in-prompt instruction can route around it (the guard is mechanical, not a matter of leaf-worker compliance). Escalated to the orchestrator as a blocker report rather than proceeding with an unvalidated cross-worktree cherry-pick reconciliation workaround across all 5 milestones without approval. See the blocker report returned in-band to the parent orchestrator for the proposed remediation options.
+
+## §H CodeRabbit PR #9 Review Findings — Fix Pass
+
+Branch `WT-payment-pg-webhook`, worktree `t5`. Fixes CodeRabbit's PR #9 review of this SPEC's implementation (8 findings, 4 Major code + 4 Minor doc). TDD: new/updated tests written first, RED captured against the pre-fix implementation via `git stash`, then GREEN against the fix — see `.moai/state/verify/spec-payment-001-coderabbit/{RED,GREEN}.log`.
+
+**Finding 1 (Major, architectural)** — the general `PAYMENT_STATUS_CHANGED` webhook does NOT carry a `tosspayments-webhook-signature` header (that header is Toss-documented as `payout.changed`/`seller.changed`-only). Replaced `verifyWebhookSignature` (HMAC-SHA256) with `queryTossPayment(paymentKey)` — Toss's own Payment Query API (`GET /v1/payments/{paymentKey}`, Basic auth via `PG_SECRET_KEY`) — and rewired `processWebhook()` to drive every decision (orderId, amount, status) from the QUERIED record, never from the webhook payload's own claims. `PG_WEBHOOK_SECRET` removed from `.env.example` (no longer referenced anywhere in `src/`). SPEC docs (`spec.md`, `plan.md`, `design.md`, `research.md`, `acceptance.md`) updated to describe the query-based flow; REQ/AC numbering kept stable (REQ-PAYMENT-011/012/014, AC-PAYMENT-011/012/013/014).
+
+**Finding 2 (Major)** — the CANCELED webhook branch cancelled the order without checking the queried `paymentKey` against the order's own stored `paymentKey`. Added the guard: mismatch → `payment-key-mismatch` outcome, no cancellation, no repository call.
+
+**Finding 3 (Major)** — `PARTIAL_CANCELED` was routed into the same full-cancellation path as `CANCELED`, over-restoring stock and wrongly marking a partially-paid order fully cancelled. Routed to a distinct branch: records a no-transition `PaymentAuditLog` entry (previousStatus === newStatus) and returns a new `unhandled` outcome; `markOrderCancelledAndRestoreStock` is never called for this status.
+
+**Finding 4 (Major)** — `confirmTossPayment`'s `fetch` call had no timeout, so a hung Toss response could hang the guest's confirm redirect indefinitely. Added `signal: AbortSignal.timeout(10_000)` to both `confirmTossPayment` and the new `queryTossPayment`; a timeout/network error is caught and returned as an ordinary `{ ok: false, status: 504 }` failure result (never a thrown exception), so `confirmPayment()`'s existing `CONFIRM_API_FAILED` retry path handles it unchanged.
+
+**Findings 5-8 (Minor, documentation)** — acceptance.md DoD re-verified accurate as of this fix (see below); progress.md §G retitled RESOLVED/historical (was still reading "BLOCKED"); CHANGELOG.md's "717 tests passed" qualified with the load-dependent 716/717 vs 717/717 split (matching this file's own §E.2/§E.4 record) and the `CONFIRM_API_FAILED`-implies-cancellation misstatement corrected (only the webhook `CANCELED` branch cancels).
+
+**§4 DoD re-verification (Finding 5)**: after this fix, `npm run typecheck` / `npm run lint` / `npx prisma validate` all exit 0 (evidence below). `npm run build` still exits 1 — the same pre-existing, previously-attributed `node:crypto` ↔ Edge-runtime defect this SPEC does not own (unchanged by this fix; diff 0 lines on `src/middleware.ts` / `src/lib/auth/jwt.ts`). Full suite: 730/731 passed (1 known AC-AUTH-005 flake, SPEC-AUTH-001-owned). With that flake excluded via `--exclude tests/integration/auth/login.test.ts`: 730/730 passed, coverage 97.69% stmts / 93.78% branch / 100% funcs / 97.69% lines (threshold 85/85/80/85). `status: completed` in this SPEC's frontmatter remains accurate for the SPEC's own scope — CodeRabbit's findings were code-review feedback on already-completed work, now addressed as a follow-up fix commit; no formal amendment transition was needed since scope/requirements did not change, only the webhook-verification mechanism's correctness.
+
+### Evidence (Section E, attributable)
+
+```
+$ npm run typecheck                                          → exit 0
+$ npm run lint                                                → exit 0
+$ npx prisma validate                                         → "The schema at prisma/schema.prisma is valid"
+$ npx vitest run --run                                        → Test Files 1 failed | 60 passed (61); Tests 1 failed | 730 passed (731)
+                                                                  (the 1 failure is AC-AUTH-005, tests/integration/auth/login.test.ts — known flake, SPEC-AUTH-001 scope)
+$ npx vitest run --coverage --exclude tests/integration/auth/login.test.ts
+                                                                → exit 0; Test Files 60 passed (60); Tests 730 passed (730)
+                                                                  All files 97.69% stmts / 93.78% branch / 100% funcs / 97.69% lines
+```
+
+Baseline attribution: this run, this tree, HEAD at fix-commit time (see the commit trailer for the exact SHA). Logs persisted at `.moai/state/verify/spec-payment-001-coderabbit/{RED,GREEN,typecheck,lint,full-suite,coverage}.log` (gitignored, local to this worktree).
+
+Gaps: `AC-004-EXCL-CONCURRENCY` remains unverified (no live PostgreSQL in this environment — unchanged, pre-existing limitation, unrelated to this fix). The Toss Payment Query API's real HTTP behavior (rate limits, exact response shape edge cases) is not exercised — only mocked/faked, matching this SPEC's existing harness-limitation pattern for `confirmTossPayment`.

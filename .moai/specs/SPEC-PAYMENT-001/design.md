@@ -7,7 +7,7 @@ tier: L
 
 # Design: SPEC-PAYMENT-001 — 결제 도메인 설계 (게스트 전용)
 
-되돌리기 가장 어려운 결정부터 배열한다. 데이터 모델 → 트랜잭션/조건부 전이 → 멱등성 → 금액 검증 → 서명 검증 → UI → 환경변수 → 실패 응답 → 잔여 위험 순이다.
+되돌리기 가장 어려운 결정부터 배열한다. 데이터 모델 → 트랜잭션/조건부 전이 → 멱등성 → 금액 검증 → 웹훅 재확인(Toss 결제 조회) → UI → 환경변수 → 실패 응답 → 잔여 위험 순이다.
 
 > **범위 전제**: 이 SPEC이 다루는 모든 주문은 SPEC-ORDER-001이 만든 게스트 전용 주문이다. 회원 결제 경로는 다루지 않는다(spec.md §3).
 
@@ -148,17 +148,27 @@ if (updated.count !== 1) {
 
 이 원칙은 SPEC-ORDER-001의 REQ-ORDER-014(확인 금액은 지시가 아니라 대조용 입력)와 정확히 같은 모양이다 — 이 SPEC은 그 원칙을 외부 시스템이 보내는 금액에도 동일하게 적용한다.
 
-## §5. 웹훅 서명 검증 (REQ-PAYMENT-011/012)
+## §5. 웹훅 재확인 — Toss 결제 조회 API (REQ-PAYMENT-011/012)
+
+**정정(CodeRabbit PR #9 리뷰 Finding 1)**: 이전 버전의 이 절은 HMAC-SHA256 서명 검증을 설계했으나, `PAYMENT_STATUS_CHANGED` 웹훅에는 `tosspayments-webhook-signature` 헤더가 애초에 실려 오지 않는다(그 헤더는 `payout.changed`·`seller.changed` 전용 — research.md §4 정정 참조). 아래는 Toss 공식 문서가 이 이벤트 타입에 권고하는 검증 방식으로 재설계된 흐름이다.
 
 ```
 POST /api/payments/webhook
-  ├─ 헤더 3종 읽기: tosspayments-webhook-transmission-time / -signature / -transmission-id
-  ├─ payload(raw body) + 헤더로 HMAC-SHA256(PG_WEBHOOK_SECRET) 계산
-  ├─ base64 비교. 불일치 → 401, 아무 것도 처리하지 않음(REQ-PAYMENT-012)
-  └─ 일치 → §3의 2차 방어(transmissionId 조회) → §4(금액 대조) → §2(조건부 전이)
+  ├─ raw body 읽기 (request.text())
+  ├─ §3의 2차 방어(transmissionId 조회) — 먼저 실행, 재전송을 파싱·조회 이전에 차단
+  ├─ JSON.parse — payload에서 paymentKey만 추출 (다른 필드는 아직 신뢰하지 않음)
+  ├─ Toss 결제 조회 API 호출: GET /v1/payments/{paymentKey}, Basic 인증(PG_SECRET_KEY,
+  │    confirm API와 동일한 시크릿)
+  │    ├─ 호출 실패(네트워크 오류·타임아웃·비-2xx) → 처리 중단, 502(재시도 유도)
+  │    └─ 조회된 기록의 orderId ≠ payload의 orderId → 처리 중단, 400(불일치)
+  ├─ 조회된 기록의 orderId로 주문 조회
+  ├─ §4(금액 대조 — 조회된 기록의 totalAmount 사용) → §2(조건부 전이 — 조회된 기록의
+  │    status·paymentKey 사용)
+  └─ CANCELED 전이 직전에는 추가로 조회된 기록의 paymentKey가 주문에 저장된
+       paymentKey와 일치하는지 대조한다 — 불일치 시 취소를 적용하지 않는다.
 ```
 
-서명 검증은 **raw body 문자열**에 대해 계산해야 한다 — Next.js Route Handler가 `request.json()`으로 파싱한 뒤 재직렬화한 문자열은 키 순서·공백이 원본과 달라질 수 있어 서명이 어긋난다. 따라서 이 라우트는 `request.text()`로 원문을 먼저 읽고, 서명 검증 통과 후에만 `JSON.parse`한다.
+**payload 자신이 주장하는 값은 어디에도 신뢰의 근거로 쓰이지 않는다** — `paymentKey`는 오직 "어느 결제를 조회할지"를 가리키는 색인일 뿐이고, 그 이후의 모든 판단(주문 식별, 금액, 상태)은 Toss 서버 자신이 되돌려준 조회 결과에서만 나온다. 이것이 서명이 없는 이벤트 타입에서도 웹훅을 신뢰할 수 있게 만드는 유일한 근거다 — 누구든 임의의 `POST`로 페이로드를 조작할 수 있지만, Toss의 결제 조회 API 응답 자체는 조작할 수 없다.
 
 ## §6. UI — 결제 시작 버튼과 완료 화면 조건부 렌더 (research.md §2·§6)
 
@@ -203,11 +213,12 @@ function buildOrderName(items: OrderItem[]): string {
 
 | 변수 | 노출 범위 | 용도 |
 |---|---|---|
-| `PG_SECRET_KEY` | 서버 전용 | 승인(confirm) API 호출 시 Basic 인증 |
-| `PG_WEBHOOK_SECRET` | 서버 전용 | 웹훅 HMAC-SHA256 서명 검증 |
+| `PG_SECRET_KEY` | 서버 전용 | 승인(confirm) API + 결제 조회(Payment Query) API 호출 시 Basic 인증(§5) |
 | `NEXT_PUBLIC_PG_CLIENT_KEY` | **클라이언트 노출(설계상 공개 키)** | 브라우저 SDK 초기화 |
 
-`tech.md`가 예고한 `PG_API_KEY`라는 이름은 재사용하지 않는다 — research.md §5에서 확인했듯 그 이름이 가리키는 값(Toss의 클라이언트 키)은 원래 공개 키이므로, 노출 범위를 이름에 정직하게 반영하는 `NEXT_PUBLIC_` 접두사가 필요하다. `PG_SECRET_KEY`·`PG_WEBHOOK_SECRET`은 `tech.md`가 이미 서버 전용으로 규정한 대로 그대로 쓴다(REQ-PAYMENT-018).
+**정정(CodeRabbit PR #9 리뷰 Finding 1)**: `PG_WEBHOOK_SECRET`은 더 이상 쓰이지 않는다 — §5 정정에서 확인했듯 웹훅 서명 헤더 자체가 이 SPEC의 이벤트 타입에는 존재하지 않으므로, 그 시크릿으로 검증할 대상이 없다. `.env.example`에서 제거했다.
+
+`tech.md`가 예고한 `PG_API_KEY`라는 이름은 재사용하지 않는다 — research.md §5에서 확인했듯 그 이름이 가리키는 값(Toss의 클라이언트 키)은 원래 공개 키이므로, 노출 범위를 이름에 정직하게 반영하는 `NEXT_PUBLIC_` 접두사가 필요하다. `PG_SECRET_KEY`는 `tech.md`가 이미 서버 전용으로 규정한 대로 그대로 쓴다(REQ-PAYMENT-018).
 
 ## §8. 실패 응답 형태
 
@@ -216,16 +227,19 @@ function buildOrderName(items: OrderItem[]): string {
 | 승인 리다이렉트 금액 불일치 (REQ-PAYMENT-006) | 확인 API 호출 안 함, 완료 화면으로 `?payment_failed=1` 리다이렉트 | — |
 | 승인 API 호출 실패/거부 (REQ-PAYMENT-008) | 완료 화면으로 `?payment_failed=1` 리다이렉트 | 주문 상태 무변경 |
 | 대상 주문이 이미 `pending_payment`가 아님 (REQ-PAYMENT-008) | 완료 화면으로 정상 리다이렉트(이미 처리된 결제이므로 오류로 취급하지 않음) | — |
-| 웹훅 서명 검증 실패 (REQ-PAYMENT-012) | 401 | 처리 없음, 로그 없음 |
+| 웹훅 결제 조회 API 호출 자체가 실패 (REQ-PAYMENT-012, **정정**) | 502(일시적 — PG 재시도 유도) | 처리 없음, 로그 없음 |
+| 웹훅 조회 기록이 payload의 orderId와 불일치 (REQ-PAYMENT-012, **정정**) | 400 | 처리 없음, 로그 없음 |
+| 웹훅 payload가 JSON으로 파싱되지 않음 | 400 | 처리 없음, 로그 없음 |
 | 웹훅 금액 불일치 (REQ-PAYMENT-015) | 200(PG에게는 수신 확인) | `PaymentAuditLog`에 불일치 사실 기록, 전이 없음 |
 | 웹훅 재전송(이미 처리됨) (REQ-PAYMENT-016) | 200 | 처리 없음(멱등) |
 | `paymentKey` 불일치 (REQ-PAYMENT-004) | 승인 경로: 확인 API 호출 안 함 / 웹훅 경로: 200(수신 확인), 전이 없음 | `PaymentAuditLog`에 불일치 사실 기록 |
+| 웹훅 `PARTIAL_CANCELED` (이 SPEC 범위 밖의 부분 취소) | 200(수신 확인) | `PaymentAuditLog`에 무전이 기록만 남김(REQ-PAYMENT-014, **정정**) — 전체 취소 경로로 라우팅하지 않음 |
 
 ## §9. 남은 위험
 
 | 위험 | 성격 | 완화 |
 |---|---|---|
-| 조건부 전이·서명 검증의 실제 동시성 동작을 실 PostgreSQL 없이 검증 못함 | 하네스 한계(SPEC-ORDER-001과 동일) | acceptance.md §0에서 관측 가능/불가능 분류. 초록불을 동시성의 증거로 제시하지 않는다 |
+| 조건부 전이·웹훅 재확인의 실제 동시성 동작을 실 PostgreSQL 없이 검증 못함 | 하네스 한계(SPEC-ORDER-001과 동일) | acceptance.md §0에서 관측 가능/불가능 분류. 초록불을 동시성의 증거로 제시하지 않는다 |
 | Toss SDK의 정확한 npm 패키지명·버전은 이 문서에서 확정하지 않음 | 조사 시점 정보 한계 | M4에서 공식 문서를 재확인해 확정한다. 인터페이스(요청 파라미터 이름)는 이미 확정되어 있으므로 어댑터 내부 구현만 영향받는다 |
 | `tech.md`의 `PG_API_KEY` 항목이 이 SPEC의 실제 변수명과 불일치 | 문서-현실 불일치(research.md §5) | sync 단계에서 `tech.md` 갱신을 후속 작업으로 남긴다. plan-phase 문서는 이 불일치를 숨기지 않고 명시했다 |
 | 완료 화면 EXTEND가 SPEC-ORDER-001의 게스트 인가 로직에 실수로 손을 대는 경우 | 스코프 침범 위험 | plan.md §4가 EXTEND 대상을 "안내 문구 조건 분기 + `<PayButton>` 추가"로 좁히고, 인가 관련 코드(쿠키 읽기·대조·`notFound()`)의 diff 0줄을 acceptance.md DoD에서 확인한다 |

@@ -1,21 +1,22 @@
-import { createHmac } from "node:crypto";
-import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 
 /**
  * SPEC-PAYMENT-001 M5 — the confirm/webhook path driven end to end through the
  * real route handlers against an in-memory database.
  *
  * Traces: AC-PAYMENT-001 (one audit-log row per transition), AC-PAYMENT-007
- * (confirm success -> paid), AC-PAYMENT-011/012 (signature gate, exercised for
- * real — this suite does NOT mock verifyWebhookSignature), AC-PAYMENT-013
- * (DONE webhook -> paid), AC-PAYMENT-014 (CANCELED webhook restores stock,
- * same transaction), AC-PAYMENT-016 (webhook resend is a no-op).
+ * (confirm success -> paid), AC-PAYMENT-011/012 (Toss Payment Query
+ * re-verification gate — CodeRabbit PR #9 Finding 1 correction), AC-PAYMENT-
+ * 013 (DONE webhook -> paid), AC-PAYMENT-014 (CANCELED webhook restores
+ * stock, same transaction), AC-PAYMENT-016 (webhook resend is a no-op).
  *
  * Nothing is mocked at the repository or service seam: the fake below stands
- * in for PostgreSQL only, and `toss-server.ts`'s `verifyWebhookSignature` runs
- * for real (the test computes a genuine HMAC-SHA256 signature). Only the
- * OUTBOUND network call — `confirmTossPayment` — is replaced, because this
- * suite has no live Toss endpoint to call.
+ * in for PostgreSQL only. Only the OUTBOUND network calls — `confirmTossPayment`
+ * AND `queryTossPayment` — are replaced, because this suite has no live Toss
+ * endpoint to call (the same reasoning that already applied to
+ * `confirmTossPayment` before this correction; `queryTossPayment` is the same
+ * kind of outbound call, just for the webhook path instead of the confirm
+ * path).
  *
  * THE FAKE IMPLEMENTS ROLLBACK (matching SPEC-ORDER-001's own integration
  * fake, tests/integration/orders/create-order.test.ts) — `$transaction`
@@ -155,39 +156,21 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
-// Only the OUTBOUND HTTP call is replaced. verifyWebhookSignature runs for
-// real (design.md §5) — this suite proves the signature gate actually gates,
-// rather than assuming the mocked service would have called it correctly.
+// Only the OUTBOUND HTTP calls are replaced. Everything else (idempotency
+// lookup, order lookup, amount comparison, conditional transition) runs for
+// real against the fake store above.
 vi.mock("@/lib/payment/toss-server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/payment/toss-server")>();
-  return { ...actual, confirmTossPayment: vi.fn() };
+  return { ...actual, confirmTossPayment: vi.fn(), queryTossPayment: vi.fn() };
 });
 
-const WEBHOOK_SECRET = "test-webhook-secret-shhh";
-const ORIGINAL_WEBHOOK_SECRET = process.env.PG_WEBHOOK_SECRET;
-
-function signBody(rawBody: string, transmissionTime: string): string {
-  // Mirrors toss-server.ts verifyWebhookSignature's message construction
-  // exactly: `${transmissionTime}.${rawBody}`, HMAC-SHA256, base64 digest.
-  return createHmac("sha256", WEBHOOK_SECRET).update(`${transmissionTime}.${rawBody}`).digest("base64");
-}
-
-async function postWebhook(
-  payload: Record<string, unknown>,
-  transmissionId: string,
-  signatureOverride?: string
-) {
+async function postWebhook(payload: Record<string, unknown>, transmissionId: string) {
   const rawBody = JSON.stringify(payload);
-  const transmissionTime = "2026-09-02T00:00:00.000Z";
   const { POST } = await import("@/app/api/payments/webhook/route");
   return POST(
     new Request("http://localhost/api/payments/webhook", {
       method: "POST",
-      headers: {
-        "tosspayments-webhook-transmission-time": transmissionTime,
-        "tosspayments-webhook-signature": signatureOverride ?? signBody(rawBody, transmissionTime),
-        "tosspayments-webhook-transmission-id": transmissionId,
-      },
+      headers: { "tosspayments-webhook-transmission-id": transmissionId },
       body: rawBody,
     })
   );
@@ -202,8 +185,18 @@ async function getConfirm(orderId: string, paymentKey: string, amount: number) {
   );
 }
 
+/** Configures the mocked Payment Query API to answer with a given record. */
+async function mockTossQuery(record: {
+  paymentKey: string;
+  orderId: string;
+  status: string;
+  totalAmount: number;
+}) {
+  const tossServer = await import("@/lib/payment/toss-server");
+  vi.mocked(tossServer.queryTossPayment).mockResolvedValue({ ok: true, payment: record });
+}
+
 beforeEach(async () => {
-  process.env.PG_WEBHOOK_SECRET = WEBHOOK_SECRET;
   store = {
     orders: [{ id: "o1", status: "pending_payment", totalAmount: 30000, paymentKey: null }],
     orderItems: [{ orderId: "o1", productId: "A", quantity: 3 }],
@@ -214,10 +207,7 @@ beforeEach(async () => {
 
   const tossServer = await import("@/lib/payment/toss-server");
   vi.mocked(tossServer.confirmTossPayment).mockReset();
-});
-
-afterAll(() => {
-  process.env.PG_WEBHOOK_SECRET = ORIGINAL_WEBHOOK_SECRET;
+  vi.mocked(tossServer.queryTossPayment).mockReset();
 });
 
 describe("SPEC-PAYMENT-001 M5 — confirm route (AC-PAYMENT-007)", () => {
@@ -245,20 +235,37 @@ describe("SPEC-PAYMENT-001 M5 — confirm route (AC-PAYMENT-007)", () => {
   });
 });
 
-describe("SPEC-PAYMENT-001 M5 — webhook signature gate (AC-PAYMENT-011/012)", () => {
-  it("rejects a webhook with an invalid signature and changes nothing", async () => {
+describe("SPEC-PAYMENT-001 M5 — webhook Toss-query re-verification gate (AC-PAYMENT-011/012, Finding 1)", () => {
+  it("rejects a webhook whose Toss query itself fails, and changes nothing", async () => {
+    const tossServer = await import("@/lib/payment/toss-server");
+    vi.mocked(tossServer.queryTossPayment).mockResolvedValue({ ok: false, status: 502 });
+
     const response = await postWebhook(
       { orderId: "o1", paymentKey: "PK1", amount: 30000, status: "DONE" },
-      "T-bad",
-      "not-the-real-signature"
+      "T-query-fail"
     );
 
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(502);
     expect(store.orders.find((o) => o.id === "o1")!.status).toBe("pending_payment");
     expect(store.auditLogs).toHaveLength(0);
   });
 
-  it("accepts a genuinely-signed webhook (the same HMAC toss-server.ts computes)", async () => {
+  it("rejects a webhook whose claimed orderId contradicts Toss's own queried record, and changes nothing", async () => {
+    await mockTossQuery({ paymentKey: "PK1", orderId: "SOMEONE-ELSES-ORDER", status: "DONE", totalAmount: 30000 });
+
+    const response = await postWebhook(
+      { orderId: "o1", paymentKey: "PK1", amount: 30000, status: "DONE" },
+      "T-mismatch"
+    );
+
+    expect(response.status).toBe(400);
+    expect(store.orders.find((o) => o.id === "o1")!.status).toBe("pending_payment");
+    expect(store.auditLogs).toHaveLength(0);
+  });
+
+  it("accepts and applies a webhook once Toss's own queried record confirms it", async () => {
+    await mockTossQuery({ paymentKey: "PK1", orderId: "o1", status: "DONE", totalAmount: 30000 });
+
     const response = await postWebhook(
       { orderId: "o1", paymentKey: "PK1", amount: 30000, status: "DONE" },
       "T1"
@@ -271,6 +278,7 @@ describe("SPEC-PAYMENT-001 M5 — webhook signature gate (AC-PAYMENT-011/012)", 
 
 describe("SPEC-PAYMENT-001 M5 — webhook resend is idempotent (AC-PAYMENT-016)", () => {
   it("processes the DONE webhook once, and a resend under the same transmissionId is a no-op", async () => {
+    await mockTossQuery({ paymentKey: "PK1", orderId: "o1", status: "DONE", totalAmount: 30000 });
     const payload = { orderId: "o1", paymentKey: "PK1", amount: 30000, status: "DONE" };
 
     const first = await postWebhook(payload, "T1");
@@ -298,6 +306,7 @@ describe("SPEC-PAYMENT-001 M5 — cancel webhook restores stock atomically (AC-P
     await getConfirm("o1", "PK1", 30000);
     expect(store.orders.find((o) => o.id === "o1")!.status).toBe("paid");
 
+    await mockTossQuery({ paymentKey: "PK1", orderId: "o1", status: "CANCELED", totalAmount: 30000 });
     const response = await postWebhook(
       { orderId: "o1", paymentKey: "PK1", amount: 30000, status: "CANCELED" },
       "T-cancel"
@@ -324,6 +333,7 @@ describe("SPEC-PAYMENT-001 M5 — cancel webhook restores stock atomically (AC-P
     vi.mocked(tossServer.confirmTossPayment).mockResolvedValue({ ok: true });
     await getConfirm("o1", "PK1", 30000);
 
+    await mockTossQuery({ paymentKey: "PK1", orderId: "o1", status: "CANCELED", totalAmount: 30000 });
     const cancelPayload = { orderId: "o1", paymentKey: "PK1", amount: 30000, status: "CANCELED" };
     await postWebhook(cancelPayload, "T-cancel");
     expect(store.products.find((p) => p.id === "A")!.stock).toBe(10);
@@ -338,7 +348,13 @@ describe("SPEC-PAYMENT-001 M5 — cancel webhook restores stock atomically (AC-P
   });
 
   it("does not restore stock when the cancel arrives for a still-pending order", async () => {
-    // Never confirmed — status stays pending_payment (beforeEach default).
+    // Never confirmed — status stays pending_payment, paymentKey stays null
+    // (beforeEach default). The queried record still names paymentKey "PK1"
+    // (Toss's own record), which now disagrees with the order's own (null)
+    // paymentKey — Finding 2's guard rejects this before ever attempting the
+    // conditional transition.
+    await mockTossQuery({ paymentKey: "PK1", orderId: "o1", status: "CANCELED", totalAmount: 30000 });
+
     const response = await postWebhook(
       { orderId: "o1", paymentKey: "PK1", amount: 30000, status: "CANCELED" },
       "T-cancel-early"
@@ -348,5 +364,57 @@ describe("SPEC-PAYMENT-001 M5 — cancel webhook restores stock atomically (AC-P
     expect(store.orders.find((o) => o.id === "o1")!.status).toBe("pending_payment");
     expect(store.products.find((p) => p.id === "A")!.stock).toBe(7);
     expect(store.auditLogs).toHaveLength(0);
+  });
+
+  it("does not cancel when the queried paymentKey disagrees with the order's stored paymentKey (Finding 2 regression)", async () => {
+    const tossServer = await import("@/lib/payment/toss-server");
+    vi.mocked(tossServer.confirmTossPayment).mockResolvedValue({ ok: true });
+    await getConfirm("o1", "PK1", 30000);
+    expect(store.orders.find((o) => o.id === "o1")!.status).toBe("paid");
+    expect(store.auditLogs).toHaveLength(1);
+
+    // Toss's queried record names a DIFFERENT paymentKey than the order's
+    // own stored one — must not cancel.
+    await mockTossQuery({ paymentKey: "PK-ATTACKER", orderId: "o1", status: "CANCELED", totalAmount: 30000 });
+
+    const response = await postWebhook(
+      { orderId: "o1", paymentKey: "PK-ATTACKER", amount: 30000, status: "CANCELED" },
+      "T-attacker-cancel"
+    );
+
+    expect(response.status).toBe(200);
+    expect(store.orders.find((o) => o.id === "o1")!.status).toBe("paid");
+    expect(store.products.find((p) => p.id === "A")!.stock).toBe(7);
+    expect(store.auditLogs).toHaveLength(1);
+  });
+});
+
+describe("SPEC-PAYMENT-001 M5 — PARTIAL_CANCELED webhook (Finding 3 regression)", () => {
+  it("does not cancel the order or restore stock — recorded as unhandled instead", async () => {
+    const tossServer = await import("@/lib/payment/toss-server");
+    vi.mocked(tossServer.confirmTossPayment).mockResolvedValue({ ok: true });
+    await getConfirm("o1", "PK1", 30000);
+    expect(store.orders.find((o) => o.id === "o1")!.status).toBe("paid");
+
+    await mockTossQuery({ paymentKey: "PK1", orderId: "o1", status: "PARTIAL_CANCELED", totalAmount: 30000 });
+    const response = await postWebhook(
+      { orderId: "o1", paymentKey: "PK1", amount: 30000, status: "PARTIAL_CANCELED" },
+      "T-partial"
+    );
+
+    expect(response.status).toBe(200);
+    const order = store.orders.find((o) => o.id === "o1")!;
+    expect(order.status).toBe("paid");
+    // No over-restoration of stock.
+    expect(store.products.find((p) => p.id === "A")!.stock).toBe(7);
+    expect(store.auditLogs).toHaveLength(2);
+    expect(store.auditLogs[1]).toMatchObject({
+      orderId: "o1",
+      source: "WEBHOOK",
+      previousStatus: "paid",
+      newStatus: "paid",
+      paymentKey: "PK1",
+      transmissionId: "T-partial",
+    });
   });
 });

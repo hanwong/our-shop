@@ -58,11 +58,11 @@ tier: L
 ### 확인된 근거 (Toss Payments 공식 문서)
 
 - 관련 웹훅 이벤트는 두 가지다. `PAYMENT_STATUS_CHANGED`(카드/계좌이체/휴대폰 등 결제의 상태 변경, `data.status`에 `DONE`/`CANCELED`/`PARTIAL_CANCELED` 등 포함 — **국내 카드 결제 취소의 1차 신호**)와 `CANCEL_STATUS_CHANGED`(**해외 간편결제 취소/실패 전용** 동반 이벤트). 이 SPEC은 후자를 다루지 않는다 — 해외 간편결제 자체가 범위 밖이다(spec.md §3). (출처: https://docs.tosspayments.com/reference/using-api/webhook-events)
-- 서명 검증은 세 헤더로 이루어진다 — `tosspayments-webhook-transmission-time`·`tosspayments-webhook-signature`·`tosspayments-webhook-transmission-id`(재전송 시 `tosspayments-webhook-transmission-retried-count` 추가). 사전 공유 시크릿으로 payload에 대한 HMAC-SHA256을 계산해 서명 헤더와 base64 비교한다. (출처: 위와 동일)
+- **정정(CodeRabbit PR #9 리뷰 Finding 1, 공식 문서 재확인 완료)**: `tosspayments-webhook-signature` 헤더는 `PAYMENT_STATUS_CHANGED` 웹훅에는 실려 오지 않는다 — 이 헤더는 `payout.changed`·`seller.changed` 웹훅에만 실린다(출처: 위와 동일, `https://docs.tosspayments.com/reference/using-api/webhook-events` §"서명 검증" 섹션 재확인). 이 SPEC이 다루는 이벤트는 `PAYMENT_STATUS_CHANGED` 하나뿐이므로, 서명 헤더를 전제로 한 HMAC-SHA256 검증 설계는 애초에 성립하지 않았다. Toss 공식 문서가 `PAYMENT_STATUS_CHANGED` 웹훅에 권고하는 검증 방법은 **웹훅이 실어 온 `paymentKey`로 결제 조회(Payment Query) API(`GET /v1/payments/{paymentKey}`, confirm API와 같은 `PG_SECRET_KEY` Basic 인증)를 호출해 Toss 서버 자신이 갖고 있는 결제 기록을 다시 가져오고, 그 응답을 저장된 주문(상태·금액)과 대조하는 것**이다 — 웹훅 payload 자신이 주장하는 상태를 이 서버-대-서버 재확인 없이 신뢰해서는 안 된다.
 
 ### 결론
 
-**웹훅은 두 가지 역할을 겸한다** — (1) 확인(confirm) 리다이렉트가 어떤 이유로든 서버에 도달하지 못했을 때의 **승인 완료의 대체 신호**(`DONE`), (2) **취소의 1차 신호**(`CANCELED`/`PARTIAL_CANCELED`, 사용자 확인 결정 1). 서명 검증 없이 페이로드를 신뢰하면 누구나 임의의 `POST`로 결제 상태를 조작할 수 있으므로, 서명 검증은 그 어떤 상태 판단보다 먼저 와야 한다. `transmission-id`는 웹훅 특유의 재전송에 대한 자연스러운 멱등키 후보다 — Toss가 응답을 못 받으면 같은 이벤트를 같은 id로 재전송하기 때문이다.
+**웹훅은 두 가지 역할을 겸한다** — (1) 확인(confirm) 리다이렉트가 어떤 이유로든 서버에 도달하지 못했을 때의 **승인 완료의 대체 신호**(`DONE`), (2) **취소의 1차 신호**(`CANCELED`/`PARTIAL_CANCELED`, 사용자 확인 결정 1). 페이로드를 그대로 신뢰하면 누구나 임의의 `POST`로 결제 상태를 조작할 수 있으므로(서명 헤더가 없어 페이로드 자체에는 검증 근거가 없다 — 위 정정 참조), Toss의 결제 조회 API로 되짚어 확인하는 절차가 그 어떤 상태 판단보다 먼저 와야 한다. `transmission-id`는 웹훅 특유의 재전송에 대한 자연스러운 멱등키 후보다 — Toss가 응답을 못 받으면 같은 이벤트를 같은 id로 재전송하기 때문이다.
 
 ## §5. 조사 질문 4 — `PG_API_KEY` 이름이 실제 Toss 모델과 맞는가 (문서-현실 불일치, 정직하게 기록)
 

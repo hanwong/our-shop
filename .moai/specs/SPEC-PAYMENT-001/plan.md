@@ -52,7 +52,7 @@ tier: L
 `our-shop`에 **결제 도메인을 처음 도입**한다. 대상은 SPEC-ORDER-001이 만든 게스트 주문의 결제 승인·취소뿐이다(§0 #5 회원 결제 없음 — spec.md §3). 산출물은 세 층이다.
 
 1. **데이터**: `Order.paymentKey` 컬럼 추가, `PaymentAuditLog` 모델 + `PaymentEventSource` enum + 마이그레이션.
-2. **도메인**: 조건부 상태 전이(design.md §2), 2단 멱등 방어(§3), 금액 대조(§4), 웹훅 서명 검증(§5).
+2. **도메인**: 조건부 상태 전이(design.md §2), 2단 멱등 방어(§3), 금액 대조(§4), 웹훅 Toss 결제 조회 재확인(§5, CodeRabbit PR #9 Finding 1 정정 반영).
 3. **화면**: PG SDK 결제창 호출 버튼 + 완료 화면 조건부 렌더(§6). 새 화면 없음.
 
 ## §2. 기술적 접근 — 되돌리기 어려운 순으로
@@ -65,7 +65,7 @@ tier: L
 | 리포지토리 분리 | `order-repository.ts`를 확장하지 않고 새 `payment-repository.ts`를 만든다 — 트랜잭션 경계가 다르기 때문 | §2.1 |
 | 멱등성 | 조건부 전이(1차) + `PaymentAuditLog.transmissionId` unique(2차) | §3 |
 | 금액 검증 | 상태 전이 전에 항상 `Order.totalAmount`와 대조 | §4 |
-| 서명 검증 | raw body에 대한 HMAC-SHA256, 파싱 전에 먼저 검증 | §5 |
+| 웹훅 재확인 | Toss 결제 조회(Payment Query) API로 paymentKey를 되짚어 조회, 그 응답만 신뢰(**정정**: 서명 헤더는 이 이벤트 타입에 존재하지 않음) | §5 |
 | 결제창 호출 지점 | 새 화면 없이 완료 화면에 버튼 하나 추가 | §6 |
 | 환경변수 | `NEXT_PUBLIC_PG_CLIENT_KEY`(신규, 공개) + `PG_SECRET_KEY`/`PG_WEBHOOK_SECRET`(서버 전용) | §7 |
 

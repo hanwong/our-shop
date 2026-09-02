@@ -96,32 +96,38 @@ Tier L — AC 상한 25개 이내(현재 20개). 각 항목은 REQ-PAYMENT-XXX �
 - Then: `failed`·`payment_failed` 등을 값으로 갖는 `OrderStatus` 관련 선언이 존재하지 않는다(쿼리 파라미터 이름 `payment_failed`는 예외 — enum 값이 아니다).
 - 검증 수단: 정적 소스 검사.
 
-### 웹훅 수신 및 서명 검증
+### 웹훅 수신 및 Toss 결제 조회 재확인 (CodeRabbit PR #9 리뷰 Finding 1 — REQ-PAYMENT-011/012 재작성)
 
-**AC-PAYMENT-011** — 유효한 서명만 처리된다 (REQ-PAYMENT-011)
-- Given: `PG_WEBHOOK_SECRET`으로 올바르게 계산된 HMAC-SHA256 서명을 가진 요청
+**AC-PAYMENT-011** — Toss 결제 조회 API가 웹훅의 주장을 확인해야만 처리된다 (REQ-PAYMENT-011)
+- Given: `PAYMENT_STATUS_CHANGED` 웹훅 payload, 그리고 payload의 `paymentKey`로 Toss 결제 조회 API를 호출했을 때 payload와 같은 `orderId`를 담은 기록이 성공적으로 반환되는 상황
 - When: `POST /api/payments/webhook`을 호출한다
-- Then: 서명 검증을 통과해 이후 처리 단계(이벤트 파싱)로 진입한다.
-- 검증 수단: 서비스 단위 테스트(서명 계산 재현 + 통과 분기 진입 스파이).
+- Then: 조회가 payload를 확인해 이후 처리 단계(주문 조회·금액 대조·전이)로 진입한다.
+- 검증 수단: 서비스 단위 테스트(`queryTossPayment` 모킹 + 통과 분기 진입 스파이) + 통합 테스트(라우트를 통해 재확인).
 
-**AC-PAYMENT-012** — 서명 검증 실패 시 아무 것도 처리하지 않는다 (REQ-PAYMENT-012)
-- Given: 서명 헤더가 없거나 시크릿과 맞지 않는 요청
+**AC-PAYMENT-012** — Toss 결제 조회가 실패하거나 웹훅의 주장과 모순되면 아무 것도 처리하지 않는다 (REQ-PAYMENT-012)
+- Given (i): Toss 결제 조회 API 호출 자체가 실패하는 상황(네트워크 오류·타임아웃·비-2xx 응답)
+- Given (ii): 조회는 성공했지만 반환된 기록의 `orderId`가 웹훅 payload가 주장한 `orderId`와 다른 상황
 - When: `POST /api/payments/webhook`을 호출한다
-- Then: 401이 반환되고, 어떤 주문 상태도 변하지 않으며 `PaymentAuditLog`가 0건 생성된다.
-- 검증 수단: 응답 단언 + fake DB 스냅샷 비교(전후 동일).
+- Then (i): 502가 반환되고(PG 재시도 유도), 어떤 주문 상태도 변하지 않으며 `PaymentAuditLog`가 0건 생성된다.
+- Then (ii): 400이 반환되고, 어떤 주문 상태도 변하지 않으며 `PaymentAuditLog`가 0건 생성된다.
+- 검증 수단: 응답 단언 + fake DB 스냅샷 비교(전후 동일), (i)/(ii) 각각 별도 테스트.
 
 **AC-PAYMENT-013** — `DONE` 웹훅이 `pending_payment` 주문을 `paid`로 전이한다 (REQ-PAYMENT-013)
-- Given: `pending_payment` 상태의 주문, 유효한 서명의 `PAYMENT_STATUS_CHANGED` 웹훅(`status: "DONE"`, 금액 일치)
+- Given: `pending_payment` 상태의 주문, Toss 결제 조회 API가 확인해 준 `PAYMENT_STATUS_CHANGED` 웹훅(`status: "DONE"`, 금액 일치)
 - When: 웹훅을 처리한다
 - Then: 주문이 `paid`가 되고 `PaymentAuditLog`(`source: "WEBHOOK"`)가 1건 생긴다.
 - 검증 수단: fake DB 상태 단언.
 
-**AC-PAYMENT-014** — 취소 웹훅이 재고를 복원하며 `cancelled`로 전이한다 (REQ-PAYMENT-014)
-- Given: `paid` 상태의 주문(항목: 상품 A 수량 3, 현재 재고 7), 유효한 서명의 `PAYMENT_STATUS_CHANGED` 웹훅(`status: "CANCELED"`)
-- When: 웹훅을 처리한다
-- Then: (a) 주문이 `cancelled`가 된다. (b) 상품 A의 재고가 `10`이 된다(7+3). (c) `PaymentAuditLog` 1건이 생긴다. 전부 하나의 트랜잭션 안에서 일어난다(정적 검사 — 재고 갱신과 상태 갱신이 같은 `$transaction` 콜백 안에서만 호출되는지 확인).
-- 검증 수단: fake DB 상태 단언 3건 + 정적 소스 검사.
-- **전제(fake 롤백)**: SPEC-ORDER-001 acceptance.md §0과 동일한 전제 — fake가 `$transaction`을 콜백 성공 시에만 커밋하도록 구현했을 때에만 이 AC의 원자성 주장이 유효하다.
+**AC-PAYMENT-014** — 취소 웹훅이 재고를 복원하며 `cancelled`로 전이한다 (REQ-PAYMENT-014, **정정 반영**: CodeRabbit PR #9 Finding 1/2/3)
+- Given (a): `paid` 상태의 주문(`paymentKey: "PK1"`, 항목: 상품 A 수량 3, 현재 재고 7), Toss 결제 조회 API가 같은 `paymentKey`로 `status: "CANCELED"`를 반환하는 `PAYMENT_STATUS_CHANGED` 웹훅
+- When (a): 웹훅을 처리한다
+- Then (a): (i) 주문이 `cancelled`가 된다. (ii) 상품 A의 재고가 `10`이 된다(7+3). (iii) `PaymentAuditLog` 1건이 생긴다. 전부 하나의 트랜잭션 안에서 일어난다(정적 검사 — 재고 갱신과 상태 갱신이 같은 `$transaction` 콜백 안에서만 호출되는지 확인).
+- Given (b) — **Finding 2 회귀**: 위와 같은 `paid` 주문(`paymentKey: "PK1"`)에, Toss 결제 조회 API가 **다른** `paymentKey`(`"PK-ATTACKER"`)로 `status: "CANCELED"`를 반환하는 웹훅
+- When/Then (b): 웹훅을 처리해도 주문은 `paid`로 남고, 재고는 복원되지 않으며(`markOrderCancelledAndRestoreStock` 미호출), `PaymentAuditLog`가 추가로 생기지 않는다. 응답은 200(PG에게는 수신 확인)이다.
+- Given (c) — **Finding 3 회귀**: 위와 같은 `paid` 주문에, Toss 결제 조회 API가 같은 `paymentKey`로 `status: "PARTIAL_CANCELED"`를 반환하는 웹훅
+- When/Then (c): 웹훅을 처리해도 주문은 `paid`로 남고(전체 취소 경로로 라우팅되지 않음), 재고는 과다 복원되지 않으며(여전히 7), `PaymentAuditLog`에 무전이(이전/이후 상태 동일) 기록 1건이 남는다. 응답은 200이다.
+- 검증 수단: fake DB 상태 단언 + 정적 소스 검사((a)), 서비스/통합 회귀 테스트((b)/(c)).
+- **전제(fake 롤백)**: SPEC-ORDER-001 acceptance.md §0과 동일한 전제 — fake가 `$transaction`을 콜백 성공 시에만 커밋하도록 구현했을 때에만 (a)의 원자성 주장이 유효하다.
 
 **AC-PAYMENT-015** — 금액 불일치 웹훅은 전이 없이 기록만 남긴다 (REQ-PAYMENT-015)
 - Given: `Order.totalAmount === 30000`

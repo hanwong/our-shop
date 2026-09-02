@@ -34,9 +34,11 @@ export type ConfirmPaymentResult =
   | { ok: false; code: ConfirmPaymentFailureCode };
 
 /**
- * processWebhook()'s outcome classification. Every outcome except a signature
- * failure answers PG with 200 (design.md §3 — a duplicate or a rejected event
- * is still "received", so PG must not be told to retry it).
+ * processWebhook()'s outcome classification. Every `ok: true` outcome
+ * answers PG with 200 (design.md §3 — a duplicate or a rejected event is
+ * still "received", so PG must not be told to retry it). `unhandled` is
+ * PARTIAL_CANCELED (or any other in-scope-but-unmodeled status) — recorded,
+ * but explicitly not routed into the full-cancellation path (Finding 3).
  */
 export type WebhookOutcome =
   | "paid"
@@ -44,11 +46,23 @@ export type WebhookOutcome =
   | "already-applied"
   | "amount-mismatch"
   | "payment-key-mismatch"
-  | "order-not-pending";
+  | "order-not-pending"
+  | "unhandled";
 
+/**
+ * `ok: false` reasons (CodeRabbit PR #9 Finding 1 correction — no signature
+ * exists for this webhook type):
+ * - `malformed-payload` — the raw body did not parse as JSON.
+ * - `toss-query-failed` — the Payment Query API call itself failed
+ *   (network/timeout, or Toss returned a non-2xx) — transient; PG should
+ *   retry.
+ * - `query-mismatch` — Toss's own queried record disagrees with what the
+ *   webhook payload claimed (its `orderId`) — the payload is never trusted
+ *   on its own, so this delivery is rejected without acting on either side.
+ */
 export type ProcessWebhookResult =
   | { ok: true; outcome: WebhookOutcome }
-  | { ok: false; reason: "invalid-signature" | "malformed-payload" };
+  | { ok: false; reason: "malformed-payload" | "toss-query-failed" | "query-mismatch" };
 
 /**
  * The subset of Toss's PAYMENT_STATUS_CHANGED webhook payload this SPEC reads
