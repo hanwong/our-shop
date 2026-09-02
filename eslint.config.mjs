@@ -18,6 +18,7 @@ export default [
       ".moai/**",
       ".github/**",
       ".git_hooks/**",
+      "next-env.d.ts",
     ],
   },
   {

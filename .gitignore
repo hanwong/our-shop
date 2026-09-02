@@ -224,6 +224,17 @@ secret-*.*
 !.moai/evolution/telemetry/.gitkeep
 
 # ===========================================
+# Session/Harness Runtime Logs (local-only, per-session)
+# Trace logs, session reports, and audit ledgers are regenerated per
+# session/machine; only .gitkeep is tracked.
+# ===========================================
+.moai/logs/*.jsonl
+!.moai/logs/.gitkeep
+.moai/harness/*.jsonl
+.moai/reports/session-*.md
+.moai/kanban-backlog-backup.json
+
+# ===========================================
 # Node.js (for docs/Nextra)
 # ===========================================
 node_modules/
