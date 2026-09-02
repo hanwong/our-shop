@@ -91,6 +91,26 @@ describe("SPEC-DISCOUNT-001 M3 — findCouponByCode (REQ-DISCOUNT-002)", () => {
   });
 });
 
+describe("SPEC-DISCOUNT-001 M5 — decrementRedeemedCountIfPositive (REQ-DISCOUNT-021, design.md §6)", () => {
+  it("decrements redeemedCount conditioned on redeemedCount > 0", async () => {
+    const tx = { coupon: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) } };
+
+    const count = await repo.decrementRedeemedCountIfPositive(tx as never, "c-1");
+
+    expect(count).toBe(1);
+    expect(tx.coupon.updateMany).toHaveBeenCalledWith({
+      where: { id: "c-1", redeemedCount: { gt: 0 } },
+      data: { redeemedCount: { decrement: 1 } },
+    });
+  });
+
+  it("returns 0 without throwing when redeemedCount is already 0 (defensive no-op)", async () => {
+    const tx = { coupon: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) } };
+
+    await expect(repo.decrementRedeemedCountIfPositive(tx as never, "c-1")).resolves.toBe(0);
+  });
+});
+
 describe("SPEC-DISCOUNT-001 M3 — module boundaries", () => {
   const source = readFileSync("src/features/discounts/repositories/coupon-repository.ts", "utf8");
 

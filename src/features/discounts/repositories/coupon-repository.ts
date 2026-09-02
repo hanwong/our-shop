@@ -84,3 +84,40 @@ export async function incrementRedeemedCountIfAvailable(
   });
   return updated.count;
 }
+
+/**
+ * Conditionally decrements a coupon's redemption count on cancellation —
+ * SPEC-DISCOUNT-001 M5, design.md §6's "해제" (release) step, called from
+ * payment-repository.ts's markOrderCancelledAndRestoreStock in the SAME
+ * transaction that restores stock.
+ *
+ * WHY THE GUARD (`redeemedCount: { gt: 0 } }`): a cancellation is only ever
+ * reachable for an order that already went through the M4 increment above
+ * (an order can't be `paid` — the precondition markOrderCancelledAndRestore-
+ * Stock's own `updateMany` already checks — without first being created,
+ * which is where the increment happened), so in the normal path this should
+ * never actually fire at 0. The guard exists anyway, exactly as design.md §6
+ * states, rather than trusting that invariant blindly: `updateMany` with a
+ * non-unique WHERE is the same defensive-atomic shape M4's increment uses
+ * (never a plain read-then-write), so a hypothetical double-release (e.g. a
+ * duplicate cancellation event racing this same guard) can't drive the
+ * counter negative.
+ *
+ * Takes NO singleton default — same reasoning as
+ * `incrementRedeemedCountIfAvailable`: the only caller runs inside the
+ * cancellation transaction, and the row this function guards must be read
+ * and written on that SAME transaction client or the atomicity claim is void.
+ *
+ * Returns the number of rows changed: 1 when the decrement happened, 0 when
+ * `redeemedCount` was already 0 (defensive no-op — see above).
+ */
+export async function decrementRedeemedCountIfPositive(
+  tx: Prisma.TransactionClient,
+  couponId: string
+): Promise<number> {
+  const updated = await tx.coupon.updateMany({
+    where: { id: couponId, redeemedCount: { gt: 0 } },
+    data: { redeemedCount: { decrement: 1 } },
+  });
+  return updated.count;
+}
