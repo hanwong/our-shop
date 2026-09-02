@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { GUEST_CART_COOKIE_NAME } from "@/lib/auth/guest-identity";
 import { getOrderForGuest } from "@/features/orders/services/order-service";
+import { PayButton } from "@/components/checkout/PayButton";
 
 /**
  * SPEC-ORDER-001 M6 — `/checkout/complete/[orderId]` (REQ-ORDER-018/020).
@@ -25,6 +26,16 @@ import { getOrderForGuest } from "@/features/orders/services/order-service";
  * This screen is for the moment just after ordering. A guest whose cookie has
  * expired cannot return to it, which is accepted rather than overlooked: a
  * re-visit mechanism belongs to the order-history SPEC (spec.md §3).
+ *
+ * SPEC-PAYMENT-001 M4 EXTEND (plan.md §4.1) — exactly three additions beyond
+ * the SPEC-ORDER-001 render above: the status-message branch below is now
+ * 3-way (pending_payment/paid/cancelled) instead of a single fixed notice,
+ * a `<PayButton>` renders while pending_payment, and a `?payment_failed=1`
+ * retry banner renders above the notice — gated on the STORED status, not the
+ * query param alone (design.md §6's "상태 우선 원칙", AC-PAYMENT-009 (ii)).
+ * The guest-cookie read, the getOrderForGuest() call, and the notFound()
+ * guard above are untouched by this EXTEND — diff on that block is 0 lines
+ * (plan.md §4.1 DoD).
  */
 
 /** Mirrors ProductDetailView.formatWon — a won integer, thousands grouped. */
@@ -32,12 +43,26 @@ function formatWon(amount: number): string {
   return `${new Intl.NumberFormat("ko-KR").format(amount)}원`;
 }
 
+/**
+ * SPEC-PAYMENT-001 M4 (design.md §6.1) — the SDK's `orderName` argument.
+ * Derived from the order summary this screen already loaded, on every
+ * render; not a stored column, and no separate query is needed for it.
+ */
+function buildOrderName(items: { productName: string }[]): string {
+  const first = items[0]!.productName;
+  return items.length > 1 ? `${first} 외 ${items.length - 1}건` : first;
+}
+
 export default async function CheckoutCompletePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ orderId: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { orderId } = await params;
+  const sp = searchParams ? await searchParams : {};
+  const paymentFailed = sp.payment_failed === "1";
 
   const jar = await cookies();
   const guestId = jar.get(GUEST_CART_COOKIE_NAME)?.value ?? null;
@@ -53,19 +78,59 @@ export default async function CheckoutCompletePage({
     notFound();
   }
 
+  // SPEC-PAYMENT-001 M4 (design.md §6, AC-PAYMENT-009 (ii)) — the stored
+  // status always wins over the query param: a stale `?payment_failed=1` on
+  // an order that has since gone paid or cancelled never shows the retry
+  // banner, only the real status notice.
+  const showRetryBanner = paymentFailed && order.status === "pending_payment";
+
   return (
     <main className="mx-auto max-w-2xl px-4 py-12">
       <h1 className="text-2xl font-semibold text-neutral-900">주문이 접수되었습니다</h1>
 
-      {/* REQ-ORDER-018's payment notice. The order is pending_payment and this
-          SPEC owns no transition out of it (REQ-ORDER-019), so any wording
-          implying a completed payment would be false, not merely loose. */}
-      <p
-        role="status"
-        className="mt-4 rounded-md bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900"
-      >
-        아직 결제 전 단계입니다. 주문 내역만 접수되었으며, 결제는 진행되지 않았습니다.
-      </p>
+      {showRetryBanner ? (
+        <p
+          role="alert"
+          className="mt-4 rounded-md bg-red-50 px-4 py-3 text-sm leading-relaxed text-red-900"
+        >
+          결제가 완료되지 않았습니다. 아래 버튼으로 다시 시도해 주세요.
+        </p>
+      ) : null}
+
+      {/* REQ-ORDER-018's payment notice, now a 3-way branch on the actual
+          stored status (SPEC-PAYMENT-001 M4, design.md §6). Any wording
+          implying a completed payment before the order actually transitions
+          to paid would be false, not merely loose. */}
+      {order.status === "pending_payment" ? (
+        <p
+          role="status"
+          className="mt-4 rounded-md bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900"
+        >
+          아직 결제 전 단계입니다. 주문 내역만 접수되었으며, 결제는 진행되지 않았습니다.
+        </p>
+      ) : order.status === "paid" ? (
+        <p
+          role="status"
+          className="mt-4 rounded-md bg-emerald-50 px-4 py-3 text-sm leading-relaxed text-emerald-900"
+        >
+          결제가 완료되었습니다.
+        </p>
+      ) : (
+        <p
+          role="status"
+          className="mt-4 rounded-md bg-neutral-100 px-4 py-3 text-sm leading-relaxed text-neutral-700"
+        >
+          이 주문은 취소되었습니다.
+        </p>
+      )}
+
+      {order.status === "pending_payment" ? (
+        <PayButton
+          orderId={order.id}
+          amount={order.totalAmount}
+          orderName={buildOrderName(order.items)}
+        />
+      ) : null}
 
       <dl className="mt-8 space-y-1 text-sm">
         <dt className="text-neutral-600">주문 번호</dt>

@@ -56,8 +56,23 @@ function grepFiles(pattern: string, flags: string, exclude: string[] = []): stri
   }
 }
 
-/** SPEC-PAYMENT-001's own directories — the follow-up SPEC's legitimate scope. */
-const PAYMENT_DOMAIN_PATHS = ["src/features/payments", "src/lib/payment", "src/app/api/payments"];
+/**
+ * SPEC-PAYMENT-001's own directories — the follow-up SPEC's legitimate scope.
+ *
+ * `src/components/checkout/PayButton.tsx` is listed individually, not by
+ * directory: plan.md §0 #6 places the payment-window trigger ON the
+ * SPEC-ORDER-001-owned completion screen rather than a new screen, so its
+ * companion UI component sits alongside SPEC-ORDER-001's own CheckoutForm.tsx
+ * / OrderSummary.tsx in this shared directory. Excluding the whole directory
+ * would blind this scan to a genuine SPEC-ORDER-001 regression in its
+ * sibling files; excluding only this one file keeps that coverage intact.
+ */
+const PAYMENT_DOMAIN_PATHS = [
+  "src/features/payments",
+  "src/lib/payment",
+  "src/app/api/payments",
+  "src/components/checkout/PayButton.tsx",
+];
 
 const orderService = readFileSync("src/features/orders/services/order-service.ts", "utf8");
 
