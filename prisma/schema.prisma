@@ -249,9 +249,18 @@ model Order {
   // both pass the pre-transaction lookup are serialised by this constraint.
   idempotencyKey String @unique
 
+  // SPEC-PAYMENT-001 M1 — the only column this SPEC adds to Order. Attributes
+  // this order to at most one PG payment (REQ-PAYMENT-004); set by whichever
+  // trigger (confirm API or webhook) first confirms the order, and read back
+  // to reject an event carrying a different paymentKey (design.md §1).
+  paymentKey String? @unique
+
   items     OrderItem[]
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
+
+  // SPEC-PAYMENT-001 M1 — back-relation only; no existing field above changes.
+  auditLogs PaymentAuditLog[]
 
   @@index([guestId])
 }
@@ -280,4 +289,46 @@ model OrderItem {
 
   @@index([orderId])
   @@index([productId])
+}
+
+// ---------------------------------------------------------------------------
+// SPEC-PAYMENT-001 M1 — payment domain (PG confirm + webhook, guest orders
+// only). Source of truth for this enum and model: SPEC-PAYMENT-001 design.md
+// §1. Do not diverge from design.md without updating design.md first
+// (manager-develop is not the owner of SPEC body content).
+//
+// This SPEC adds exactly one column to Order (paymentKey, above) and this one
+// new table. OrderStatus is unchanged — `paid`/`cancelled` were already
+// reserved by SPEC-ORDER-001; this SPEC is the first to transition into them.
+// ---------------------------------------------------------------------------
+
+enum PaymentEventSource {
+  CONFIRM_API // success redirect -> confirm API call path
+  WEBHOOK // PAYMENT_STATUS_CHANGED webhook path
+}
+
+// @MX:ANCHOR fan-in target — every payment state transition in this SPEC
+// writes exactly one row here (REQ-PAYMENT-001). payment-repository.ts is the
+// ONLY writer, and it exports create only — never update/delete (design.md
+// §1.2, REQ-PAYMENT-002 append-only).
+// @MX:REASON the append-only invariant is enforced at the application layer
+// (no update/delete export), not by a DB trigger — a schema reader must know
+// this model's immutability is a code-level contract, not a DB-level one.
+model PaymentAuditLog {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  source         PaymentEventSource
+  previousStatus OrderStatus
+  newStatus      OrderStatus
+  paymentKey     String?
+
+  // Second line of idempotency defence (design.md §3). confirm-path events
+  // carry no transmission id, so this stays null for those rows.
+  transmissionId String? @unique
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
 }
