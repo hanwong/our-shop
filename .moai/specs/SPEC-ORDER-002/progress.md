@@ -302,7 +302,136 @@ M3 대상인 `src/components/checkout/`도 0줄이다 — M2는 화면을 건드
 - **자동 재시도는 만들지 않았다**(plan.md §1의 명시적 결정). `CONCURRENCY_RETRY`를 받은 주문자는 직접 다시 제출해야 한다. 멱등키가 같으므로 첫 트랜잭션이 롤백된 이상 새 주문이 생성된다(acceptance.md §2).
 - **M5 중복 방지 메모**: 완료 화면의 항목 순서 보존(plan.md §5)은 여기서 **단위·통합 양쪽으로 이미 고정**했다 — 단위는 `createOrderWithItems`에 넘어가는 행과 응답 DTO를, 통합은 `store.orderItems` · 응답 · `getOrderForGuest()` 재조회 세 지점을 단언한다. M5는 이 항목을 다시 만들지 말고 이 테스트들을 근거로 인용하면 된다.
 
-**M3 ~ M5**: _<pending>_
+### M3 — 주문서 화면의 재고 표면화 (REQ-ORDER-028, REQ-ORDER-029, REQ-ORDER-030)
+
+카드 `t6` · 브랜치 `WT-inventory-concurrency` · cycle_type: tdd · M2 커밋 `0ab8e74` 위에 쌓았다.
+
+**변경한 파일**
+
+| 파일 | 변경 |
+|---|---|
+| `src/components/checkout/OrderSummary.tsx` | `stockNotice()` 추가 — 항목마다 `품절` / `재고 부족 — 현재 N개` / 표시 없음 세 상태(REQ-ORDER-028). 이미 받고 있는 `CartItemDTO.stock`을 쓰며 **새 조회는 없다** |
+| `src/components/checkout/CheckoutForm.tsx` | `SubmitFailure.products` 수용 + `shortProducts` 상태 + 항목별 목록 렌더(REQ-ORDER-030). 제출 시작 시 목록을 비운다 |
+| `tests/unit/components/order-summary.test.tsx` (신규) | AC-ORDER-030 6건 |
+| `tests/unit/components/checkout-form.test.tsx` | AC-ORDER-032 + `CONCURRENCY_RETRY` 8건 |
+| `tests/unit/app/checkout-page.test.tsx` | AC-ORDER-031 3건 (화면 전체 렌더) |
+
+기존 컴포넌트 테스트 관례를 그대로 따랐다: 파일 첫 줄 `// @vitest-environment jsdom` 지시자 + `@testing-library/react`. vitest 기본 환경은 `node`이고 컴포넌트 테스트만 파일 단위로 DOM을 선택한다(vitest.config.ts 주석).
+
+#### 1. Claim (주장)
+
+1. 주문 요약이 항목마다 재고 상태를 표시한다 — 재고 충분: 표시 없음 / `stock < quantity`: 재고 부족 + 현재 수량 / `stock <= 0`: 품절 (REQ-ORDER-028 · AC-ORDER-030).
+2. 그 표시는 제출을 **막지 않는다**. 모든 항목이 품절이어도 버튼이 활성 상태이고 `POST /api/orders`가 실제로 나간다 (REQ-ORDER-029 · AC-ORDER-031).
+3. 재고 부족 거부 시 응답의 `products`를 항목별로 렌더하고 각 상품의 구매 가능 수량을 함께 보여준다 (REQ-ORDER-030 · AC-ORDER-032).
+4. `CONCURRENCY_RETRY`는 재시도 문구를 보여주되 **상품을 특정하지 않는다** (plan.md §3).
+5. 전체 테스트 781건 통과, `typecheck` · `lint` 종료 코드 0.
+
+#### 2. Evidence (증거 — 실행한 명령과 그 출력 그대로)
+
+**RED — 구현 전 7건 실패** (`.moai/state/verify/spec-order-002-m1/m3-red.txt`, gitignored):
+
+```
+$ npx vitest run tests/unit/components/order-summary.test.tsx \
+    tests/unit/components/checkout-form.test.tsx tests/unit/app/checkout-page.test.tsx
+ ❯ tests/unit/components/order-summary.test.tsx (6 tests | 2 failed) 50ms
+   × SPEC-ORDER-002 M3 — per-line stock state (AC-ORDER-030) > marks a line short, with the quantity actually available 7ms
+   × SPEC-ORDER-002 M3 — per-line stock state (AC-ORDER-030) > marks a line with no stock left as sold out 3ms
+ ❯ tests/unit/app/checkout-page.test.tsx (24 tests | 1 failed) 149ms
+   × SPEC-ORDER-002 M3 — the screen informs but never blocks (AC-ORDER-031) > marks both lines sold out 6ms
+ ❯ tests/unit/components/checkout-form.test.tsx (17 tests | 4 failed) 4301ms
+   × SPEC-ORDER-002 M3 — a refusal names the products (REQ-ORDER-030) > shows every named product, not one line the shopper cannot act on (AC-ORDER-032) 1014ms
+   × ... > shows each product's currently available quantity (AC-ORDER-032) 1017ms
+   × ... > clears a previous product list when the next submission fails differently 1009ms
+   × SPEC-ORDER-002 M3 — an aborted transaction reads as retryable (plan.md §3) > names no product, because the database never said which line lost 1010ms
+
+ Test Files  3 failed (3)
+      Tests  7 failed | 40 passed (47)
+exit=1
+```
+
+**첫 RED 실행에서 통과해 버린 테스트 2건을 잡아 고쳤다 — 기록해 둔다.** 최초 픽스처의 상품 **이름**을 상태 이름("품절", "부족")으로 지었더니, `lineFor("품절").textContent` 가 상품명 자체와 일치해 **표시기가 전혀 없는 컴포넌트에서도 초록**이 됐다. 이름을 평범한 상품명(머그컵/텀블러/티팟)으로 바꾸자 정상적으로 빨개졌다(위 출력의 "marks a line with no stock left as sold out"). 픽스처가 단언을 무력화한 사례이므로 테스트 본문 주석에도 남겼다.
+
+**처음부터 초록이었던 신규 테스트 10건 (17건 중)** — RED→GREEN 전환을 거쳤다고 주장하지 않는다.
+
+| 분류 | 건수 | 초록인 이유 |
+|---|---|---|
+| REQ-ORDER-029 계열 (AC-ORDER-031 중 2건) | 2 | "막지 말 것"이라는 **금지형 요구사항**이다. 화면은 전에도 막지 않았으므로 통과가 정상이며, 이 테스트의 값어치는 미래에 차단 로직이 들어오면 빨개진다는 데 있다 |
+| 부정형 단언 (재고 충분한 항목엔 표시 없음, 품절을 "재고 부족"이라 부르지 않음, `products`가 비면 목록 없음 등) | 6 | 표시기가 없던 시점에도 참이다. 구현 후에도 참이어야 의미가 있다 |
+| 기존 동작 보존 (요약의 이름·단가·합계 유지, 서버 문구가 alert로 도달) | 2 | 추가가 기존 렌더를 밀어내지 않았음을 고정하는 가드 |
+
+**GREEN — 전체 스위트**:
+
+```
+$ npm test
+ Test Files  63 passed (63)
+      Tests  781 passed (781)
+   Duration  16.10s (transform 1.34s, setup 0ms, collect 3.28s, tests 30.35s, environment 5.40s, prepare 3.33s)
+exit=0
+```
+
+**타입 검사 · 린트**:
+
+```
+$ npm run typecheck        $ npm run lint
+> tsc --noEmit             > eslint .
+exit=0                     exit=0
+```
+
+**변경 파일 커버리지** (임계: 라인 85% / 브랜치 80%):
+
+```
+$ npx vitest run --coverage --coverage.reporter=text \
+    --coverage.include='src/components/checkout/OrderSummary.tsx' \
+    --coverage.include='src/components/checkout/CheckoutForm.tsx' \
+    tests/unit/components tests/unit/app
+File              | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s
+------------------|---------|----------|---------|---------|-------------------
+All files         |     100 |    95.91 |     100 |     100 |
+ CheckoutForm.tsx |     100 |    94.87 |     100 |     100 | 83,119
+ OrderSummary.tsx |     100 |      100 |     100 |     100 |
+exit=0
+```
+
+미커버 브랜치 2곳은 **M3가 만든 것이 아니다**: 83행은 제출 중 재진입을 막는 `if (submitting) return;`(버튼이 비활성이라 핸들러 조기 반환 경로에 도달하지 않는다), 119행은 `failure.error ?? "주문을 완료하지 못했습니다"`의 폴백 가지(모든 테스트가 `error`를 보낸다). 둘 다 SPEC-ORDER-001 시절 코드다.
+
+**범위 · PRESERVE 확인** (M2 커밋 `0ab8e74` 기준):
+
+```
+$ git diff --numstat 0ab8e74
+40	0	src/components/checkout/CheckoutForm.tsx
+42	14	src/components/checkout/OrderSummary.tsx
+76	1	tests/unit/app/checkout-page.test.tsx
+123	0	tests/unit/components/checkout-form.test.tsx
+(+ 신규 미추적 파일 tests/unit/components/order-summary.test.tsx)
+
+$ git diff --numstat 0ab8e74 -- prisma/schema.prisma src/features src/app src/lib \
+    src/components/product src/components/checkout/PayButton.tsx
+(빈 출력)
+```
+
+`src/features`가 0줄이다 — M3는 M1/M2의 백엔드 로직을 건드리지 않았다. `src/app`도 0줄(페이지는 이미 `cart`를 `OrderSummary`에 넘기고 있었으므로 배선 변경이 필요 없었다). `ProductDetailView`와 `PayButton`도 0줄.
+
+#### 3. Baseline-attribution (baseline 귀속)
+
+- 트리: `WT-inventory-concurrency` 워크트리, M2 커밋 `0ab8e74` + 위 5개 파일의 미커밋 변경.
+- 모든 수치는 **이번 실행에서 이 트리를 대상으로** 관측했다. M1/M2 보고서의 수치를 옮겨 적지 않았다.
+- 회귀 산술: M2 종료 시점 **764건** → M3 신규 **17건** = **781건**(실측과 일치). 내역: `order-summary.test.tsx` 6 + `checkout-form.test.tsx` 8 + `checkout-page.test.tsx` 3. 기존 764건 중 깨진 것은 **없다**.
+
+#### 4. Gaps (미검증)
+
+- **실제 브라우저에서 본 적이 없다.** 전부 jsdom 렌더다. 레이아웃, 색 대비, 좁은 화면에서 표시기가 상품명을 밀어내는지 등 **시각적 결과는 관측하지 않았다**. 이 저장소에 시각 회귀 도구나 E2E 브라우저 하네스가 없어 만들지 않았다(M3 범위 밖).
+- **스크린리더 동작을 검증하지 않았다.** `products` 목록은 평범한 `<ul>`이며 `role="alert"`인 요약 문구와 **별개 요소**다. 즉 목록 자체는 라이브 리전으로 자동 announce되지 않는다. 기존 필드 오류가 `aria-describedby`로 입력과 묶여 있는 수준의 접근성 배선을 목록에는 하지 않았다 — 어떤 AC도 요구하지 않았고, 추측으로 넣기보다 공백으로 남긴다.
+- **`stockNotice`의 `<= 0` 분기 중 음수 경로는 테스트하지 않았다.** `Product.stock`에 CHECK 제약이 없어 표현은 가능하지만, REQ-ORDER-024가 음수를 금지하므로 정상 경로에서는 발생하지 않는다.
+- **품절 표시와 실제 구매 가능 여부의 시간차를 관측하지 않았다.** 화면이 읽은 재고는 렌더 시점 값이며, 렌더~제출 사이 재입고가 일어나는 경우를 재현하지 않았다(그 상황에서 제출이 막히지 않는다는 것만 AC-ORDER-031로 고정).
+
+#### 5. Residual-risk (잔여 위험)
+
+- **`products` 목록의 표시 순서는 서버가 준 순서 그대로다 — 즉 상품 id 오름차순(M2의 잠금 순서)이고 장바구니 순서가 아니다.** 어떤 AC도 이 순서를 규정하지 않아 위반은 아니다. 장바구니 순서로 다시 정렬하지 **않은** 이유는 취향이 아니라 구조다: `CheckoutForm`은 `idempotencyKey`와 `confirmedTotal`만 받고 **장바구니를 알지 못하므로**, 정렬하려면 새 prop으로 카트를 내려보내야 하고 이는 M3 범위 밖의 결합 증가다. 항목이 두세 개인 일반적인 주문에서는 체감되지 않지만, 화면상 순서가 요약과 어긋나 보일 수 있다는 점은 남는 위험이다.
+- **`CONCURRENCY_RETRY` 전용 클라이언트 문구는 넣지 않았다 — 지시와 다른 선택이므로 명시한다.** M3 지시는 "전용 문구가 없다"고 했으나, 서버가 이미 `error` 문구를 보내고 폼은 그것을 그대로 alert에 띄운다(`OrderFailure`에서 `error`는 **필수** 필드라 이 코드에서 누락될 수 없다). 클라이언트에 같은 문장을 한 벌 더 두면 같은 카피가 두 곳에서 어긋날 수 있어, 대신 **목록을 렌더하지 않는다**는 성질만 테스트로 고정했다. 서버 문구를 바꾸면 화면이 자동으로 따라온다. 전용 카피가 필요하다는 판단이면 되돌리기 쉬운 한 줄이다.
+- **실패 목록의 수량 표기는 0을 포함해 일률적으로 `현재 N개`다.** `available === 0`일 때 `품절`로 바꾸면 요약의 라벨과는 맞지만 AC-ORDER-032가 명시한 숫자(`0`)가 화면에서 사라진다. 숫자를 남기는 쪽을 택했고, 그 결과 요약("품절")과 실패 목록("현재 0개")의 문구가 같은 상태를 다르게 부른다.
+- **M5 중복 방지 메모**: 요약이 기존에 보여주던 이름·단가·합계가 유지된다는 보존 확인은 여기서 이미 고정했다(`order-summary.test.tsx`의 "still shows every line's name, price and total"). M5는 이를 인용하면 된다.
+
+**M4 ~ M5**: _<pending>_
 
 ## §E.3 Run-phase Audit-Ready Signal
 
