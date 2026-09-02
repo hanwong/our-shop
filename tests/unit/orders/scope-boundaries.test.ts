@@ -94,13 +94,25 @@ describe("SPEC-ORDER-001 — no payment integration exists (AC-ORDER-019)", () =
     expect(grepFiles("toss|iamport|inicis|stripe|payment_gateway|pg_api", "-lIiE")).toBe("");
   });
 
-  it("has no code path that moves an order out of pending_payment", () => {
+  it("has no code path that writes an order's status to paid", () => {
     // The enum reserves `paid` and `cancelled` for later SPECs, but nothing in
     // this one writes them — the status column is a seat for the payment SPEC
-    // to take, not a lifecycle this SPEC operates (REQ-ORDER-019). The reserved
-    // values are declared in prisma/schema.prisma, which is not under src/, so
-    // the only permitted mention is outside this scan.
-    expect(grepFiles("\\bpaid\\b", "-lIE")).toBe("");
+    // to take, not a lifecycle this SPEC operates (REQ-ORDER-019).
+    //
+    // Scoped to the write shape (`status: "paid"`, the same shape as the
+    // create-path's own `status: "pending_payment" as const`) rather than any
+    // mention of the word: `OrderStatusDTO` (order.ts) is a string union of
+    // all three enum values, and it has to be — it types every order this SPEC
+    // reads back, including ones a future payment SPEC has already moved to
+    // `paid`. A bare word scan can't tell that apart from a write and flags
+    // the type declaration as if it were one.
+    //
+    // `-P` (PCRE), not `-E` (POSIX ERE): `\b` was the original pattern's
+    // approach, but ERE's `\b` support is git-build-dependent — this pattern
+    // no longer needs it, and the prior one silently matched nothing on a
+    // build where `-E` didn't support `\b`, passing locally while the actual
+    // check only ran in CI.
+    expect(grepFiles("status\\s*:\\s*[\"']paid[\"']", "-lIP")).toBe("");
   });
 });
 
