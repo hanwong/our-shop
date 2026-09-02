@@ -26,7 +26,25 @@ import { existsSync, readFileSync } from "node:fs";
  * unrelated Edge-runtime fix to src/lib/auth/jwt.ts tripped the auth assertion).
  */
 
-const PLAN_PHASE_HEAD = "c19ab47";
+/**
+ * The parent of the SPEC merge commit — main's own last commit before
+ * SPEC-ORDER-001's implementation existed on it, which is what the first
+ * endpoint means.
+ *
+ * This was originally the plan-phase commit itself (c19ab47), but that commit
+ * only ever lived on SPEC-ORDER-001's feature branch: PR #7 squash-merged the
+ * branch into 733e320 and deleted the source, leaving c19ab47 unreachable from
+ * every live ref. It survived a while on server-side ref retention, then was
+ * garbage-collected — after which every fresh clone (CI) failed all 28 diff
+ * assertions with `fatal: bad revision 'c19ab47'`.
+ *
+ * 733e320^ is the same point semantically and cannot suffer that fate: it is a
+ * permanent PR-merge commit on main's own linear history (SPEC-STOREFRONT-001,
+ * #6). Written as the resolved SHA rather than `733e320^` because this file
+ * shells out to git — a literal object name behaves identically in a shallow
+ * clone, a relative ref does not.
+ */
+const PLAN_PHASE_HEAD = "19bd29fb9a965b0bb98fe9f1c47bdecb2ab7ce7e";
 const SPEC_MERGE_HEAD = "733e320";
 
 /** `git diff --numstat` for the given paths, plan-phase -> SPEC merge commit. */
