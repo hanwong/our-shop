@@ -431,7 +431,151 @@ $ git diff --numstat 0ab8e74 -- prisma/schema.prisma src/features src/app src/li
 - **실패 목록의 수량 표기는 0을 포함해 일률적으로 `현재 N개`다.** `available === 0`일 때 `품절`로 바꾸면 요약의 라벨과는 맞지만 AC-ORDER-032가 명시한 숫자(`0`)가 화면에서 사라진다. 숫자를 남기는 쪽을 택했고, 그 결과 요약("품절")과 실패 목록("현재 0개")의 문구가 같은 상태를 다르게 부른다.
 - **M5 중복 방지 메모**: 요약이 기존에 보여주던 이름·단가·합계가 유지된다는 보존 확인은 여기서 이미 고정했다(`order-summary.test.tsx`의 "still shows every line's name, price and total"). M5는 이를 인용하면 된다.
 
-**M4 ~ M5**: _<pending>_
+### M4 — 실 PostgreSQL 동시성 하네스 (REQ-ORDER-024, REQ-ORDER-032, REQ-ORDER-033)
+
+카드 `t6` · 브랜치 `WT-inventory-concurrency` · M3 커밋 `6d1fad4` 위에 쌓았다.
+
+**이번 실행은 건너뛰지 않았다.** 살아 있는 PostgreSQL 16.15(localhost:5433, `our_shop`)에 도달했고, 이 저장소에서 **처음으로** 행 잠금 직렬화를 실제로 관측했다. 아래 모든 수치는 인메모리 fake가 아니라 그 데이터베이스에서 나온 것이다.
+
+**변경한 파일: 1개 (테스트만)**
+
+| 파일 | 변경 |
+|---|---|
+| `tests/integration/orders/concurrency.postgres.test.ts` (신규) | 능력 게이트 2건 + 시나리오 A 5건 + 시나리오 B 3건 + 반사실 3건 = 13건 |
+
+`src/`와 `prisma/`의 diff는 **0줄**이다 — M4는 제품 코드를 한 줄도 바꾸지 않았다.
+
+#### 1. Claim (주장)
+
+1. `stock=1`인 상품을 두 주문이 **동시에** 요청하면 정확히 하나만 성공하고, 재고가 정확히 `0`이 되며, 주문 행이 정확히 1건 생긴다 (REQ-ORDER-024 · AC-ORDER-035).
+2. 진 쪽은 409 + 행동 가능한 코드로 거부되며 미분류 500이 아니다.
+3. 상품 A·B를 **반대 순서**로 담은 두 장바구니를 병렬 실행해도 어느 쪽도 미분류 500을 받지 않는다 (AC-ORDER-034).
+4. 데이터베이스에 도달할 수 없으면 하네스는 **사유를 남기고** 건너뛰며, 사유 없는 침묵은 테스트가 실패시킨다 (REQ-ORDER-033).
+5. 하네스가 만든 데이터는 전부 회수되어 재실행이 멱등하다.
+
+#### 2. Evidence (증거 — 실행한 명령과 그 출력 그대로)
+
+**연결 확인** (하네스와 같은 클라이언트):
+
+```
+$ node .moai/state/verify/spec-order-002-m1/probe.mjs
+CONNECTED: our_shop PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on
+products: 5 categories: 2
+orders: 0 carts: 0
+```
+
+**하네스 실행 — 실 DB 관측 결과**:
+
+```
+$ npm test
+[SPEC-ORDER-002 M4] live PostgreSQL reachable — concurrency observed for real (run m4-f2bfbbbe)
+[SPEC-ORDER-002 M4] scenario A outcomes: ok, refused(INSUFFICIENT_STOCK)
+[SPEC-ORDER-002 M4] scenario B outcomes: ok, ok
+[SPEC-ORDER-002 M4] counterfactual outcomes: REJECTED code=(none) ::  | committed
+[SPEC-ORDER-002 M4] real deadlock arrives as PrismaClientUnknownRequestError with code=undefined
+
+ Test Files  64 passed (64)
+      Tests  794 passed (794)
+   Duration  16.34s (transform 1.29s, setup 0ms, collect 3.31s, tests 31.97s, environment 5.85s, prepare 3.40s)
+exit=0
+```
+
+시나리오 A의 `ok, refused(INSUFFICIENT_STOCK)`가 이 SPEC 전체가 존재하는 이유다 — 두 트랜잭션이 같은 행을 노렸고, 하나만 통과했으며, 재고는 `0`에서 멈췄다(음수 아님). **이것이 SPEC-ORDER-001이 검증하지 못한 채 남겨 둔 그 주장이다.**
+
+**반사실 — 교착이 실재함을 확인했다.** PostgreSQL이 실제로 뱉은 원문:
+
+```
+ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError {
+  code: "40P01", message: "deadlock detected", severity: "ERROR",
+  detail: Some("Process 11564 waits for ShareLock on transaction 796; blocked by process 11565.\n
+               Process 11565 waits for ShareLock on transaction 797; blocked by process 11564."),
+  column: None, hint: Some("See server log for query details.") }), transient: false })
+```
+
+**타입 검사 · 린트**:
+
+```
+$ npm run typecheck        $ npm run lint
+> tsc --noEmit             > eslint .
+exit=0                     exit=0
+```
+(린트 경고 0건 — 초안의 불필요한 `eslint-disable no-console` 지시자 5개는 경고를 유발해 제거했다.)
+
+**멱등성 · 데이터 회수**:
+
+```
+$ npx vitest run tests/integration/orders/concurrency.postgres.test.ts   (연속 2회)
+ Test Files  1 passed (1)        Test Files  1 passed (1)
+      Tests  13 passed (13)            Tests  13 passed (13)
+
+$ node .moai/state/verify/spec-order-002-m1/probe.mjs    # 전체 npm test 이후
+products: 5 categories: 2
+orders: 0 carts: 0        ← 실행 전과 정확히 동일
+```
+
+**범위 확인** (M3 커밋 `6d1fad4` 기준):
+
+```
+$ git diff --numstat 6d1fad4 -- src prisma
+(빈 출력)
+
+$ git status --short
+?? tests/integration/orders/concurrency.postgres.test.ts
+```
+
+#### 2-bis. 이 마일스톤이 찾아낸 결함 — REQ-ORDER-027의 매핑이 실제로는 성립하지 않는다
+
+M4의 가장 중요한 산출물은 초록불이 아니라 이 발견이다.
+
+**관측된 사실**: 실제 40P01 교착이 Prisma 6.1을 통해 애플리케이션에 도달할 때의 형태는 다음과 같다(두 번 독립 관측, `deadlock-shape.mjs`).
+
+```
+constructor: PrismaClientUnknownRequestError
+instanceof PrismaClientKnownRequestError: false
+code prop: undefined          ← P2034가 아니라 아예 없다
+meta prop: undefined
+own keys: ["clientVersion","name"]
+has 40P01 in message: true    ← SQLSTATE는 메시지 문자열 안에만 있다
+```
+
+**대조할 코드**(`order-service.ts`, M2가 작성):
+
+```ts
+function isTransactionConflict(error: unknown): boolean {
+  return isRecord(error) && error.code === "P2034";
+}
+```
+
+**결론**: 관측된 오류의 `code`는 `undefined`이고 술어는 `"P2034"`와의 일치를 요구하므로, **이 술어는 실제 교착에 대해 절대 참이 되지 않는다.** 즉 진짜 교착이 주문 서비스의 트랜잭션을 중단시키면 `CONCURRENCY_RETRY`로 매핑되지 못하고 그대로 재던져져 **미분류 500**이 된다 — REQ-ORDER-027이 없애려던 바로 그 결과다. plan.md §4 M2의 "Prisma `P2034` 경유"라는 전제가 이 환경에서 **반증되었다**.
+
+**증명의 강도를 정확히 말한다.** 위 결론은 (a) 오류 형태의 **직접 관측**과 (b) 술어 소스의 **읽기**를 결합한 연역이다. 서비스 트랜잭션이 교착의 희생자가 되어 주문자가 500을 받는 장면을 **끝까지 관측하지는 못했다** — 시도했으나(`service-deadlock.mjs`, 4회 실행) PostgreSQL이 매번 대조군 트랜잭션 쪽을 희생자로 골라 서비스는 정상 커밋했다. 희생자 선택은 이쪽에서 통제할 수 없다.
+
+**M2 코드를 고치지 않았다.** 지시가 M4를 M2 범위에서 명시적으로 차단했고, 이는 마일스톤 경계를 넘는 결정이므로 리드에게 보고한다. 하네스에는 **관측된 형태 그대로** 단언을 걸어 두었다(`code`가 `undefined`임을 단언). 이는 두 가지를 동시에 한다: 사실을 기록하고, 훗날 Prisma가 교착을 분류하기 시작하면 그 테스트가 빨개져 REQ-ORDER-027의 매핑을 다시 판단하게 만드는 **덫**이 된다.
+
+#### 3. Baseline-attribution (baseline 귀속)
+
+- 트리: `WT-inventory-concurrency` 워크트리, M3 커밋 `6d1fad4` + 신규 테스트 파일 1개(미추적).
+- 데이터베이스: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2), `our_shop` @ localhost:5433, 마이그레이션 적용 완료 상태.
+- 모든 수치는 **이번 실행에서 이 트리·이 데이터베이스를 대상으로** 관측했다. 이전 마일스톤의 수치를 옮겨 적지 않았다.
+- 회귀 산술: M3 종료 시점 **781건** → M4 신규 **13건** = **794건**(실측 일치). 기존 781건 중 깨진 것은 **없다**.
+
+#### 4. Gaps (미검증)
+
+- **CI에서는 여전히 열려 있다.** 이 관측은 **개발자 기계 한 대**에서 이루어졌다. `.github/workflows/ci.yml`의 `DATABASE_URL`은 여전히 자리표시자이므로, CI에서 이 파일은 사유를 남기고 건너뛴다. plan.md §0에서 (B)로 확정한 대로 CI 승격은 후속 CI SPEC의 몫이며, `AC-026-EXCL-CONCURRENCY`·`AC-034-EXCL-DEADLOCK`은 **CI 기준으로는 닫히지 않았다**. 개발자 기계에서만 닫혔다.
+- **서비스가 교착 희생자가 되는 장면을 관측하지 못했다**(위 2-bis). 4회 시도 모두 대조군이 희생자였다.
+- **동시성 수준은 2다.** 두 트랜잭션만 겨뤘다. 열 개, 백 개가 몰리는 상황이나 커넥션 풀 고갈은 관측하지 않았다.
+- **시나리오 B는 교착을 재현하지 않는다.** M2의 정렬 덕분에 교착이 발생하지 않는 것이 정상이고 실제로 둘 다 성공했으므로(`ok, ok`), 이 시나리오가 판정한 것은 "정렬된 경로는 교착하지 않는다"까지다. 교착이 실재한다는 증거는 **반사실 시나리오**가 따로 만든다.
+- **단일 프로세스 안의 병렬성이다.** 두 요청은 같은 Node 프로세스, 같은 Prisma 풀에서 나갔다. 여러 서버 인스턴스가 붙는 실제 배포 형태는 재현하지 않았다(별도 프로세스를 띄우지 말라는 안전 제약과, 그것이 트랜잭션 수준 경쟁에는 불필요하다는 판단에 따른 것).
+- **성능을 측정하지 않았다.** 잠금 대기 시간, 처리량은 이 하네스의 관심사가 아니다.
+
+#### 5. Residual-risk (잔여 위험)
+
+- **REQ-ORDER-027은 지금 이 순간 충족되지 않은 상태다**(2-bis). 발동 조건이 좁다는 점이 위험을 줄이기는 한다 — M2의 정렬이 차감 경로 내부의 교착을 없앴으므로, 남는 트리거는 차감과 결제 취소 복원(`payment-repository.ts`, 순서 규칙 밖) 사이의 교착 정도다. 그러나 "좁다"는 것과 "없다"는 것은 다르고, 그 경우 주문자는 재시도하면 성공할 주문에 대해 500을 받는다. 수정은 한 곳(`isTransactionConflict`)이며, 관측된 형태에 맞추려면 `PrismaClientUnknownRequestError`와 메시지 내 `40P01`/`40001`을 함께 보는 방식이 필요하다 — 문자열 검사는 취약하므로 그 취약함을 감수할지 자체가 판단 사항이다.
+- **반사실 시나리오는 타이밍에 의존한다.** 배리어로 순서를 강제하지만, 교착 탐지는 PostgreSQL의 `deadlock_timeout`(기본 1초) 이후에 일어난다. 부하가 큰 기계에서는 느려질 수 있고, 어느 쪽이 희생자가 되는지도 데이터베이스가 정한다 — 그래서 "정확히 하나가 중단된다"까지만 단언하고 어느 쪽인지는 단언하지 않았다.
+- **공유 개발 DB를 쓴다.** 행마다 실행별 접두사를 붙이고 `afterAll`에서 지우므로 정상 종료 시 흔적이 없다(위 확인). 다만 실행이 중간에 강제 종료되면 `m4-*` 행이 남을 수 있다. 실제로 이번 작업 중 프로브 하나가 import 실패로 죽어 `svc-*` 행 4개를 남겼고, 확인해 지웠다 — 하네스가 아니라 프로브의 문제였지만 같은 위험이 하네스에도 있다. 남은 행은 `m4-` 접두사로 찾아 지우면 된다.
+- **`.env`를 테스트가 직접 읽는다.** vitest에 setup 파일이 없어 `process.loadEnvFile(".env")`를 파일 상단에서 호출한다. 이 API는 Node 20.12+/21.7+가 필요하며(`package.json` engines는 `>=20.0.0`), 더 낮은 20.x에서는 예외가 나지만 `try/catch`가 삼키고 환경변수 경로로 넘어가므로 최악의 경우 "건너뜀 + 사유 기록"이 된다.
+
+**M5**: _<pending>_
 
 ## §E.3 Run-phase Audit-Ready Signal
 
