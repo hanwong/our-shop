@@ -14,15 +14,24 @@ import { existsSync, readFileSync } from "node:fs";
  * exercised. Reading the sources and the diff is the only available evidence,
  * so that is what this file does.
  *
- * The diff assertions run against the plan-phase commit, the last point before
- * any implementation existed.
+ * The diff assertions run over a FIXED historical range: the plan-phase commit
+ * (the last point before any implementation existed) through the squash-merge
+ * commit that landed this SPEC on main. Both endpoints are pinned, so these
+ * assertions state what SPEC-ORDER-001 itself changed — a historical fact that
+ * stays true no matter what later work touches the same paths.
+ *
+ * The second endpoint is load-bearing. Omitting it diffs the pinned commit
+ * against the live working tree, which silently re-asserts the PRESERVE list
+ * against every future change and fails on edits this SPEC never made (t16: an
+ * unrelated Edge-runtime fix to src/lib/auth/jwt.ts tripped the auth assertion).
  */
 
 const PLAN_PHASE_HEAD = "c19ab47";
+const SPEC_MERGE_HEAD = "733e320";
 
-/** `git diff --numstat` restricted to the given paths, against plan-phase. */
+/** `git diff --numstat` for the given paths, plan-phase -> SPEC merge commit. */
 function diffStat(...paths: string[]): string {
-  return execFileSync("git", ["diff", "--numstat", PLAN_PHASE_HEAD, "--", ...paths], {
+  return execFileSync("git", ["diff", "--numstat", PLAN_PHASE_HEAD, SPEC_MERGE_HEAD, "--", ...paths], {
     encoding: "utf8",
   }).trim();
 }
