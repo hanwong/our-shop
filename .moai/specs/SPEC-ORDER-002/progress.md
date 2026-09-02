@@ -809,7 +809,7 @@ M3도 요약의 기존 표시(이름·단가·합계) 보존을 `order-summary.t
 
 ```yaml
 run_complete_at: 2026-09-02
-run_commit_sha: pending-backfill-m5   # 이 커밋 자신의 SHA는 착륙 전에는 알 수 없다 (D3 placeholder 예외)
+run_commit_sha: 30cb50e               # M5 커밋. 자신의 SHA는 착륙 후에만 알 수 있어 후속 커밋에서 backfill (D3 예외)
 run_status: audit-ready
 spec_tier: M
 development_cycle: tdd (RED-GREEN-REFACTOR)
@@ -848,7 +848,7 @@ commits:
   M3: 6d1fad4   # 주문서 화면 재고 표면화 (REQ-028/029/030)
   M4: 13ffb3e   # 실 PostgreSQL 동시성 하네스 (REQ-024/032/033)
   M4-fix: 8de6c71  # REQ-027 술어를 실제 교착 오류 형태에 맞춤 (M4 2-bis 후속)
-  M5: pending-backfill-m5   # 보존 검증 (REQ-031)
+  M5: 30cb50e   # 보존 검증 (REQ-031) — run-phase 종료
 
 branch: WT-inventory-concurrency
 pushed: false                          # 아직 push하지 않았다. 통합은 리드가 수행한다
