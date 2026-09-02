@@ -180,9 +180,10 @@ Key security properties (see `.moai/specs/SPEC-AUTH-001/` for the full spec/acce
 
 - **감사 로그(append-only)** — `Order.status`의 모든 전이마다 `PaymentAuditLog` 행이 정확히 하나 남는다(전이 전/후 상태, 트리거 출처 CONFIRM_API/WEBHOOK, 관련 주문 id, 발생 시각). update/delete/upsert 경로 없음.
 - **`paymentKey` 일치 검증** — 확인(confirm)·웹훅 양쪽 모두 `paymentKey`가 일치할 때만 전이를 허용한다. 이미 다른 `paymentKey`로 확정된 주문은 오류가 아니라 멱등 재응답(같은 키) 또는 명시적 거부(다른 키)로 분기한다.
-- **웹훅 서명 검증이 먼저** — 서명 검증 실패 시 주문 조회에 도달하기 전에 차단한다.
+- **웹훅은 토스 재조회로 검증한다** — 일반 결제 웹훅(`PAYMENT_STATUS_CHANGED`)에는 서명 헤더가 오지 않는다(토스 공식 문서 확인, PR #9 CodeRabbit 리뷰 Finding 1). 웹훅이 알려온 `paymentKey`로 토스 결제 조회(Payment Query) API를 다시 호출해, 그 응답만을 상태 전이의 근거로 삼는다 — 웹훅 payload 자체의 주장은 신뢰하지 않는다.
 - **상태 우선 배너 게이팅** — 완료 화면의 재시도 배너는 `pending_payment` 상태이면서 `payment_failed=1` 쿼리가 있을 때만 뜬다. 이미 `paid`인 주문에는 절대 표시하지 않는다.
-- **비밀키는 클라이언트에 없다** — `PG_SECRET_KEY`/`PG_WEBHOOK_SECRET`은 서버 전용, 클라이언트는 `NEXT_PUBLIC_PG_CLIENT_KEY`만 사용한다.
+- **비밀키는 클라이언트에 없다** — `PG_SECRET_KEY`(확인 API·조회 API 공용)는 서버 전용, 클라이언트는 `NEXT_PUBLIC_PG_CLIENT_KEY`만 사용한다. `PG_WEBHOOK_SECRET`은 더 이상 쓰이지 않는다(서명 검증 방식 자체가 없어짐에 따라 제거).
+- **웹훅 요청 폭주 방어** — `/api/payments/webhook`은 IP 기준 요청 빈도 제한을 거친다(PR #9 CodeRabbit 리뷰 Finding B).
 
 **알려진 한계**(자세한 내용은 `.moai/specs/SPEC-PAYMENT-001/progress.md` 참고): PostgreSQL이 없는 환경이라 **확인 API와 웹훅이 실제로 동시 도착할 때의 행 잠금 직렬화(`AC-004-EXCL-CONCURRENCY`)는 미검증**이며 PASS로 계상하지 않는다. 관리자·사용자 주도 취소·환불 API는 이 범위 밖이다(칸반 백로그 카드 `t12`, 향후 백오피스 주문 관리 SPEC의 몫) — 이 SPEC이 처리하는 취소는 PG가 먼저 알린 웹훅뿐이다. 미결제 주문의 재고 점유를 시간 경과로 해제하는 만료 작업(스케줄러/배치)도 없다(이벤트 주도 복원만 지원). 확인 실패·결제창 중단 시 새 상태값 없이 `pending_payment`에 남아 재시도를 허용한다. 가상계좌·정기결제·해외 간편결제·정산 웹훅·ARS 결제, 회원 결제 경로는 모두 범위 밖이다. `npm run build`는 여전히 실패하는데, SPEC-STOREFRONT-001·SPEC-ORDER-001이 이미 기록한 것과 동일한 선행 결함(`src/middleware.ts` → `src/lib/auth/jwt.ts` → `node:crypto`)이며 이 SPEC이 도입하지 않았다(diff 0줄로 확인, 백로그 카드 `t16`).
 
