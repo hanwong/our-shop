@@ -2,7 +2,7 @@
 id: SPEC-ORDER-002
 title: "재고 차감 동시성 제어와 품절 처리 (게스트 주문)"
 version: "0.1.0"
-status: in-progress
+status: completed
 created: 2026-09-02
 updated: 2026-09-02
 author: snake

@@ -1,6 +1,6 @@
 ---
 id: SPEC-ORDER-002
-status: in-progress
+status: completed
 updated: 2026-09-02
 tier: M
 ---

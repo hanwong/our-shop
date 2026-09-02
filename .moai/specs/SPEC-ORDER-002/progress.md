@@ -1,6 +1,6 @@
 ---
 id: SPEC-ORDER-002
-status: in-progress
+status: completed
 updated: 2026-09-02
 tier: M
 ---
@@ -889,4 +889,34 @@ SPEC-ORDER-002는 동시성 전략을 새로 고르지 않았다. 조건부 원�
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+sync_complete_at: 2026-09-02
+sync_commit_sha: pending-backfill-SPEC-ORDER-002-sync   # 자신의 SHA는 착륙 후에만 알 수 있어 후속 커밋에서 backfill (D3 예외)
+sync_status: audit-ready
+
+b12_self_test_a: "grep -c 'SPEC-ORDER-002' CHANGELOG.md → 0 (실행 시점) — 중복 없음 확인 후 이번 커밋으로 신규 추가"
+b12_self_test_b: "grep -oE 'AC-ORDER-[0-9]+' acceptance.md | sort -u | wc -l → 13 — CHANGELOG 항목의 '인수 기준 13건' 서술과 일치"
+b12_self_test_c: "CHANGELOG.md·README.md에 인용한 파일 경로(order-service.ts, order-repository.ts, concurrency.postgres.test.ts 등)는 모두 이 워크트리에 존재함을 ls로 확인 — 새 경로를 발명하지 않았다"
+
+changelog_entry_position: "CHANGELOG.md [Unreleased] 섹션, SPEC-PAYMENT-001 '알려진 한계' 다음(파일 끝)에 '### 추가 — SPEC-ORDER-002' + '### 알려진 한계 — SPEC-ORDER-002' 2개 절 추가"
+
+frontmatter_status_transitions:
+  spec_md: "in-progress → completed"
+  plan_md: "in-progress → completed"
+  acceptance_md: "in-progress → completed"
+  progress_md: "in-progress → completed"
+  updated_field: "2026-09-02 (변경 없음 — 이미 오늘 날짜였음)"
+
+sync_auditor_verdict: "PASS · 종합 95/100 (Functionality 95 · Security 95 · Craft 95 · Consistency 95, --deep 렌즈) — blocking 결함 0건"
+security_review_verdict: "CRITICAL 0 · HIGH 0 (이 SPEC의 diff 기준). package.json/package-lock.json diff 0줄이므로 기존 npm-audit HIGH/CRITICAL(tar, @mapbox/node-pre-gyp, postcss 등)는 이 SPEC이 도입한 것이 아님을 확인"
+
+docs_synced:
+  changelog: "CHANGELOG.md — SPEC-ORDER-002 '추가' + '알려진 한계' 2개 절"
+  readme: "README.md — '주문/체크아웃(SPEC-ORDER-001)' 알려진 한계 문단 정정 + 신규 '### 재고 차감 동시성 (SPEC-ORDER-002)' 하위 절"
+
+mx_tag_scan: "orchestrator가 사전 확인 — findStockByProductIds/isTransactionConflict/shortLines/stockNotice 전부 fan_in=1(단일 생산 호출부), 신규 goroutine/async-without-catch 패턴 없음(모든 Prisma 호출이 기존 트랜잭션 래퍼 내부). @MX:ANCHOR 필요 없음. order-service.ts의 기존 createOrder() @MX:ANCHOR/@MX:REASON은 SPEC-ORDER-001 소유로 무변경"
+```
+
+### 알려진 잔여 항목 — sync-auditor F5 (블로커, orchestrator 재위임 필요)
+
+sync-auditor(`--deep`)가 남긴 비차단 항목 5건(F1~F5) 중 F1~F4는 progress.md §E.2 Gaps/Residual-risk에 이미 자체 기록되어 있다. **F5는 이 세션이 직접 닫을 수 없다** — `acceptance.md §3 Definition-of-Done` 체크박스가 progress.md의 증거로 이미 뒷받침됨에도 미체크 상태로 남아 있으나, `acceptance.md` 본문(체크박스 포함)은 manager-docs의 편집 권한 밖(frontmatter `status:`/`updated:`만 허용)이라 이 세션이 직접 체크할 수 없다. orchestrator가 manager-spec에 재위임해 `acceptance.md §3`의 체크박스를 progress.md §E.3 증거와 대조해 갱신할지 판단해야 한다.
