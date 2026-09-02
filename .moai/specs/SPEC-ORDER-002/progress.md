@@ -575,6 +575,134 @@ function isTransactionConflict(error: unknown): boolean {
 - **공유 개발 DB를 쓴다.** 행마다 실행별 접두사를 붙이고 `afterAll`에서 지우므로 정상 종료 시 흔적이 없다(위 확인). 다만 실행이 중간에 강제 종료되면 `m4-*` 행이 남을 수 있다. 실제로 이번 작업 중 프로브 하나가 import 실패로 죽어 `svc-*` 행 4개를 남겼고, 확인해 지웠다 — 하네스가 아니라 프로브의 문제였지만 같은 위험이 하네스에도 있다. 남은 행은 `m4-` 접두사로 찾아 지우면 된다.
 - **`.env`를 테스트가 직접 읽는다.** vitest에 setup 파일이 없어 `process.loadEnvFile(".env")`를 파일 상단에서 호출한다. 이 API는 Node 20.12+/21.7+가 필요하며(`package.json` engines는 `>=20.0.0`), 더 낮은 20.x에서는 예외가 나지만 `try/catch`가 삼키고 환경변수 경로로 넘어가므로 최악의 경우 "건너뜀 + 사유 기록"이 된다.
 
+---
+
+### M4 부록 — 2-bis 결함 수정: REQ-ORDER-027 술어를 실제 오류 형태에 맞춘다
+
+카드 `t6` · M4 커밋 `13ffb3e` 위에 쌓았다. **M5가 아니라 M4의 후속**이다 — M4가 관측으로 찾아낸 결함을 같은 실행 안에서 닫는다.
+
+리드 결정: M2 파일로 되돌아가더라도 지금 고친다. 근거는 이것이 M2가 충족했어야 할 바로 그 요구사항(REQ-ORDER-027)이고, 그 불충족을 M4 자신의 증거가 밝혔기 때문이다.
+
+**변경한 파일 3개** (리드가 예상한 것과 정확히 일치)
+
+| 파일 | 변경 |
+|---|---|
+| `src/features/orders/services/order-service.ts` | `isTransactionConflict()`에 SQLSTATE 검사 추가(`P2034` 검사는 유지) + 실 DB 단언을 위해 export |
+| `tests/unit/orders/order-service.test.ts` | M4-fix describe 6건 추가 |
+| `tests/integration/orders/concurrency.postgres.test.ts` | 실 DB 단언 1건 추가 + 주석 블록 갱신 |
+
+#### 1. Claim (주장)
+
+1. 실제 40P01 교착의 오류 형태(`code` 없음, SQLSTATE는 메시지 안)를 `isTransactionConflict()`가 인식한다 (REQ-ORDER-027).
+2. 40001(직렬화 실패)도 같은 경로로 인식된다.
+3. `P2034` 검사는 **유지**된다 — 다른 경로가 이미 그 코드를 낼 수 있고, 훗날 Prisma가 분류하기 시작하면 그대로 맞는다.
+4. 과대 매칭하지 않는다: SQLSTATE 없는 미분류 오류, 일반 텍스트 속 `40001`, 객체가 아닌 throw 모두 재시도로 오인하지 않는다.
+5. **실 PostgreSQL이 중단시킨 진짜 트랜잭션의 오류 객체**에 대해 이 함수가 `true`를 반환함을 관측했다.
+
+#### 2. Evidence (증거)
+
+**RED — 실제 오류 형태로 3건 실패**:
+
+```
+$ npx vitest run tests/unit/orders/order-service.test.ts
+ ❯ tests/unit/orders/order-service.test.ts (61 tests | 3 failed) 14ms
+   × SPEC-ORDER-002 M4-fix — the shape a REAL deadlock actually has (REQ-ORDER-027) > maps a real 40P01 deadlock to CONCURRENCY_RETRY (REQ-ORDER-027) 3ms
+   × ... > maps a real 40001 serialization failure the same way 0ms
+   × ... > does not let a real deadlock reach the shopper as an unclassified 500 0ms
+ Test Files  1 failed (1)
+      Tests  3 failed | 58 passed (61)
+exit=1
+```
+
+실패 형태가 결함 그 자체다 — 매핑되지 않고 **그대로 다시 던져졌다**:
+
+```
+PrismaClientUnknownRequestError:
+Invalid `prisma.product.updateMany()` invocation:
+
+Error occurred during query execution:
+ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError {
+  code: "40P01", message: "deadlock detected", ... }), transient: false })
+```
+
+과대 매칭 가드 2건은 처음부터 초록이었다(가드의 정상 상태). RED는 3건이다.
+
+**GREEN — 전체 스위트 · 타입 검사 · 린트**:
+
+```
+$ npm test
+ Test Files  64 passed (64)
+      Tests  801 passed (801)
+   Duration  16.44s (transform 1.26s, setup 0ms, collect 3.36s, tests 31.78s, environment 5.68s, prepare 3.39s)
+exit=0
+
+$ npm run typecheck        $ npm run lint
+> tsc --noEmit             > eslint .
+exit=0                     exit=0
+```
+
+**실 DB에서 닫은 고리** — 하네스가 잡은 진짜 중단 트랜잭션에 production 함수를 직접 적용한다:
+
+```
+$ npx vitest run tests/integration/orders/concurrency.postgres.test.ts
+[SPEC-ORDER-002 M4] live PostgreSQL reachable — concurrency observed for real (run m4-054a54b8)
+[SPEC-ORDER-002 M4] scenario A outcomes: refused(INSUFFICIENT_STOCK), ok
+[SPEC-ORDER-002 M4] scenario B outcomes: ok, ok
+[SPEC-ORDER-002 M4] counterfactual outcomes: REJECTED code=(none) ::  | committed
+[SPEC-ORDER-002 M4] real deadlock arrives as PrismaClientUnknownRequestError with code=undefined
+ ✓ tests/integration/orders/concurrency.postgres.test.ts (14 tests) 1161ms
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+exit=0
+```
+
+`is recognised by the SERVICE's own predicate (REQ-ORDER-027, closed)` — 픽스처가 아니라 **실제 오류 객체**에 대해 통과했다. 13건 → 14건.
+
+**커버리지** (변경 파일):
+
+```
+File              | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s
+------------------|---------|----------|---------|---------|-------------------
+ order-service.ts |   96.69 |    96.84 |     100 |   96.69 | 175-180,329-330
+```
+
+미커버 2구간은 기존 그대로다(175-180 `deliveryMemo` 분기, 329-330 `byProductId`의 스키마상 도달 불가한 `return 0`). 분기 커버리지는 M2 시점 96.62% → **96.84%** 로 올랐다 — 새 술어의 분기를 전수 덮었기 때문이며, 비객체 throw 가드도 전용 테스트로 덮었다.
+
+**범위 확인** (M4 커밋 `13ffb3e` 기준):
+
+```
+$ git diff --numstat 13ffb3e
+45	9	src/features/orders/services/order-service.ts
+28	6	tests/integration/orders/concurrency.postgres.test.ts
+109	0	tests/unit/orders/order-service.test.ts
+
+$ git diff --numstat 13ffb3e -- prisma src/components src/app src/lib src/features/cart \
+    src/features/payments src/features/orders/repositories src/features/orders/types
+(빈 출력)
+```
+
+#### 3. Baseline-attribution (baseline 귀속)
+
+- 트리: `WT-inventory-concurrency` 워크트리, M4 커밋 `13ffb3e` + 위 3개 파일의 미커밋 변경.
+- 데이터베이스: PostgreSQL 16.15 `our_shop` @ localhost:5433 (M4와 동일).
+- 모든 수치는 이번 실행에서 이 트리·이 데이터베이스를 대상으로 관측했다.
+- 회귀 산술: M4 종료 시점 **794건** → 신규 **7건**(단위 6 + 실 DB 1) = **801건**(실측 일치). 기존 794건 중 깨진 것은 **없다**.
+- **"수정 전이었다면 실패했다"의 근거**: 옛 술어의 유일한 조건은 `error.code === "P2034"`였고(소스), 실제 오류의 `code`는 하네스 출력에 `code=undefined`로 **관측**되었다. `undefined === "P2034"`는 거짓이다. 추측이 아니라 관측값에 대한 직접 평가다.
+
+#### 4. Gaps (미검증)
+
+- **서비스가 교착 희생자가 되는 장면은 여전히 관측하지 못했다.** M4의 4회 시도와 마찬가지로 PostgreSQL의 희생자 선택은 통제할 수 없다. 이번에 닫은 것은 "실제 오류 객체를 술어가 인식한다"이지 "실제 희생 상황에서 주문자가 409를 받는다"의 끝단 관측이 아니다. 다만 그 사이에 남은 것은 이미 테스트로 덮인 서비스 매핑 경로뿐이다.
+- **40001을 실 DB에서 만들어 보지 못했다.** Read Committed + 조건부 UPDATE 패턴은 직렬화 실패를 만들지 않는다. 40001 픽스처는 40P01과 **같은 커넥터 렌더링 형태**를 따른 것이며, 그 형태 가정 자체는 관측되지 않았다.
+- **메시지 형식이 API 계약이 아니다.** 정규식은 관측된 `code: "…"` 필드에 고정되어 있다. Prisma가 렌더링을 바꾸면 매칭이 깨진다 — 다만 조용히 깨지지는 않는다(아래).
+- **CI는 여전히 이 실 DB 단언을 실행하지 않는다.** M4와 동일한 공백이며 후속 CI SPEC 소유다.
+
+#### 5. Residual-risk (잔여 위험)
+
+- **문자열 매칭의 취약성은 남는다 — 감수하고 계측했다.** 완화책은 실 DB 단언이다: Prisma가 메시지를 바꾸면 `isTransactionConflict()`를 진짜 오류에 적용하는 그 테스트가 **빨개진다**. 500이 조용히 돌아오는 대신 테스트가 먼저 깨진다. 이것이 M4의 "덫"을 관측형에서 **기능형**으로 바꾼 지점이다.
+- **`40001`을 느슨하게 매칭하지 않았다** — `code: "…"` 필드에 앵커했다. 다섯 자리 숫자는 금액·수량·id로 오류 메시지에 실릴 수 있고, 느슨한 매칭은 영구 실패를 재시도 가능으로 오분류해 주문자에게 무한 재시도를 권하게 된다. 대가는 반대편 위험이다: Prisma가 `SQLSTATE 40P01` 같은 다른 형식으로 바꾸면 매칭에 실패해 **현재 알려진 동작(500)으로 되돌아간다** — 회귀는 아니지만 개선도 아니다.
+- **`isTransactionConflict`를 export했다.** 순수 술어이고 부작용이 없으며, 이 파일은 이미 `calculateShippingFee` / `generateOrderNumber` 등을 테스트를 위해 export하는 선례를 갖고 있다. 그래도 이는 테스트 이음새를 위한 가시성 확대이며, 실 오류 객체에 진짜 함수를 적용하는 값어치가 그 대가보다 크다고 판단했다.
+- **M2의 기존 `{ code: "P2034" }` 픽스처 테스트는 남겨 두었다.** 그 형태는 이 환경에서 발생하지 않지만, `P2034` 분기가 살아 있음을 고정하는 값어치가 있다. 다만 그 describe의 테스트들은 **현실에서 발생하지 않는 형태**를 검증한다는 사실을 M4-fix describe 머리말에 명시해 두었다 — 초록이 무엇을 보증하고 무엇을 보증하지 않는지 읽는 사람이 오해하지 않도록.
+
 **M5**: _<pending>_
 
 ## §E.3 Run-phase Audit-Ready Signal

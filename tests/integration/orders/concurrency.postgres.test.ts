@@ -45,7 +45,9 @@ try {
 }
 
 const { prisma } = await import("@/lib/db");
-const { createOrder } = await import("@/features/orders/services/order-service");
+const { createOrder, isTransactionConflict } = await import(
+  "@/features/orders/services/order-service"
+);
 
 /**
  * Whether a live PostgreSQL answered, and — when it did not — why.
@@ -338,11 +340,18 @@ describe.skipIf(!reachable)(
      * exercised here — this is a statement about the database, which is
      * precisely what makes the ordering requirement worth having.
      *
-     * THE ANSWER FALSIFIED THE ASSUMPTION. See the two assertions below: the
-     * abort arrives with no `code`, so REQ-ORDER-027's mapping — which tests
-     * `error.code === "P2034"` — cannot match a real deadlock. That is a
-     * defect in the mapping, recorded here and reported rather than fixed
-     * inside this milestone (progress.md §E.2 M4, Residual-risk).
+     * THE ANSWER FALSIFIED THE ASSUMPTION, AND THE MAPPING WAS FIXED. The
+     * abort arrives with no `code`, so the original REQ-ORDER-027 predicate —
+     * which tested `error.code === "P2034"` alone — could never match a real
+     * deadlock, leaving the requirement unsatisfied in production while its
+     * unit test passed against an invented shape. `isTransactionConflict()` now
+     * also reads the SQLSTATE out of the message, and the last assertion below
+     * runs THAT function against the genuine aborted transaction captured here.
+     *
+     * That final assertion is what makes this file more than a record: the
+     * message text it depends on is not an API contract, so if a future Prisma
+     * reshapes it, this test fails and the mapping gets re-decided — rather
+     * than the 500 quietly coming back (progress.md §E.2 M4 addendum).
      */
     const P = `${RUN}-d1`;
     const Q = `${RUN}-d2`;
@@ -440,6 +449,19 @@ describe.skipIf(!reachable)(
       // against the real shape.
       expect((rejected.reason as Error).message).toContain("40P01");
       expect((rejected.reason as Error).message).toContain("deadlock detected");
+    });
+
+    it("is recognised by the SERVICE's own predicate (REQ-ORDER-027, closed)", () => {
+      const rejected = settled.find((result) => result.status === "rejected");
+      if (rejected?.status !== "rejected") throw new Error("expected one aborted transaction");
+
+      // The production function, run against a real aborted transaction — not
+      // a fixture, not a copy of its logic. This is the assertion that turns
+      // REQ-ORDER-027 from "mapped, we believe" into "mapped, we watched it".
+      //
+      // It would have returned false before the fix: the error carries no
+      // `code`, and the predicate tested only `code === "P2034"`.
+      expect(isTransactionConflict(rejected.reason)).toBe(true);
     });
   }
 );

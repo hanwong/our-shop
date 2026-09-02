@@ -232,17 +232,53 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 /**
- * Prisma's write-conflict / deadlock signal — how PostgreSQL's 40P01 (deadlock
- * detected) and 40001 (serialization failure) reach us (SPEC-ORDER-002
- * REQ-ORDER-027, plan.md §4 M2).
+ * The connector's SQLSTATE field for the two aborts REQ-ORDER-027 names:
+ * `40P01` (deadlock detected) and `40001` (serialization failure).
  *
- * Both mean the same thing to a caller: the database chose this transaction as
- * the victim, nothing it wrote survives, and the identical request may be sent
- * again. That is a different answer from every other refusal, where retrying
- * unchanged would fail identically.
+ * Anchored to the `code: "…"` field rather than the bare digits. `40001` is
+ * five ordinary digits and can appear in an error as a total, a quantity or an
+ * id; matching it loose would classify an unrelated permanent failure as
+ * retryable and tell the shopper to try again forever — the same defect this
+ * predicate fixes, pointed the other way.
  */
-function isTransactionConflict(error: unknown): boolean {
-  return isRecord(error) && error.code === "P2034";
+const CONFLICT_SQLSTATE = /code:\s*"(?:40P01|40001)"/;
+
+/**
+ * Whether the database aborted this transaction to break a deadlock or a
+ * serialization conflict (SPEC-ORDER-002 REQ-ORDER-027).
+ *
+ * Either way the caller gets the same news: the database chose this transaction
+ * as the victim, nothing it wrote survives, and the identical request may be
+ * sent again. That is a different answer from every other refusal, where
+ * retrying unchanged would fail identically.
+ *
+ * TWO CHECKS, because the plan's assumption turned out to be half the story:
+ *
+ *  - `P2034` is Prisma's documented write-conflict code. Retained for other
+ *    paths that may already emit it, and as forward compatibility if a future
+ *    client classifies what this one does not.
+ *  - The SQLSTATE in the message is what a REAL abort actually delivers. The M4
+ *    harness drove a genuine deadlock against PostgreSQL 16 through Prisma 6.1
+ *    and observed a `PrismaClientUnknownRequestError` carrying NO `code` at
+ *    all, with `40P01` readable only inside the message text. The original
+ *    predicate tested `code === "P2034"` alone and therefore never matched a
+ *    real deadlock — REQ-ORDER-027 was unsatisfied in production while its
+ *    unit test passed against an invented shape (progress.md §E.2 M4, 2-bis).
+ *
+ * Matching prose is brittle, and knowingly so: the message is not an API
+ * contract. The live-database assertion in
+ * tests/integration/orders/concurrency.postgres.test.ts is what keeps that
+ * brittleness honest — it calls THIS function against a real aborted
+ * transaction, so a Prisma change that reshapes the message fails a test rather
+ * than silently restoring the 500.
+ *
+ * Exported for that assertion: verifying the real predicate against a real
+ * error is worth more than a copy of its logic in a test.
+ */
+export function isTransactionConflict(error: unknown): boolean {
+  if (!isRecord(error)) return false;
+  if (error.code === "P2034") return true;
+  return typeof error.message === "string" && CONFLICT_SQLSTATE.test(error.message);
 }
 
 // ---------------------------------------------------------------------------

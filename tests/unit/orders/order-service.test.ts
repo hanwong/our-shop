@@ -705,6 +705,115 @@ describe("SPEC-ORDER-002 M2 — an aborted transaction is retryable, not a myste
   });
 });
 
+describe("SPEC-ORDER-002 M4-fix — the shape a REAL deadlock actually has (REQ-ORDER-027)", () => {
+  /**
+   * The error a live PostgreSQL 16 deadlock produced through Prisma 6.1,
+   * reproduced from the M4 harness observation (progress.md §E.2 M4, 2-bis).
+   *
+   * Note what is NOT here: a `code`. The describe above builds its fixture as
+   * `{ code: "P2034" }`, which is what plan.md §4 M2 PREDICTED — and which the
+   * M4 real-database run showed never occurs. Those tests pass against a shape
+   * reality does not produce; this block is the one that binds.
+   *
+   * The SQLSTATE survives only inside the message text, in the Rust connector's
+   * debug rendering. That is the whole difficulty of REQ-ORDER-027: there is no
+   * structured field to match on.
+   */
+  function realDeadlock(): Error {
+    return Object.assign(
+      new Error(
+        "\nInvalid `prisma.product.updateMany()` invocation:\n\n\n" +
+          "Error occurred during query execution:\n" +
+          'ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", ' +
+          'message: "deadlock detected", severity: "ERROR", detail: Some("Process 11564 waits for ShareLock on ' +
+          'transaction 796; blocked by process 11565."), column: None, hint: Some("See server log for query ' +
+          'details.") }), transient: false })'
+      ),
+      // Exactly the own-properties the real error carried — no `code`, no `meta`.
+      { name: "PrismaClientUnknownRequestError", clientVersion: "6.1.0" }
+    );
+  }
+
+  /** The same connector shape, for a serialization failure rather than a deadlock. */
+  function realSerializationFailure(): Error {
+    return Object.assign(
+      new Error(
+        "\nInvalid `prisma.product.updateMany()` invocation:\n\n\n" +
+          "Error occurred during query execution:\n" +
+          'ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40001", ' +
+          'message: "could not serialize access due to concurrent update", severity: "ERROR", detail: None, ' +
+          "column: None, hint: None }), transient: false })"
+      ),
+      { name: "PrismaClientUnknownRequestError", clientVersion: "6.1.0" }
+    );
+  }
+
+  it("maps a real 40P01 deadlock to CONCURRENCY_RETRY (REQ-ORDER-027)", async () => {
+    orderRepo.decrementStockIfAvailable.mockRejectedValue(realDeadlock());
+
+    const result = await service.createOrder("G1", body());
+
+    // The requirement, measured against the shape the database actually
+    // produces rather than the one the plan assumed.
+    expect(result).toMatchObject({ ok: false, status: 409, code: "CONCURRENCY_RETRY" });
+  });
+
+  it("maps a real 40001 serialization failure the same way", async () => {
+    orderRepo.decrementStockIfAvailable.mockRejectedValue(realSerializationFailure());
+
+    const result = await service.createOrder("G1", body());
+
+    expect(result).toMatchObject({ ok: false, status: 409, code: "CONCURRENCY_RETRY" });
+  });
+
+  it("does not let a real deadlock reach the shopper as an unclassified 500", async () => {
+    orderRepo.createOrderWithItems.mockRejectedValue(realDeadlock());
+
+    // Before this fix the predicate tested `code === "P2034"`, the real error
+    // had no `code` at all, and this call REJECTED — surfacing as a 500 with no
+    // code to a shopper whose identical resubmission would have succeeded.
+    const result = await service.createOrder("G1", body());
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.status).not.toBe(500);
+  });
+
+  it("leaves an unrelated unclassified error alone", async () => {
+    // The over-matching guard. `PrismaClientUnknownRequestError` covers ANY
+    // unclassified failure, so keying on the class alone would tell shoppers to
+    // retry permanently-broken requests. Only the SQLSTATE decides.
+    orderRepo.decrementStockIfAvailable.mockRejectedValue(
+      Object.assign(new Error("Error occurred during query execution: connection closed"), {
+        name: "PrismaClientUnknownRequestError",
+        clientVersion: "6.1.0",
+      })
+    );
+
+    await expect(service.createOrder("G1", body())).rejects.toThrow("connection closed");
+  });
+
+  it("survives a thrown non-object without crashing", async () => {
+    // `catch` binds `unknown`, and not everything thrown is an Error. Reading
+    // `.code` or `.message` off a string would throw inside the error handler
+    // itself, turning a recoverable failure into an unrecoverable one.
+    orderRepo.decrementStockIfAvailable.mockRejectedValue("40P01 deadlock detected");
+
+    await expect(service.createOrder("G1", body())).rejects.toBe("40P01 deadlock detected");
+  });
+
+  it("does not mistake a bare 40001 in ordinary text for a SQLSTATE", async () => {
+    // `40001` is five digits — it can occur as an order total, a product id, or
+    // a quantity echoed into an error. Matching it loose would classify an
+    // unrelated failure as retryable, which is the same defect in the other
+    // direction. Only the connector's `code: "…"` field counts.
+    orderRepo.decrementStockIfAvailable.mockRejectedValue(
+      new Error("Unique constraint failed on totalAmount 40001")
+    );
+
+    await expect(service.createOrder("G1", body())).rejects.toThrow("Unique constraint failed");
+  });
+});
+
 describe("SPEC-ORDER-001 M3 — a cart line below quantity 1 (REQ-ORDER-004, AC-ORDER-004)", () => {
   // The schema permits CartItem.quantity <= 0 (no CHECK constraint; the >= 1
   // rule lives in the cart API's parseQuantity). So unlike PRODUCT_GONE this
