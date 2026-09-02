@@ -2,7 +2,7 @@
 id: SPEC-DISCOUNT-001
 title: "쿠폰·할인 정책 계산 엔진 (게스트 주문)"
 version: "0.2.0"
-status: draft
+status: in-progress
 created: 2026-09-02
 updated: 2026-09-02
 author: snake
