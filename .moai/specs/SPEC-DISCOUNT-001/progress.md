@@ -305,7 +305,7 @@ fold-at: 2026-09-03T00:40:00+09:00
 ## §E.4 Sync-phase Audit-Ready Signal
 
 sync_complete_at: 2026-09-03
-sync_commit_sha: pending-backfill-SPEC-DISCOUNT-001-sync
+sync_commit_sha: 12474d9aa23c7ab1525ddff69034a4c9b5b6d1b5
 sync_status: audit-ready
 
 **두 건의 독립적인 sync-phase 검토가 실행되어 실제 결함을 찾았고, 둘 다 이 sync 커밋 이전에 이미 닫혔다.**
