@@ -967,3 +967,28 @@ describe("SPEC-DISCOUNT-001 M4 — a submission with no coupon is unchanged end 
     expect(created.couponCode).toBeNull();
   });
 });
+
+describe("SPEC-DISCOUNT-001 M4 — a later rollback undoes the redemption increment (REQ-DISCOUNT-015, AC-DISCOUNT-015)", () => {
+  it("leaves redeemedCount at its pre-attempt value when step 4 (stock) fails afterward", async () => {
+    pushCoupon({ code: "SAVE10", value: 10, maxRedemptions: 5, redeemedCount: 0 });
+    // Stock drops below the cart's quantity between adding and ordering, so
+    // 3f's coupon increment succeeds and step 4's stock decrement fails next —
+    // exercising the SAME fake-DB rollback (snapshot/restore) AC-ORDER-012
+    // already rests on, now over BOTH the order tables and the coupon row.
+    await addToCart("B", 5);
+    store.products.find((p) => p.id === "B")!.stock = 2;
+
+    const response = await submitOrder({
+      shipping: SHIPPING,
+      idempotencyKey: "coupon-rollback-key",
+      couponCode: "save10",
+      confirmedTotal: 22500, // 25,000 - 2,500 (10%)
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ code: "INSUFFICIENT_STOCK" });
+    expect(store.orders).toHaveLength(0);
+    // The whole point of this test: 3f's increment ran and then rolled back.
+    expect(store.coupons.find((c) => c.code === "SAVE10")!.redeemedCount).toBe(0);
+  });
+});
