@@ -9,11 +9,15 @@ import { afterAll, describe, expect, it } from "vitest";
  * with `maxRedemptions: 5, redeemedCount: 0` must leave `redeemedCount`
  * at 0, `updatedAt` unchanged, and create zero `Order` rows.
  *
- * Talks to the same PostgreSQL M1's coupon-model.test.ts and the pre-flight
- * `npx prisma migrate status` already confirmed reachable (`DATABASE_URL`,
- * localhost:5433) — no capability gate is needed here, mirroring M1's
- * integration test (this is a plain reachability precondition, not the
- * concurrency-only capability gate AC-DISCOUNT-016 needs).
+ * CAPABILITY GATE: an earlier version of this file (and its M1 sibling)
+ * assumed the pre-flight `npx prisma migrate status` reachability check made
+ * a runtime gate unnecessary. That assumption was wrong — the pre-flight
+ * only runs on a developer's machine; CI's `DATABASE_URL`
+ * (.github/workflows/ci.yml) is a permanently-unreachable placeholder, so an
+ * ungated version of this file hard-fails CI's required `verify` check. This
+ * file now mirrors `tests/integration/orders/concurrency.postgres.test.ts`'s
+ * pattern: probe reachability once at module load, skip with a named reason
+ * when absent, and never let an unreachable database read as a silent pass.
  *
  * Exercises the actual route handler (not the service directly) so the
  * observation covers the full HTTP-layer call path this endpoint exposes.
@@ -31,9 +35,41 @@ const { POST } = await import("@/app/api/discounts/validate/route");
 
 const RUN = `m6a-${randomUUID().slice(0, 8)}`;
 
+/**
+ * Whether a live PostgreSQL answered, and — when it did not — why.
+ *
+ * Probed once at module load with the application's OWN client, mirroring
+ * `tests/integration/orders/concurrency.postgres.test.ts`.
+ */
+let reachable = false;
+let skipReason = "";
+
+if (!process.env.DATABASE_URL) {
+  skipReason = "DATABASE_URL is not set";
+} else {
+  try {
+    await prisma.$queryRaw`select 1`;
+    reachable = true;
+  } catch (error) {
+    skipReason = `connection failed: ${(error as Error).message.split("\n")[0]}`;
+  }
+}
+
 afterAll(async () => {
-  await prisma.coupon.deleteMany({ where: { code: { startsWith: RUN.toUpperCase() } } });
+  if (reachable) {
+    await prisma.coupon.deleteMany({ where: { code: { startsWith: RUN.toUpperCase() } } });
+  }
   await prisma.$disconnect();
+});
+
+describe("SPEC-DISCOUNT-001 M6a — the capability gate", () => {
+  it("never skips silently — an unreachable database names its reason", () => {
+    if (reachable) {
+      expect(skipReason).toBe("");
+    } else {
+      expect(skipReason.length).toBeGreaterThan(0);
+    }
+  });
 });
 
 function submit(body: unknown): Promise<Response> {
@@ -46,7 +82,7 @@ function submit(body: unknown): Promise<Response> {
   );
 }
 
-describe("SPEC-DISCOUNT-001 M6a — AC-DISCOUNT-025 (write-free)", () => {
+describe.skipIf(!reachable)("SPEC-DISCOUNT-001 M6a — AC-DISCOUNT-025 (write-free)", () => {
   it("leaves redeemedCount, updatedAt and Order count untouched across 10 successful calls", async () => {
     const code = `${RUN}-AC025`.toUpperCase();
 

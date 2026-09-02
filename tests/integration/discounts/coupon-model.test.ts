@@ -17,11 +17,15 @@ import { afterAll, describe, expect, it } from "vitest";
  * index is sufficient BECAUSE normalization happens before every read and
  * write, not because Postgres itself folds case.
  *
- * This file talks to the same PostgreSQL the pre-flight `npx prisma migrate
- * status` already confirmed reachable (`DATABASE_URL`, localhost:5433) — no
- * capability gate is needed here the way SPEC-ORDER-002's concurrency test
- * needs one, because this milestone's pre-flight already established
- * reachability as a precondition, not an optional capability.
+ * CAPABILITY GATE: an earlier version of this file assumed the pre-flight
+ * `npx prisma migrate status` reachability check made a runtime gate
+ * unnecessary. That assumption was wrong — the pre-flight only runs on a
+ * developer's machine; CI's `DATABASE_URL` (.github/workflows/ci.yml) is a
+ * permanently-unreachable placeholder, so an ungated version of this file
+ * hard-fails CI's required `verify` check. This file now mirrors
+ * `tests/integration/orders/concurrency.postgres.test.ts`'s pattern: probe
+ * reachability once at module load, skip with a named reason when absent,
+ * and never let an unreachable database read as a silent pass.
  */
 
 // vitest's environment is `node` with no setup file, so `.env` is not loaded
@@ -40,12 +44,44 @@ const { DiscountType } = await import("@prisma/client");
 /** Namespaces every row this run creates, so cleanup can find them all. */
 const RUN = `m1-${randomUUID().slice(0, 8)}`;
 
+/**
+ * Whether a live PostgreSQL answered, and — when it did not — why.
+ *
+ * Probed once at module load with the application's OWN client, mirroring
+ * `tests/integration/orders/concurrency.postgres.test.ts`.
+ */
+let reachable = false;
+let skipReason = "";
+
+if (!process.env.DATABASE_URL) {
+  skipReason = "DATABASE_URL is not set";
+} else {
+  try {
+    await prisma.$queryRaw`select 1`;
+    reachable = true;
+  } catch (error) {
+    skipReason = `connection failed: ${(error as Error).message.split("\n")[0]}`;
+  }
+}
+
 afterAll(async () => {
-  await prisma.coupon.deleteMany({ where: { code: { startsWith: RUN.toUpperCase() } } });
+  if (reachable) {
+    await prisma.coupon.deleteMany({ where: { code: { startsWith: RUN.toUpperCase() } } });
+  }
   await prisma.$disconnect();
 });
 
-describe("SPEC-DISCOUNT-001 M1 — AC-DISCOUNT-001 (Coupon column set)", () => {
+describe("SPEC-DISCOUNT-001 M1 — the capability gate", () => {
+  it("never skips silently — an unreachable database names its reason", () => {
+    if (reachable) {
+      expect(skipReason).toBe("");
+    } else {
+      expect(skipReason.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe.skipIf(!reachable)("SPEC-DISCOUNT-001 M1 — AC-DISCOUNT-001 (Coupon column set)", () => {
   it("persists and reads back every required column", async () => {
     const code = `${RUN}-AC001`.toUpperCase();
     const startsAt = new Date("2026-01-01T00:00:00Z");
@@ -79,7 +115,7 @@ describe("SPEC-DISCOUNT-001 M1 — AC-DISCOUNT-001 (Coupon column set)", () => {
   });
 });
 
-describe("SPEC-DISCOUNT-001 M1 — AC-DISCOUNT-002 (unique code + normalized lookup)", () => {
+describe.skipIf(!reachable)("SPEC-DISCOUNT-001 M1 — AC-DISCOUNT-002 (unique code + normalized lookup)", () => {
   it("rejects a second coupon sharing the same code", async () => {
     const code = `${RUN}-AC002`.toUpperCase();
 
