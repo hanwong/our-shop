@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { processWebhook } from "@/features/payments/services/payment-service";
+import { checkIpRateLimit } from "@/lib/auth/rate-limit";
 
 /**
  * SPEC-PAYMENT-001 M3 — POST /api/payments/webhook (Toss PAYMENT_STATUS_CHANGED).
@@ -15,8 +16,20 @@ import { processWebhook } from "@/features/payments/services/payment-service";
  * transition (CodeRabbit PR #9 Finding 1 correction: PAYMENT_STATUS_CHANGED
  * carries no verifiable signature header for this handler to check, so the
  * payload alone is never trusted).
+ *
+ * CORRECTION (CodeRabbit PR #9 round-2 Finding B, CWE-400): this is a public,
+ * unauthenticated endpoint, and every unique transmissionId previously
+ * triggered an authenticated `queryTossPayment` call (consuming Toss API
+ * quota) with no throttle. `checkIpRateLimit` (the existing rate-limit
+ * utility, unmodified — read-only reuse) runs FIRST, before any body parsing
+ * or Toss call, exactly as `src/app/api/auth/login/route.ts` gates its own
+ * body first.
  */
 export async function POST(request: Request): Promise<Response> {
+  if (!checkIpRateLimit("payments-webhook", request).allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
+
   const rawBody = await request.text();
 
   const result = await processWebhook(rawBody, {

@@ -22,6 +22,7 @@ const paymentService = {
 vi.mock("@/features/payments/services/payment-service", () => paymentService);
 
 const { POST } = await import("@/app/api/payments/webhook/route");
+const { __resetRateLimitStoreForTests } = await import("@/lib/auth/rate-limit");
 
 const HEADERS = {
   "tosspayments-webhook-transmission-id": "tid-1",
@@ -37,6 +38,11 @@ function webhookRequest(body: string, headers: Record<string, string> = HEADERS)
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The route now rate-limits by IP (CodeRabbit PR #9 round-2 Finding B) —
+  // reset the shared in-memory store so unrelated tests in this file (all
+  // sharing the "unknown" IP bucket, since none set x-forwarded-for) don't
+  // accumulate a request count across tests and spuriously 429.
+  __resetRateLimitStoreForTests();
 });
 
 describe("SPEC-PAYMENT-001 M3 — POST /api/payments/webhook", () => {
@@ -96,5 +102,40 @@ describe("SPEC-PAYMENT-001 M3 — POST /api/payments/webhook", () => {
     const response = await POST(webhookRequest("{}"));
 
     expect(response.status).toBe(502);
+  });
+});
+
+describe("SPEC-PAYMENT-001 M3 — POST /api/payments/webhook: IP rate limiting (CodeRabbit PR #9 round-2 Finding B / CWE-400)", () => {
+  it("responds 429 after more than 5 requests/60s from the same IP, and never calls processWebhook (or Toss) for the throttled request", async () => {
+    paymentService.processWebhook.mockResolvedValue({ ok: true, outcome: "paid" });
+    const ipHeaders = {
+      "tosspayments-webhook-transmission-id": "tid-rl",
+      "x-forwarded-for": "203.0.113.9",
+    };
+
+    for (let i = 0; i < 5; i++) {
+      const response = await POST(webhookRequest("{}", ipHeaders));
+      expect(response.status).toBe(200);
+    }
+
+    paymentService.processWebhook.mockClear();
+    const sixth = await POST(webhookRequest("{}", ipHeaders));
+
+    expect(sixth.status).toBe(429);
+    expect(paymentService.processWebhook).not.toHaveBeenCalled();
+  });
+
+  it("rate-limits independently per IP — a different IP is unaffected by another IP's throttling", async () => {
+    paymentService.processWebhook.mockResolvedValue({ ok: true, outcome: "paid" });
+    const ipA = { "tosspayments-webhook-transmission-id": "tid-a", "x-forwarded-for": "203.0.113.1" };
+    const ipB = { "tosspayments-webhook-transmission-id": "tid-b", "x-forwarded-for": "203.0.113.2" };
+
+    for (let i = 0; i < 6; i++) {
+      await POST(webhookRequest("{}", ipA));
+    }
+
+    const responseB = await POST(webhookRequest("{}", ipB));
+
+    expect(responseB.status).toBe(200);
   });
 });

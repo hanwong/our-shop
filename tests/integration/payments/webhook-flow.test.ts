@@ -208,6 +208,14 @@ beforeEach(async () => {
   const tossServer = await import("@/lib/payment/toss-server");
   vi.mocked(tossServer.confirmTossPayment).mockReset();
   vi.mocked(tossServer.queryTossPayment).mockReset();
+
+  // The webhook route now rate-limits by IP (CodeRabbit PR #9 round-2
+  // Finding B) — reset the shared in-memory store so this file's 11
+  // postWebhook() calls (none set x-forwarded-for, so all share the
+  // "unknown" bucket) don't accumulate a request count across tests and
+  // spuriously 429.
+  const { __resetRateLimitStoreForTests } = await import("@/lib/auth/rate-limit");
+  __resetRateLimitStoreForTests();
 });
 
 describe("SPEC-PAYMENT-001 M5 — confirm route (AC-PAYMENT-007)", () => {

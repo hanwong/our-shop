@@ -162,11 +162,23 @@ export async function confirmPayment(
  * even for a duplicate or a rejected event, or it will keep retrying
  * (design.md §3). A `toss-query-failed` `ok: false` is transient (PG should
  * retry); `malformed-payload` and `query-mismatch` are not.
+ *
+ * CORRECTION (CodeRabbit PR #9 round-2 Finding A, CWE-20): an empty
+ * `transmissionId` is rejected BEFORE the idempotency-key lookup even runs.
+ * The webhook route defaults a missing/absent transmission-id header to
+ * `""`; without this guard, every header-less delivery would collide on the
+ * SAME empty-string audit-log key and get incorrectly classified
+ * `already-applied` (dropped) — even though each is a genuinely new event
+ * with real state to apply.
  */
 export async function processWebhook(
   rawBody: string,
   headers: { transmissionId: string }
 ): Promise<ProcessWebhookResult> {
+  if (headers.transmissionId === "") {
+    return { ok: false, reason: "malformed-payload" };
+  }
+
   const existingLog = await findAuditLogByTransmissionId(headers.transmissionId);
   if (existingLog !== null) {
     return { ok: true, outcome: "already-applied" };

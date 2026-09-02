@@ -187,6 +187,23 @@ describe("confirmPayment — genuine paymentKey mismatch (REQ-PAYMENT-004)", () 
 // processWebhook
 // ---------------------------------------------------------------------------
 
+describe("processWebhook — empty transmissionId is rejected as malformed, BEFORE the idempotency lookup (CodeRabbit PR #9 round-2 Finding A / CWE-20)", () => {
+  it("returns malformed-payload without ever calling findAuditLogByTransmissionId, for an empty string transmissionId", async () => {
+    // The webhook route defaults a missing/absent header to "" — multiple
+    // header-less deliveries must not collide on the same empty-string audit-log
+    // key and get incorrectly treated as already-applied (dropped).
+    const result = await processWebhook(
+      JSON.stringify({ orderId: "o1", paymentKey: "PK1", amount: 30000, status: "DONE" }),
+      { transmissionId: "" }
+    );
+
+    expect(result).toEqual({ ok: false, reason: "malformed-payload" });
+    expect(repo.findAuditLogByTransmissionId).not.toHaveBeenCalled();
+    expect(tossServer.queryTossPayment).not.toHaveBeenCalled();
+    expect(repo.createAuditLog).not.toHaveBeenCalled();
+  });
+});
+
 describe("processWebhook — duplicate resend short-circuits before any Toss query (AC-PAYMENT-016)", () => {
   it("returns already-applied on a known transmissionId without ever calling queryTossPayment", async () => {
     repo.findAuditLogByTransmissionId.mockResolvedValue({ id: "log-1" });

@@ -51,6 +51,17 @@ describe("toss-server — confirmTossPayment (Basic auth via PG_SECRET_KEY)", ()
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
+  it("sets redirect: 'error' so a redirected response never replays the Authorization header to an unintended host (CodeRabbit PR #9 round-2 Finding C / CWE-319)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const { confirmTossPayment } = await import("@/lib/payment/toss-server");
+
+    await confirmTossPayment({ orderId: "o1", paymentKey: "PK1", amount: 1000 });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.redirect).toBe("error");
+  });
+
   it("returns ok:false with the response status when Toss rejects the request", async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 400 }) as unknown as typeof fetch;
     const { confirmTossPayment } = await import("@/lib/payment/toss-server");
@@ -126,6 +137,21 @@ describe("toss-server — queryTossPayment (Payment Query API, Basic auth via PG
     const headers = init.headers as Record<string, string>;
     expect(headers.Authorization).toBe(`Basic ${Buffer.from("test-secret:").toString("base64")}`);
     expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("sets redirect: 'error' so a redirected response never replays the Authorization header to an unintended host (CodeRabbit PR #9 round-2 Finding C / CWE-319)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ paymentKey: "PK1", orderId: "o1", status: "DONE", totalAmount: 30000 }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const { queryTossPayment } = await import("@/lib/payment/toss-server");
+
+    await queryTossPayment("PK1");
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.redirect).toBe("error");
   });
 
   it("URL-encodes the paymentKey path segment", async () => {

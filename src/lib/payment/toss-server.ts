@@ -72,6 +72,11 @@ export async function confirmTossPayment(req: TossConfirmRequest): Promise<TossC
       },
       body: JSON.stringify(req),
       signal: AbortSignal.timeout(TOSS_REQUEST_TIMEOUT_MS),
+      // CodeRabbit PR #9 round-2 Finding C (CWE-319) — never follow a
+      // redirect on a request carrying the Authorization: Basic PG_SECRET_KEY
+      // header. Without this, a response that redirected to an unintended
+      // host could have the secret-bearing header replayed there.
+      redirect: "error",
     });
   } catch {
     // Timeout (AbortSignal.timeout aborts the fetch) or a network-level
@@ -117,6 +122,10 @@ export async function queryTossPayment(paymentKey: string): Promise<TossQueryRes
       method: "GET",
       headers: { Authorization: tossBasicAuthHeader(secretKey) },
       signal: AbortSignal.timeout(TOSS_REQUEST_TIMEOUT_MS),
+      // CodeRabbit PR #9 round-2 Finding C (CWE-319) — same rationale as
+      // confirmTossPayment above: never follow a redirect on a request
+      // carrying the Authorization: Basic PG_SECRET_KEY header.
+      redirect: "error",
     });
   } catch {
     return { ok: false, status: 504 };

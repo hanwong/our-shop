@@ -152,7 +152,7 @@ if (updated.count !== 1) {
 
 **정정(CodeRabbit PR #9 리뷰 Finding 1)**: 이전 버전의 이 절은 HMAC-SHA256 서명 검증을 설계했으나, `PAYMENT_STATUS_CHANGED` 웹훅에는 `tosspayments-webhook-signature` 헤더가 애초에 실려 오지 않는다(그 헤더는 `payout.changed`·`seller.changed` 전용 — research.md §4 정정 참조). 아래는 Toss 공식 문서가 이 이벤트 타입에 권고하는 검증 방식으로 재설계된 흐름이다.
 
-```
+```text
 POST /api/payments/webhook
   ├─ raw body 읽기 (request.text())
   ├─ §3의 2차 방어(transmissionId 조회) — 먼저 실행, 재전송을 파싱·조회 이전에 차단

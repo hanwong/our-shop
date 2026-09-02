@@ -234,7 +234,7 @@ Branch `WT-payment-pg-webhook`, worktree `t5`. Fixes CodeRabbit's PR #9 review o
 
 ### Evidence (Section E, attributable)
 
-```
+```text
 $ npm run typecheck                                          → exit 0
 $ npm run lint                                                → exit 0
 $ npx prisma validate                                         → "The schema at prisma/schema.prisma is valid"
@@ -248,3 +248,36 @@ $ npx vitest run --coverage --exclude tests/integration/auth/login.test.ts
 Baseline attribution: this run, this tree, HEAD at fix-commit time (see the commit trailer for the exact SHA). Logs persisted at `.moai/state/verify/spec-payment-001-coderabbit/{RED,GREEN,typecheck,lint,full-suite,coverage}.log` (gitignored, local to this worktree).
 
 Gaps: `AC-004-EXCL-CONCURRENCY` remains unverified (no live PostgreSQL in this environment — unchanged, pre-existing limitation, unrelated to this fix). The Toss Payment Query API's real HTTP behavior (rate limits, exact response shape edge cases) is not exercised — only mocked/faked, matching this SPEC's existing harness-limitation pattern for `confirmTossPayment`.
+
+## §J Round-2 fix — CodeRabbit PR #9 second review (2026-09-02)
+
+Fixes 3 code findings from CodeRabbit's second review pass on PR #9, commit `9211a10`.
+
+**Finding A (Major, CWE-20 Improper Input Validation)** — `processWebhook()` looked up the idempotency key (`transmissionId`) BEFORE validating it was non-empty. The webhook route defaults a missing/absent transmission-id header to `""`, so multiple header-less deliveries would all collide on the same empty-string audit-log key and be incorrectly classified `already-applied` (dropped), even though each is a genuinely new event with real state to apply. Fixed: `processWebhook()` now rejects `headers.transmissionId === ""` as `malformed-payload` BEFORE calling `findAuditLogByTransmissionId` or persisting any audit data — reusing the existing `"malformed-payload"` union member (no type change needed). Regression test added (`payment-service.test.ts`): an empty-transmissionId webhook is rejected as malformed, and `findAuditLogByTransmissionId`/`queryTossPayment`/`createAuditLog` are never called.
+
+**Finding B (Major, CWE-400 DoS)** — `POST /api/payments/webhook` had no rate/concurrency limiting; `src/middleware.ts` protects only `/admin/**`. An attacker could hit this public, unauthenticated endpoint repeatedly, each unique `transmissionId` triggering an authenticated `queryTossPayment` call (consuming Toss API quota) with no throttle. Fixed: reused the EXISTING `checkIpRateLimit` utility (`src/lib/auth/rate-limit.ts`, unmodified — read-only import) at the top of the route handler, before any body parsing or Toss calls — same call shape and 429 response convention (`{ error: "Too many requests" }`) as `src/app/api/auth/login/route.ts`. Regression tests added (`route.test.ts`): the 6th request within the rolling window from the same IP gets 429 and `processWebhook` is never called for it; a different IP is unaffected. The pre-existing webhook route/integration test suites (none of which set `x-forwarded-for`, so they share the "unknown" IP bucket) needed `__resetRateLimitStoreForTests()` added to their `beforeEach` to avoid a spurious cross-test 429 — this is test-infrastructure adaptation, not a behavior change to those suites.
+
+**Finding C (Minor, CWE-319 Cleartext Transmission via redirect)** — both `fetch` calls to Toss (`confirmTossPayment` and `queryTossPayment`) in `toss-server.ts` carried `Authorization: Basic <PG_SECRET_KEY>` without `redirect: "error"`; a response redirected to an unintended host could have the secret-bearing header replayed there. Fixed: added `redirect: "error"` to both fetch option objects. Regression tests added (`toss-server.test.ts`) asserting `init.redirect === "error"` for both calls.
+
+**Minor doc fixes** — `design.md` §5 and `progress.md` §E (Evidence) fenced code blocks lacked a language tag (MD040 lint); both now tagged ` ```text `.
+
+**Honest DoD re-verification (per acceptance.md §4)**: after Findings A/B/C, `npm run typecheck` and `npm run lint` still exit 0; the full suite passes 736/736 (including the previously-flaky AC-AUTH-005, green this run) and, with that test excluded per the standard convention, 735/735 with coverage 97.70% stmts / 93.81% branch / 100% funcs / 97.70% lines (threshold 85/85/80/85 — met). However, `npm run build` **still exits 1** — the same pre-existing `node:crypto` ↔ Edge-runtime defect in `src/lib/auth/jwt.ts` (a file this fix's PRESERVE constraint forbids touching), unchanged by this round. acceptance.md §4's own DoD checklist already carries 4 unchecked items independent of Findings A/B/C — the `npm run build` failure (§3 quality gate), the fake `$transaction` rollback-record gap, the completion-page EXTEND-boundary diff record, and the plan.md §0 decision-cross-check record — none of which this round's scope (3 CodeRabbit code findings + 2 doc fences) touches or resolves. **CodeRabbit's "completed while DoD open" finding is THEREFORE NOT stale**: a genuine gap remains (`npm run build` exit 1, plus 3 unconfirmed DoD checklist items), and this progress record does not claim the SPEC's overall DoD is fully closed — only that Findings A/B/C are fixed and verified. The `status: completed` frontmatter value is unchanged by this round (not a transition this fix performs); resolving the residual DoD gap is a separate, out-of-scope follow-up.
+
+### Evidence (round-2, attributable)
+
+```text
+$ npx vitest run tests/unit/payments/payment-service.test.ts tests/unit/payments/toss-server.test.ts tests/unit/api/payments/webhook/route.test.ts
+  → RED (pre-fix): 4 failed | 38 passed (42)
+  → GREEN (post-fix): 42 passed (42)
+$ npm run typecheck                                                          → exit 0
+$ npm run lint                                                                → exit 0
+$ npx vitest run --run                                                        → Test Files 61 passed (61); Tests 736 passed (736)
+$ npx vitest run --coverage --exclude tests/integration/auth/login.test.ts
+                                                                → Test Files 60 passed (60); Tests 735 passed (735)
+                                                                  All files 97.70% stmts / 93.81% branch / 100% funcs / 97.70% lines
+$ npm run build                                                               → exit 1 (pre-existing node:crypto defect, unchanged)
+```
+
+Baseline attribution: this run, this tree, HEAD at round-2 fix-commit time (see the commit trailer for the exact SHA). Logs persisted at `.moai/state/verify/spec-payment-001-coderabbit-r2/{RED,GREEN,typecheck,lint,full-suite,coverage}.log` (gitignored, local to this worktree).
+
+Gaps: same as §E.4 above (`AC-004-EXCL-CONCURRENCY`, real Toss HTTP behavior) — unchanged by this round. Additionally: the `npm run build` failure and the 3 unconfirmed acceptance.md §4 DoD items (fake `$transaction` rollback record, EXTEND-boundary diff record, plan.md §0 decision cross-check) remain open and are explicitly out of this round's scope.
