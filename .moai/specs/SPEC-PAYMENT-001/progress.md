@@ -131,7 +131,7 @@ pre-commit 훅 우회는 임의가 아니라 각 시점에 커밋 메시지 본�
 
 sync_status: **audit-ready**
 sync_complete_at: 2026-09-02
-sync_commit_sha: `pending-backfill-sync-payment-001`(이 문서를 담는 커밋 자신은 자기 SHA를 알 수 없다 — SPEC-ORDER-001 §E.4 선례와 동일하게, 실제 SHA는 커밋 직후 별도 백필 커밋으로 채운다)
+sync_commit_sha: `4d584371cd6bfe57973d71bbf17e183aaddedeb1`(백필 — 원 sync 커밋에는 `pending-backfill-sync-payment-001` 플레이스홀더로 기록되어 있었고, 이 커밋이 그 SHA를 채운다)
 branch: `WT-payment-pg-webhook`
 base_head_at_sync_entry: `f39edc8`(run-phase 종료 HEAD, closeout 커밋 포함)
 changelog_entry_position: `CHANGELOG.md` `[Unreleased]` 섹션, SPEC-ORDER-001 항목(추가+알려진 한계) 다음, 최하단에 신규 추가(`### 추가 — SPEC-PAYMENT-001: ...` + `### 알려진 한계 — SPEC-PAYMENT-001`)
