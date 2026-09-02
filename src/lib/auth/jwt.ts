@@ -1,5 +1,4 @@
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
-import { randomUUID } from "node:crypto";
 
 /**
  * SPEC-AUTH-001 M2 — shared JWT access-token issuance/verification path.
@@ -64,7 +63,7 @@ export async function signAccessToken(payload: AccessTokenPayload): Promise<stri
     .setExpirationTime(getAccessTokenExpiry())
     .setIssuer(ISSUER)
     .setAudience(AUDIENCE)
-    .setJti(randomUUID())
+    .setJti(crypto.randomUUID())
     .sign(getSecretKey());
 }
 
