@@ -91,6 +91,31 @@ describe("SPEC-DISCOUNT-001 M3 — findCouponByCode (REQ-DISCOUNT-002)", () => {
   });
 });
 
+describe("SPEC-DISCOUNT-001 M4 — incrementRedeemedCountIfAvailable (REQ-DISCOUNT-016/017)", () => {
+  // Added post-sync-audit (F2): this guard was the only coupon-repository
+  // write path with no fast/mocked unit test — the live-DB integration test
+  // covered it, but not in CI (capability-gated). Mirrors
+  // decrementRedeemedCountIfPositive's tests below exactly, one describe up.
+
+  it("increments redeemedCount conditioned on redeemedCount < maxRedemptions", async () => {
+    const tx = { coupon: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) } };
+
+    const count = await repo.incrementRedeemedCountIfAvailable(tx as never, "c-1", 5);
+
+    expect(count).toBe(1);
+    expect(tx.coupon.updateMany).toHaveBeenCalledWith({
+      where: { id: "c-1", redeemedCount: { lt: 5 } },
+      data: { redeemedCount: { increment: 1 } },
+    });
+  });
+
+  it("returns 0 without throwing when redeemedCount already reached maxRedemptions (exhausted)", async () => {
+    const tx = { coupon: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) } };
+
+    await expect(repo.incrementRedeemedCountIfAvailable(tx as never, "c-1", 5)).resolves.toBe(0);
+  });
+});
+
 describe("SPEC-DISCOUNT-001 M5 — decrementRedeemedCountIfPositive (REQ-DISCOUNT-021, design.md §6)", () => {
   it("decrements redeemedCount conditioned on redeemedCount > 0", async () => {
     const tx = { coupon: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) } };
