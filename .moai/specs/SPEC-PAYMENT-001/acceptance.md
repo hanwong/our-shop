@@ -81,11 +81,14 @@ Tier L — AC 상한 25개 이내(현재 20개). 각 항목은 REQ-PAYMENT-XXX �
 
 ### 결제 실패·중단
 
-**AC-PAYMENT-009** — 실패 경로 도착 시 재시도 가능 (REQ-PAYMENT-009)
-- Given: `pending_payment` 상태의 주문
-- When: failUrl(`/checkout/complete/{orderId}?payment_failed=1`)로 되돌아온다
-- Then: 주문 상태가 여전히 `pending_payment`이고, 완료 화면이 재시도 배너와 `<PayButton>`을 함께 렌더한다.
-- 검증 수단: jsdom + Testing Library 렌더 단언 + fake DB 상태 무변경 확인.
+**AC-PAYMENT-009** — 실패 경로 도착 시 재시도 가능, 단 실제 상태가 우선한다 (REQ-PAYMENT-009)
+- Given (i): `pending_payment` 상태의 주문
+- When (i): failUrl(`/checkout/complete/{orderId}?payment_failed=1`)로 되돌아온다
+- Then (i): 주문 상태가 여전히 `pending_payment`이고, 완료 화면이 재시도 배너와 `<PayButton>`을 함께 렌더한다.
+- Given (ii): 이미 `paid`로 전이된 주문(예: 승인 API는 응답이 지연·타임아웃되었으나, 웹훅이 먼저 `DONE`을 보고해 `paid`로 전이시킨 뒤 브라우저가 뒤늦게 failUrl로 되돌아오는 경우)
+- When (ii): 같은 주문에 대해 `?payment_failed=1` 쿼리를 가진 완료 화면 요청이 도착한다
+- Then (ii): 완료 화면은 재시도 배너를 표시하지 않고 "결제가 완료되었습니다" 안내를 렌더한다 — 저장된 실제 상태(`paid`)가 쿼리 파라미터보다 우선한다(design.md §6 상태 우선 원칙).
+- 검증 수단: jsdom + Testing Library 렌더 단언(양쪽 케이스) + fake DB 상태 확인.
 
 **AC-PAYMENT-010** — 새 상태값이 추가되지 않는다 (REQ-PAYMENT-010)
 - Given: 이 SPEC이 추가·수정한 전체 산출물

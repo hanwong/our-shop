@@ -69,7 +69,9 @@ Tier L — 요구사항 상한 25개 이내(현재 20개).
 - **REQ-PAYMENT-005** (When): 게스트가 결제 대기 상태인 자신의 주문 완료 화면에서 결제를 시작하면, 화면은 PG 결제창을 그 주문의 `orderId`·주문명(`orderName`)·금액(`Order.totalAmount`)으로 호출해야 하며, `orderName`은 그 주문의 첫 번째 `OrderItem.productName`에 나머지 항목 수를 "외 N건"으로 덧붙인 문자열로 도출되어야 한다(단일 항목 주문은 "외 N건" 접미사 없이 상품명 그대로, 도출 규칙은 design.md §6 참조).
 - **REQ-PAYMENT-006** (When): 결제 성공 리다이렉트(`paymentKey`·`orderId`·`amount` 쿼리 파라미터)가 도착하면, 결제 서비스는 승인(confirm) API를 호출하기 전에 그 `amount`를 대상 주문의 `totalAmount`와 대조해야 하며, 다르면 승인 API를 호출하지 않고 거부해야 한다.
 - **REQ-PAYMENT-007** (When): `amount`가 일치하면, 결제 서비스는 승인 API를 호출해야 하며, 승인이 성공하면 대상 주문이 그 시점에 여전히 `pending_payment`인 조건 아래에서만 `paid`로 전이시켜야 한다.
-- **REQ-PAYMENT-008** (When — 이벤트 탐지형): 승인 API 호출이 실패하거나(네트워크 오류·PG 거부) 대상 주문이 이미 `pending_payment`가 아니면, 결제 서비스는 주문 상태를 변경하지 않고 재시도 가능함을 알리는 오류를 반환해야 한다.
+- **REQ-PAYMENT-008** (When — 이벤트 탐지형): 승인 처리는 다음 두 조건을 구분해서 응답해야 한다.
+  - (a) 승인 API 호출이 실패하거나(네트워크 오류·PG 거부), 또는 대상 주문이 이미 이번 이벤트와 **다른** `paymentKey`로 확정되어 있으면, 결제 서비스는 주문 상태를 변경하지 않고 재시도 가능함을 알리는 오류를 반환해야 하며, 후자(`paymentKey` 불일치)의 경우 그 거부 사실을 REQ-PAYMENT-004에 따라 `PaymentAuditLog`에 기록해야 한다.
+  - (b) 대상 주문이 이미 이번 이벤트와 **같은** `paymentKey`로 `paid` 상태이면(멱등 재시도), 결제 서비스는 오류 없이 성공으로 처리하고 완료 화면으로 정상 리다이렉트해야 하며, 새로운 `PaymentAuditLog`를 기록해서는 안 된다.
 
 ### 결제 실패·중단
 

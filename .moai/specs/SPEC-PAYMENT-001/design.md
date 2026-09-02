@@ -167,7 +167,10 @@ POST /api/payments/webhook
   ├─ status === "pending_payment" → 기존 안내 문구 + <PayButton orderId totalAmount />
   ├─ status === "paid"            → "결제가 완료되었습니다" 안내 (새 문구)
   ├─ status === "cancelled"       → "이 주문은 취소되었습니다" 안내 (새 문구)
-  └─ ?payment_failed=1 쿼리 존재  → 위 문구 위에 재시도 안내 배너 추가(REQ-PAYMENT-009)
+  └─ ?payment_failed=1 쿼리 존재 && status === "pending_payment"
+                                  → 위 문구 위에 재시도 안내 배너 추가(REQ-PAYMENT-009)
+     ※ status가 "paid" 또는 "cancelled"이면 ?payment_failed=1이 있어도 배너를 표시하지 않는다
+       (상태 우선 원칙 — 실제 저장된 상태가 쿼리 파라미터보다 우선한다. acceptance.md AC-PAYMENT-009 참조)
 
 <PayButton>                      "use client" — Toss SDK 결제창 호출만
   └─ onClick → SDK.requestPayment({ orderId, amount: totalAmount, orderName,
