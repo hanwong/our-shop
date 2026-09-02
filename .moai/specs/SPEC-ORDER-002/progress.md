@@ -891,7 +891,7 @@ SPEC-ORDER-002는 동시성 전략을 새로 고르지 않았다. 조건부 원�
 
 ```yaml
 sync_complete_at: 2026-09-02
-sync_commit_sha: pending-backfill-SPEC-ORDER-002-sync   # 자신의 SHA는 착륙 후에만 알 수 있어 후속 커밋에서 backfill (D3 예외)
+sync_commit_sha: 07c3887ff332c73e8ebcbcabc6f9629711d7cbbf   # sync 커밋. 자신의 SHA는 착륙 후에만 알 수 있어 후속 커밋에서 backfill (D3 예외)
 sync_status: audit-ready
 
 b12_self_test_a: "grep -c 'SPEC-ORDER-002' CHANGELOG.md → 0 (실행 시점) — 중복 없음 확인 후 이번 커밋으로 신규 추가"
