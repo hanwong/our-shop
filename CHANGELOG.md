@@ -31,6 +31,35 @@ A post-implementation security audit (independent quality + security review) fou
 - No live PostgreSQL instance was available during development; the schema was validated via `prisma validate` / `generate` / `migrate diff` only, never `migrate dev` against a real database.
 - A `tar` critical dependency advisory (via `bcrypt`'s install-time `node-pre-gyp` dependency) remains unresolved — tracked separately, not shipped-and-forgotten.
 
+### 추가 — SPEC-DISCOUNT-001: 쿠폰·할인 정책 계산 엔진 (게스트 주문)
+
+- Prisma 스키마: `Coupon` 모델(코드는 대문자 정규화, 정률/정액 두 유형만 존재하는 `DiscountType` enum, 유효 기간·최소 주문 금액·전역 사용 상한 `maxRedemptions`·누적 사용 `redeemedCount`)과 `Order`의 스냅샷 컬럼 2개(`couponCode`, `discountAmount`). 검증용 쿠폰 시드 스크립트(`prisma/seed-coupons.ts`) 포함. 마이그레이션: `prisma/migrations/20260902142631_add_coupon_discount/`.
+- `src/features/discounts/services/discount-engine.ts` — **순수 함수** 할인 계산 엔진(DB·시계·난수·네트워크 접근 없음, `grep`으로 확인). 할인은 `itemsSubtotal`에만 적용되고 배송비는 건드리지 않는다. 정률 쿠폰은 원 단위 **내림**(`floor`)으로 계산하며, 산출된 할인액은 `itemsSubtotal`을 넘지 않도록 상한이 적용되어 `totalAmount`가 음수가 되지 않는다.
+- `src/features/discounts/services/discount-service.ts`(`validateCoupon`) — 쿠폰 거절 사유 4종을 모두 409로 응답한다: `COUPON_NOT_FOUND`·`COUPON_EXPIRED`·`COUPON_MINIMUM_NOT_MET`(요구 최소 금액 동봉)·`COUPON_EXHAUSTED`.
+- `order-service.ts` 주문 생성 트랜잭션에 쿠폰 검증·할인 산출·사용 횟수 증가를 통합했다. 사용 횟수 증가는 **조건부 원자 갱신**(상한 미만을 조건으로 `updateMany`, 영향 행 수로 성공 판정)이라 마지막 한 장을 두 주문이 동시에 요청해도 상한을 넘지 않는다 — 경쟁에서 진 쪽은 `COUPON_EXHAUSTED`로 거절된다. `confirmedTotal` 교차 검사는 할인 반영 후 금액과 대조되도록 옮겨 붙였다. 쿠폰을 쓰지 않는 기존 주문의 금액 계산·응답 형태는 그대로다.
+- `payment-repository.ts`의 결제 취소 트랜잭션(재고 복원)에 쿠폰 사용분 해제를 같은 트랜잭션 안에 얹었다 — `payment-service.ts`의 금액 검사 로직은 **한 글자도 바뀌지 않았다**(diff 0줄로 확인). 결제 승인 시의 금액 대조도 `Order.totalAmount`를 그대로 읽으므로 무변경이다.
+- `POST /api/discounts/validate`(사전 검증, 무쓰기) — 코드와 `itemsSubtotal`을 받아 할인액 또는 거절 사유만 돌려주고 `Coupon.redeemedCount`를 포함해 어떤 행도 쓰지 않는다. 응답은 주문 시점 적용 가능성을 보장하지 않으며, 실제 강제는 주문 생성 트랜잭션의 조건부 원자 갱신만이 수행한다.
+- 체크아웃 화면(`checkout/page.tsx`, `CheckoutInteractive.tsx`, `OrderSummary`/`CheckoutForm` 확장) — 쿠폰 코드 입력란과 적용 결과 표시 영역을 최소 범위로 추가했다. 할인이 0보다 클 때만 할인 행을 표시하며, 4종 거절 사유마다 서로 구별되는 문구를 보여준다(스타일링·UX 다듬기는 백로그 카드 `t10`이 후속으로 가져간다).
+- 사용 제한은 **전역 총량 상한**(`maxRedemptions`)뿐이다 — 이 SPEC은 인별(1인 1회) 사용 제한을 제공한다고 주장하지 않는다. 게스트 주문의 유일한 신원인 `Order.guestId`가 쿠키에서 오고 쿠키는 지워질 수 있어 강제할 수단이 없기 때문이다(REQ-DISCOUNT-022).
+- 인수 기준 25개(AC-DISCOUNT-001~025) 전부 이 개발 환경에서 관측 가능한 형태로 PASS. AC-DISCOUNT-016(쿠폰 사용 횟수 동시성)은 실제 살아 있는 PostgreSQL에서 실제로 실행되어 통과했다(SKIPPED 아님) — 다만 이 저장소의 CI 워크플로에는 `services: postgres`가 없어 **CI에서는 이 AC가 판정되지 않고 개발자 기계에서만 닫힌다**(SPEC-ORDER-002 AC-026-EXCL-CONCURRENCY와 동일한 능력 게이트 패턴, plan-phase에서 미리 이름 붙여 수용한 공백).
+
+### plan-audit 이력 — SPEC-DISCOUNT-001
+
+plan-audit는 세 차례 실행되어 점수가 0.79 → 0.90 → 0.95로 올랐지만, 세 번 다 형식상 FAIL로 끝났다(3회 재시도 상한 도달). 마지막 반복의 유일한 잔여 결함은 research.md 한 문장의 자기모순("아직 plan-audit를 거치지 않았다"는, 그 시점엔 이미 거짓인 문장)이었고 이후 수정되었다. 재범위축소나 요구사항 변경은 없었다 — 설계·요구사항·run-phase 산출물에 영향이 없는 연구 문서 한 문장의 문제였다. 이 SPEC은 관측된 PASS가 아니라 **PASS-with-debt**로 run-phase에 진입했다(자세한 내용은 `.moai/specs/SPEC-DISCOUNT-001/progress.md` §E.1 참고).
+
+### Fixed — sync-phase quality review (2026-09-03)
+
+두 건의 독립적인 sync-phase 검토가 run-phase 종료 후 실제 결함을 찾았고, 둘 다 이 SPEC이 머지되기 전에 닫혔다:
+
+- **F1 [High, blocking] — 통합 테스트 2종의 DB 도달성 게이트 누락**(sync-auditor `--deep`, 초기 판정 FAIL): `tests/integration/discounts/coupon-model.test.ts`와 `tests/integration/discounts/validate-write-free.test.ts`가 도달성 게이트 없이 실제 PostgreSQL 연결을 열었다. 이 저장소의 CI `DATABASE_URL`은 영구적으로 도달 불가능한 자리표시자라, 다음 push에서 CI의 필수 `verify` 검사를 확실히 실패시켰을 결함이다. `concurrency.postgres.test.ts`(SPEC-ORDER-002 M4)가 세운 선례(모듈 로드 시 1회 도달성 프로브 → 이름 붙은 사유로 스킵 → "조용히 스킵하지 않음" 게이트 무결성 테스트)를 그대로 미러링해 닫았다. 커밋 `f2d8cc2`.
+- **H1 [High] — `POST /api/discounts/validate`의 속도 제한 부재 + 코드 열거 오라클**(보안 리뷰, OWASP): 인증도 속도 제한도 없이 쿠폰 코드마다 서로 구별되는 4가지 실패 상태를 반환해, 유효한 쿠폰 코드를 스크립트로 탐색할 수 있는 오라클이었다. plan-phase(design.md §5 / research.md §5)에서 이미 정직하게 공개된 공백이었지만 사용자에게 수용 위험으로 확인받은 적이 없었고 추적 카드도 없었다. 사용자에게 제시했고 **지금 고치기**로 결정되었다. `/api/auth/login`이 이미 쓰는 `checkIpRateLimit`을 `"discount-validate"` 전용 버킷으로 재사용해 닫았다. 커밋 `da5f75d`.
+
+### 알려진 한계 — SPEC-DISCOUNT-001
+
+- **AC-DISCOUNT-016(쿠폰 사용 횟수 동시성)은 개발자 기계에서만 닫힌 관측이다** — CI에는 `services: postgres`가 없어 CI 기준으로는 판정되지 않는다(plan-phase에서 미리 수용한 공백, SPEC-ORDER-002와 동일한 패턴).
+- **인별(1인 1회) 사용 제한은 제공하지 않는다.** 전역 총량 상한만 있으며, 게스트 신원(쿠키)이 지워질 수 있어 인별 제한을 강제할 수단이 없다(REQ-DISCOUNT-022, plan-phase에서 확정된 결정).
+- 무료배송 쿠폰, 쿠폰 중복 적용(스태킹), 관리자 쿠폰 저작 화면/API, 상품·카테고리 한정 쿠폰, 코드 없는 자동 적용 프로모션, 미결제 이탈 주문의 쿠폰 사용분 **시간 기반** 자동 해제(결제 취소 웹훅 도달 시 해제는 지원한다)는 모두 이번 범위 밖이다. 시간 기반 해제의 소유자는 아직 정해지지 않았고, 이를 다룰 백로그 카드도 아직 없다(카드 `t21`과 같은 성격의 공백).
+
 ### 추가 — SPEC-CATALOG-001: 상품 카탈로그 도메인 모델과 공개 목록/상세 API
 
 - Prisma 스키마: `Category`(`name`·`slug` 고유, `slug`는 목록 API의 필터 키)와 `Product`(`name`, `price`는 `Decimal`이 아닌 원화 정수, `description`, 표시 순서를 그대로 담는 문자열 배열 `images`, `stock`, `categoryId`). 카테고리는 enum이 아니라 테이블이므로 스키마 마이그레이션 없이 추가·이름 변경이 가능하다. `Product`는 인덱스 3개를 갖는다 — `categoryId`(필터), `createdAt`(기본 정렬 `newest`), `price`(`price_asc`/`price_desc` 정렬). 마이그레이션: `prisma/migrations/20260828015400_add_catalog_models/`.

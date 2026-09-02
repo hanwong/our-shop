@@ -1,6 +1,6 @@
 ---
 id: SPEC-DISCOUNT-001
-status: in-progress
+status: completed
 updated: 2026-09-03
 tier: L
 ---
@@ -304,4 +304,25 @@ fold-at: 2026-09-03T00:40:00+09:00
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+sync_complete_at: 2026-09-03
+sync_commit_sha: pending-backfill-SPEC-DISCOUNT-001-sync
+sync_status: audit-ready
+
+**두 건의 독립적인 sync-phase 검토가 실행되어 실제 결함을 찾았고, 둘 다 이 sync 커밋 이전에 이미 닫혔다.**
+
+- **sync-auditor(`--deep`) 판정: FAIL** — 근거: `.moai/reports/sync-audit/SPEC-DISCOUNT-001-2026-09-03.md`(커밋 `b7d2ff3`). 차단 결함 **F1 [High]**: `tests/integration/discounts/coupon-model.test.ts`·`tests/integration/discounts/validate-write-free.test.ts`가 DB 도달성 게이트 없이 실제 PostgreSQL 연결을 열어, CI의 자리표시자 `DATABASE_URL`에서 필수 `verify` 검사를 확실히 실패시켰을 결함. 오케스트레이터가 직접 재현(CI 자리표시자로 4개 테스트 실패 관측)한 뒤 `concurrency.postgres.test.ts`(SPEC-ORDER-002 M4) 패턴을 미러링해 두 파일을 수정 — 커밋 `f2d8cc2`. 수정 후 검증: 자리표시자 DB 대상 실행은 exit 0로 깔끔히 스킵(스킵 사유 명시), 실 DB 실행은 전체 테스트를 실제로 수행, 전체 스위트 899/899, typecheck/lint exit 0.
+- **보안 리뷰(OWASP, general-purpose)**: **H1 [High]** — `POST /api/discounts/validate`가 인증·속도 제한 없이 쿠폰 코드마다 4가지 구별 가능한 실패 상태를 반환해 코드 열거 오라클이 됨. plan-phase(design.md §5 / research.md §5)에서 이미 정직하게 공개된 공백이었으나 사용자 수용 확인이 없었고 추적 카드도 없었다. 오케스트레이터가 AskUserQuestion으로 사용자에게 제시했고, 사용자는 "지금 고치기"를 선택했다(연기 + 백로그 카드 대신). `/api/auth/login`이 쓰는 `checkIpRateLimit`을 `"discount-validate"` 전용 버킷으로 재사용해 닫음 — 커밋 `da5f75d`. 기존 테스트 2건에 `__resetRateLimitStoreForTests()` 리셋을 추가해야 했다(같은 자기간섭 패턴을 `login.test.ts`의 AC-AUTH-005 테스트가 이미 문서화). 수정 후 검증: typecheck/lint exit 0, 수정된 3개 파일 자체 테스트 19/19, 전체 스위트 899/899.
+- F1과 H1 모두 **닫힌 결함**이며 재오픈하지 않는다. design.md/research.md는 plan-phase 시점 스냅샷이므로 수정하지 않았다 — 수정 결과는 이 문서와 CHANGELOG/README에만 반영했다.
+
+**B12 self-test 결과** (`.claude/rules/moai/development/manager-develop-prompt-template.md` §B12):
+1. Pre-emission grep: `grep -c 'SPEC-DISCOUNT-001' CHANGELOG.md` → `0` (작성 전 확인, 중복 없음).
+2. AC count match: `grep -oE 'AC-DISCOUNT-[0-9]+' acceptance.md | sort -u | wc -l` → `25`, CHANGELOG 본문이 "인수 기준 25개(AC-DISCOUNT-001~025) 전부 PASS"로 동일 개수를 인용함.
+3. File path verification: CHANGELOG/README에 언급된 경로(`prisma/schema.prisma`, `prisma/seed-coupons.ts`, `src/features/discounts/services/discount-engine.ts`, `src/features/discounts/services/discount-service.ts`, `src/app/api/discounts/validate/route.ts`, `src/components/checkout/CheckoutInteractive.tsx`, `payment-repository.ts`)를 `ls`로 직접 확인 — 전부 존재.
+
+**프론트매터 상태 전환**: `spec.md`(`status: in-progress → completed`, `updated: 2026-09-02 → 2026-09-03`)와 `progress.md`(동일 전환)만 전환했다. `plan.md`/`acceptance.md`/`design.md`/`research.md`는 12필드 프론트매터 자체가 없는 Tier L 산출물이라(직접 확인 — 4개 파일 모두 `#` 헤딩으로 바로 시작) 전환 대상이 아니며 건드리지 않았다. spec.md 본문 내용도 건드리지 않았다.
+
+**동기화된 항목**: `CHANGELOG.md`(`[Unreleased]` 섹션, SPEC-DISCOUNT-001 추가 항목 + plan-audit 이력 + sync-phase 발견 2건 수정 + 알려진 한계), `README.md`(신규 `## 쿠폰·할인 (SPEC-DISCOUNT-001)` 섹션).
+
+**MX 태그 스캔**: 변경/신규 파일(`src/features/discounts/**`, `src/app/api/discounts/validate/route.ts`, H1 수정 대상 3파일)의 export 함수 fan-in을 직접 셌다 — `findCouponByCode`(2), `validateCoupon`(2), `incrementRedeemedCountIfAvailable`(1), `decrementRedeemedCountIfPositive`(1) 전부 `@MX:ANCHOR` 임계값(fan_in≥3) 미달. `calculateDiscount`는 이미 `@MX:ANCHOR`가 있다(discount-engine.ts:22). `/api/discounts/validate` route 핸들러는 이미 try/catch로 감싸져 있어 P2(async 미포착) 위반 없음. 추가 태그 없음.
+
+fold-at: 2026-09-03T01:15:00+09:00

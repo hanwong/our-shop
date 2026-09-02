@@ -2,9 +2,9 @@
 id: SPEC-DISCOUNT-001
 title: "쿠폰·할인 정책 계산 엔진 (게스트 주문)"
 version: "0.2.0"
-status: in-progress
+status: completed
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-03
 author: snake
 priority: P2
 phase: "v0.2.0 target"
