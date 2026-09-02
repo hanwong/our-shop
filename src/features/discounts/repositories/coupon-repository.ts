@@ -47,3 +47,40 @@ export async function findCouponByCode(
 ): Promise<Coupon | null> {
   return client.coupon.findUnique({ where: { code: code.toUpperCase() } });
 }
+
+// ---------------------------------------------------------------------------
+// Writes — transaction client REQUIRED, no singleton default
+// ---------------------------------------------------------------------------
+
+/**
+ * Conditionally increments a coupon's redemption count, but only while it is
+ * still under `maxRedemptions` (SPEC-DISCOUNT-001 M4, design.md §3.2).
+ *
+ * Mirrors order-repository.ts's `decrementStockIfAvailable` shape exactly, for
+ * the same reason: `updateMany`, not `update`, because the condition
+ * (`redeemedCount < maxRedemptions`) is a NON-UNIQUE WHERE clause, and only
+ * `updateMany` can express one. A plain read-then-write would let two
+ * concurrent orders both observe an available slot and both increment,
+ * silently exceeding `maxRedemptions` — precisely the oversell this atomic
+ * update prevents (REQ-DISCOUNT-016).
+ *
+ * Takes NO singleton default — like `findStockByProductIds`, the only caller
+ * is inside the order transaction (design.md §3.1's step 3f), and the count
+ * this function guards must be read and written on that SAME transaction
+ * client or the atomicity claim is void.
+ *
+ * Returns the number of rows changed: 1 when the increment happened, 0 when
+ * the coupon had already reached `maxRedemptions` — the caller needs no
+ * second read (REQ-DISCOUNT-017).
+ */
+export async function incrementRedeemedCountIfAvailable(
+  tx: Prisma.TransactionClient,
+  couponId: string,
+  maxRedemptions: number
+): Promise<number> {
+  const updated = await tx.coupon.updateMany({
+    where: { id: couponId, redeemedCount: { lt: maxRedemptions } },
+    data: { redeemedCount: { increment: 1 } },
+  });
+  return updated.count;
+}

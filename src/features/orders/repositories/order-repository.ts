@@ -59,6 +59,9 @@ export interface CreateOrderRow {
   itemsSubtotal: number;
   shippingFee: number;
   totalAmount: number;
+  /** SPEC-DISCOUNT-001 M4 — the applied discount snapshot. `null`/`0` for none. */
+  couponCode: string | null;
+  discountAmount: number;
   items: Array<{
     productId: string;
     productName: string;

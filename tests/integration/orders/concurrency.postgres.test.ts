@@ -90,6 +90,22 @@ async function makeCategory() {
   });
 }
 
+/** SPEC-DISCOUNT-001 M4 — a coupon fixture for the AC-DISCOUNT-016 race. */
+async function makeCoupon(suffix: string, maxRedemptions: number) {
+  const { DiscountType } = await import("@prisma/client");
+  return prisma.coupon.create({
+    data: {
+      code: `${RUN}-${suffix}`.toUpperCase(),
+      type: DiscountType.FIXED_AMOUNT,
+      value: 100,
+      minOrderAmount: 0,
+      maxRedemptions,
+      startsAt: new Date("2026-01-01T00:00:00Z"),
+      endsAt: new Date("2026-12-31T23:59:59Z"),
+    },
+  });
+}
+
 async function makeProduct(suffix: string, stock: number, price = 1000) {
   return prisma.product.create({
     data: {
@@ -141,11 +157,14 @@ afterAll(async () => {
   if (reachable) {
     // Orders first: OrderItem.product is Restrict, so a product cannot be
     // deleted while an order line still points at it. Deleting the order
-    // cascades its lines and clears the way.
+    // cascades its lines and clears the way. Coupons carry no FK to Order
+    // (design.md §1.2 — a snapshot, not a relation), so their cleanup order
+    // does not matter relative to the order delete.
     await prisma.order.deleteMany({ where: { guestId: { startsWith: RUN } } });
     await prisma.cart.deleteMany({ where: { guestId: { startsWith: RUN } } });
     await prisma.product.deleteMany({ where: { id: { startsWith: RUN } } });
     await prisma.category.deleteMany({ where: { id: { startsWith: RUN } } });
+    await prisma.coupon.deleteMany({ where: { code: { startsWith: RUN.toUpperCase() } } });
   }
   await prisma.$disconnect();
 });
@@ -462,6 +481,97 @@ describe.skipIf(!reachable)(
       // It would have returned false before the fix: the error carries no
       // `code`, and the predicate tested only `code === "P2034"`.
       expect(isTransactionConflict(rejected.reason)).toBe(true);
+    });
+  }
+);
+
+// ---------------------------------------------------------------------------
+// SPEC-DISCOUNT-001 M4 — REQ-DISCOUNT-016 (conditional atomic redemption
+// increment), the coupon's own race, against the SAME live PostgreSQL.
+// ---------------------------------------------------------------------------
+
+describe.skipIf(!reachable)(
+  "SPEC-DISCOUNT-001 M4 — two orders, one coupon redemption (REQ-DISCOUNT-016/017, AC-DISCOUNT-016/017)",
+  () => {
+    const PRODUCT = `${RUN}-coupon-solo`;
+    const GUEST_E = `${RUN}-guest-e`;
+    const GUEST_F = `${RUN}-guest-f`;
+
+    /** maxRedemptions = 1 — the contended resource. Stock is plentiful, so
+     * only the coupon's own conditional update is under test here; the
+     * product-stock race is already covered above. */
+    let coupon: { id: string; code: string };
+
+    let settled: PromiseSettledResult<Awaited<ReturnType<typeof createOrder>>>[];
+
+    /** itemsSubtotal 1000 (FIXED_AMOUNT 100 discount) -> totalAmount 900. */
+    function couponOrderBody(key: string) {
+      return { shipping: SHIPPING, idempotencyKey: `${RUN}-${key}`, couponCode: coupon.code, confirmedTotal: 900 };
+    }
+
+    beforeAll(async () => {
+      coupon = await makeCoupon("coupon-solo", 1);
+      await makeProduct("coupon-solo", 100);
+      await makeCart(GUEST_E, [{ productId: PRODUCT, quantity: 1 }]);
+      await makeCart(GUEST_F, [{ productId: PRODUCT, quantity: 1 }]);
+
+      settled = await Promise.allSettled([
+        createOrder(GUEST_E, couponOrderBody("e")),
+        createOrder(GUEST_F, couponOrderBody("f")),
+      ]);
+
+      console.log(
+        `[SPEC-DISCOUNT-001 M4] coupon-race outcomes: ${settled
+          .map((result) =>
+            result.status === "rejected"
+              ? `REJECTED(${(result.reason as Error).message.split("\n")[0]})`
+              : result.value.ok
+                ? "ok"
+                : `refused(${"code" in result.value ? result.value.code : result.value.status})`
+          )
+          .join(", ")}`
+      );
+    }, 30000);
+
+    it("settles both orders — neither escapes as an unhandled error", () => {
+      expect(settled.map((result) => result.status)).toEqual(["fulfilled", "fulfilled"]);
+    });
+
+    it("lets exactly ONE of them succeed", () => {
+      const succeeded = settled.filter(
+        (result) => result.status === "fulfilled" && result.value.ok
+      );
+
+      // This is the assertion the milestone exists for. Both succeeding would
+      // exceed maxRedemptions; neither succeeding means the guard is too strict.
+      expect(succeeded).toHaveLength(1);
+    });
+
+    it("refuses the loser with 409 COUPON_EXHAUSTED — never an unclassified error", () => {
+      const refused = settled.find((result) => result.status === "fulfilled" && !result.value.ok);
+      expect(refused).toBeDefined();
+      if (refused?.status !== "fulfilled" || refused.value.ok) return;
+
+      expect(refused.value.status).toBe(409);
+      expect("code" in refused.value ? refused.value.code : undefined).toBe("COUPON_EXHAUSTED");
+    });
+
+    it("leaves redeemedCount at exactly 1 — never exceeding maxRedemptions", async () => {
+      const row = await prisma.coupon.findUnique({ where: { id: coupon.id } });
+
+      // Negative or >1 would be the observable signature of a lost update —
+      // two increments that both believed they had the last redemption.
+      expect(row?.redeemedCount).toBe(1);
+    });
+
+    it("creates exactly ONE order, carrying the coupon snapshot", async () => {
+      const orders = await prisma.order.findMany({
+        where: { guestId: { in: [GUEST_E, GUEST_F] } },
+      });
+
+      expect(orders).toHaveLength(1);
+      expect(orders[0]!.couponCode).toBe(coupon.code);
+      expect(orders[0]!.discountAmount).toBe(100);
     });
   }
 );

@@ -63,8 +63,22 @@ interface FakeOrder {
   itemsSubtotal: number;
   shippingFee: number;
   totalAmount: number;
+  couponCode: string | null;
+  discountAmount: number;
   idempotencyKey: string;
   createdAt: Date;
+}
+interface FakeCoupon {
+  id: string;
+  code: string;
+  type: "PERCENTAGE" | "FIXED_AMOUNT";
+  value: number;
+  minOrderAmount: number;
+  maxRedemptions: number;
+  redeemedCount: number;
+  startsAt: Date;
+  endsAt: Date;
+  updatedAt: Date;
 }
 interface FakeOrderItem {
   id: string;
@@ -83,6 +97,7 @@ interface Store {
   products: FakeProduct[];
   orders: FakeOrder[];
   orderItems: FakeOrderItem[];
+  coupons: FakeCoupon[];
   seq: number;
 }
 
@@ -294,6 +309,27 @@ const client = {
       return { id: row.id };
     },
   },
+  coupon: {
+    // Mirrors coupon-repository.ts's findCouponByCode: normalizes to
+    // uppercase before the lookup (REQ-DISCOUNT-002).
+    findUnique: ({ where }: { where: { code: string } }) =>
+      store.coupons.find((c) => c.code === where.code.toUpperCase()) ?? null,
+    // Mirrors coupon-repository.ts's incrementRedeemedCountIfAvailable — the
+    // same conditional-atomic-update shape as product.updateMany above.
+    updateMany: ({
+      where,
+      data,
+    }: {
+      where: { id: string; redeemedCount: { lt: number } };
+      data: { redeemedCount: { increment: number } };
+    }) => {
+      const coupon = store.coupons.find((c) => c.id === where.id);
+      if (!coupon || coupon.redeemedCount >= where.redeemedCount.lt) return { count: 0 };
+      coupon.redeemedCount += data.redeemedCount.increment;
+      coupon.updatedAt = new Date();
+      return { count: 1 };
+    },
+  },
 };
 
 vi.mock("@/lib/db", () => ({
@@ -355,6 +391,7 @@ beforeEach(() => {
     cartItems: [],
     orders: [],
     orderItems: [],
+    coupons: [],
     seq: 0,
     products: [
       { id: "A", name: "클래식 데님 재킷", price: 10000, images: ["a.jpg"], stock: 10 },
@@ -651,6 +688,8 @@ describe("SPEC-ORDER-001 — a resubmitted order is still one order (AC-ORDER-01
         itemsSubtotal: 30000,
         shippingFee: 0,
         totalAmount: 30000,
+        couponCode: null,
+        discountAmount: 0,
         idempotencyKey: "race-key",
         createdAt: new Date("2026-08-31T00:00:00.000Z"),
       });
@@ -728,6 +767,8 @@ function victimRow(idempotencyKey: string): FakeOrder {
     itemsSubtotal: 30000,
     shippingFee: 0,
     totalAmount: 30000,
+    couponCode: null,
+    discountAmount: 0,
     idempotencyKey,
     createdAt: new Date("2026-08-31T00:00:00.000Z"),
   };
@@ -826,5 +867,103 @@ describe("SPEC-ORDER-001 — a member submission is refused end to end (AC-ORDER
     expect(store.orders).toHaveLength(0);
     expect(store.products.find((p) => p.id === "A")!.stock).toBe(10);
     await expect(readCart()).resolves.toMatchObject({ itemCount: 3 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SPEC-DISCOUNT-001 M4 — order-transaction integration, driven end to end
+// ---------------------------------------------------------------------------
+
+function pushCoupon(overrides: Partial<FakeCoupon> & { code: string }) {
+  store.coupons.push({
+    id: `coupon-${++store.seq}`,
+    type: "PERCENTAGE",
+    value: 10,
+    minOrderAmount: 0,
+    maxRedemptions: 100,
+    redeemedCount: 0,
+    startsAt: new Date("2026-01-01T00:00:00Z"),
+    endsAt: new Date("2026-12-31T23:59:59Z"),
+    updatedAt: new Date("2026-01-01T00:00:00Z"),
+    ...overrides,
+  });
+}
+
+describe("SPEC-DISCOUNT-001 M4 — the applied discount is a snapshot, not a join (AC-DISCOUNT-014)", () => {
+  it("keeps couponCode, discountAmount and totalAmount after the coupon changes or is deleted", async () => {
+    pushCoupon({ code: "SAVE10", value: 10 });
+    await addToCart("A", 3); // 3 x 10,000 = 30,000
+
+    const created = await (
+      await submitOrder({
+        shipping: SHIPPING,
+        idempotencyKey: "coupon-key",
+        couponCode: "save10",
+        confirmedTotal: 27000, // 30,000 - 3,000 (10%)
+      })
+    ).json();
+
+    expect(created.couponCode).toBe("SAVE10");
+    expect(created.discountAmount).toBe(3000);
+    expect(created.totalAmount).toBe(27000);
+
+    // The coupon's value changes and the row is deleted entirely — neither
+    // moves the already-created order's numbers, because Order.couponCode /
+    // discountAmount are a snapshot copy, not a foreign key (design.md §1.2).
+    const coupon = store.coupons.find((c) => c.code === "SAVE10")!;
+    coupon.value = 50;
+    store.coupons = store.coupons.filter((c) => c.code !== "SAVE10");
+
+    const { getOrderForGuest } = await import("@/features/orders/services/order-service");
+    const reread = await getOrderForGuest(created.id, GUEST);
+
+    expect(reread!.couponCode).toBe("SAVE10");
+    expect(reread!.discountAmount).toBe(3000);
+    expect(reread!.totalAmount).toBe(27000);
+  });
+
+  it("increments the coupon's redeemedCount inside the order transaction (REQ-DISCOUNT-015/016)", async () => {
+    pushCoupon({ code: "SAVE10", value: 10 });
+    await addToCart("A", 3);
+
+    await submitOrder({
+      shipping: SHIPPING,
+      idempotencyKey: "coupon-key-2",
+      couponCode: "save10",
+      confirmedTotal: 27000,
+    });
+
+    expect(store.coupons.find((c) => c.code === "SAVE10")!.redeemedCount).toBe(1);
+  });
+});
+
+describe("SPEC-DISCOUNT-001 M4 — a coupon already at its cap is refused end to end (REQ-DISCOUNT-012/017)", () => {
+  it("returns 409 COUPON_EXHAUSTED and creates no order, decrements no stock", async () => {
+    pushCoupon({ code: "GONE10", maxRedemptions: 1, redeemedCount: 1 });
+    await addToCart("A", 1);
+
+    const response = await submitOrder({
+      shipping: SHIPPING,
+      idempotencyKey: "exhausted-key",
+      couponCode: "gone10",
+      confirmedTotal: 9000,
+    });
+    const responseBody = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(responseBody.code).toBe("COUPON_EXHAUSTED");
+    expect(store.orders).toHaveLength(0);
+    expect(store.products.find((p) => p.id === "A")!.stock).toBe(10);
+  });
+});
+
+describe("SPEC-DISCOUNT-001 M4 — a submission with no coupon is unchanged end to end (REQ-DISCOUNT-019, AC-DISCOUNT-019)", () => {
+  it("creates the order with discountAmount 0 and couponCode null", async () => {
+    await addToCart("A", 2);
+
+    const created = await (await submitOrder(orderBody(20000))).json();
+
+    expect(created.discountAmount).toBe(0);
+    expect(created.couponCode).toBeNull();
   });
 });

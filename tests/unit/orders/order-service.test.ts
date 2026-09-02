@@ -41,6 +41,16 @@ const cartRepo = {
 };
 vi.mock("@/features/cart/repositories/cart-repository", () => cartRepo);
 
+const discountService = {
+  validateCoupon: vi.fn(),
+};
+vi.mock("@/features/discounts/services/discount-service", () => discountService);
+
+const couponRepo = {
+  incrementRedeemedCountIfAvailable: vi.fn(),
+};
+vi.mock("@/features/discounts/repositories/coupon-repository", () => couponRepo);
+
 const service = await import("@/features/orders/services/order-service");
 
 const SHIPPING = {
@@ -50,6 +60,24 @@ const SHIPPING = {
   address: "서울시 강남구 테헤란로 1",
   deliveryMemo: null,
 };
+
+/** A valid, unexhausted 10%-off coupon, code SAVE10 (SPEC-DISCOUNT-001 M4). */
+function validCoupon(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "coupon-1",
+    code: "SAVE10",
+    type: "PERCENTAGE",
+    value: 10,
+    minOrderAmount: 0,
+    maxRedemptions: 100,
+    redeemedCount: 0,
+    startsAt: new Date("2026-01-01T00:00:00Z"),
+    endsAt: new Date("2026-12-31T23:59:59Z"),
+    createdAt: new Date("2026-01-01T00:00:00Z"),
+    updatedAt: new Date("2026-01-01T00:00:00Z"),
+    ...overrides,
+  };
+}
 
 /** A cart of one product: 2 × 10,000 = 20,000, with plenty of stock. */
 function cartWith(
@@ -930,5 +958,210 @@ describe("SPEC-ORDER-001 M3 — getOrderForGuest (REQ-ORDER-020)", () => {
     // Null, not a thrown error: the caller renders notFound(), so a stranger
     // cannot tell "wrong owner" from "no such order" (design.md §6.3).
     await expect(service.getOrderForGuest("order-1", "G2")).resolves.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SPEC-DISCOUNT-001 M4 — order-transaction integration
+// ---------------------------------------------------------------------------
+
+describe("SPEC-DISCOUNT-001 M4 — no coupon submitted (REQ-DISCOUNT-019)", () => {
+  it("computes discountAmount 0 and couponCode null, calling neither discount function", async () => {
+    const result = await service.createOrder("G1", body());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.discountAmount).toBe(0);
+    expect(result.data.couponCode).toBeNull();
+    expect(discountService.validateCoupon).not.toHaveBeenCalled();
+    expect(couponRepo.incrementRedeemedCountIfAvailable).not.toHaveBeenCalled();
+  });
+
+  it("passes couponCode: null and discountAmount: 0 to the repository row", async () => {
+    await service.createOrder("G1", body());
+
+    const [, row] = orderRepo.createOrderWithItems.mock.calls[0]! as [
+      unknown,
+      Record<string, unknown>,
+    ];
+    expect(row.couponCode).toBeNull();
+    expect(row.discountAmount).toBe(0);
+  });
+
+  it("treats an empty-string coupon code the same as an absent one", async () => {
+    const result = await service.createOrder("G1", body({ couponCode: "   " }));
+
+    expect(result.ok).toBe(true);
+    expect(discountService.validateCoupon).not.toHaveBeenCalled();
+  });
+});
+
+describe("SPEC-DISCOUNT-001 M4 — a valid coupon is applied (REQ-DISCOUNT-014/015/016, design.md §3.1 3b-3d)", () => {
+  beforeEach(() => {
+    discountService.validateCoupon.mockResolvedValue({
+      ok: true,
+      coupon: validCoupon(),
+      discountAmount: 2000,
+    });
+    couponRepo.incrementRedeemedCountIfAvailable.mockResolvedValue(1);
+  });
+
+  it("validates the coupon against itemsSubtotal, on the transaction client", async () => {
+    await service.createOrder("G1", body({ couponCode: "save10", confirmedTotal: 18000 }));
+
+    expect(discountService.validateCoupon).toHaveBeenCalledWith(
+      "save10",
+      20000,
+      expect.any(Date),
+      TX
+    );
+  });
+
+  it("subtracts discountAmount from itemsSubtotal before adding shippingFee (REQ-DISCOUNT-005)", async () => {
+    const result = await service.createOrder(
+      "G1",
+      body({ couponCode: "save10", confirmedTotal: 18000 })
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.totalAmount).toBe(18000);
+    expect(result.data.discountAmount).toBe(2000);
+    expect(result.data.couponCode).toBe("SAVE10");
+  });
+
+  it("stores the coupon code and discount amount on the order row", async () => {
+    await service.createOrder("G1", body({ couponCode: "save10", confirmedTotal: 18000 }));
+
+    const [, row] = orderRepo.createOrderWithItems.mock.calls[0]! as [
+      unknown,
+      Record<string, unknown>,
+    ];
+    expect(row.couponCode).toBe("SAVE10");
+    expect(row.discountAmount).toBe(2000);
+  });
+
+  it("atomically increments the coupon's redemption count, on the transaction client", async () => {
+    await service.createOrder("G1", body({ couponCode: "save10", confirmedTotal: 18000 }));
+
+    expect(couponRepo.incrementRedeemedCountIfAvailable).toHaveBeenCalledWith(TX, "coupon-1", 100);
+  });
+
+  it("increments the coupon BEFORE decrementing stock (design.md §3.1 — 3f before step 4)", async () => {
+    const seen: string[] = [];
+    couponRepo.incrementRedeemedCountIfAvailable.mockImplementation(async () => {
+      seen.push("coupon-increment");
+      return 1;
+    });
+    orderRepo.decrementStockIfAvailable.mockImplementation(async () => {
+      seen.push("stock-decrement");
+      return 1;
+    });
+
+    await service.createOrder("G1", body({ couponCode: "save10", confirmedTotal: 18000 }));
+
+    expect(seen).toEqual(["coupon-increment", "stock-decrement"]);
+  });
+});
+
+describe("SPEC-DISCOUNT-001 M4 — coupon validation is refused (REQ-DISCOUNT-009~013, AC-DISCOUNT-013)", () => {
+  const cases: Array<[string, Record<string, unknown>, Record<string, unknown>]> = [
+    [
+      "COUPON_NOT_FOUND",
+      { ok: false, status: 409, code: "COUPON_NOT_FOUND" },
+      { code: "COUPON_NOT_FOUND" },
+    ],
+    [
+      "COUPON_EXPIRED",
+      { ok: false, status: 409, code: "COUPON_EXPIRED" },
+      { code: "COUPON_EXPIRED" },
+    ],
+    [
+      "COUPON_MINIMUM_NOT_MET",
+      { ok: false, status: 409, code: "COUPON_MINIMUM_NOT_MET", requiredMinimum: 30000 },
+      { code: "COUPON_MINIMUM_NOT_MET", requiredMinimum: 30000 },
+    ],
+    [
+      "COUPON_EXHAUSTED",
+      { ok: false, status: 409, code: "COUPON_EXHAUSTED" },
+      { code: "COUPON_EXHAUSTED" },
+    ],
+  ];
+
+  for (const [label, discountFailure, expectedOrderFailure] of cases) {
+    it(`maps ${label} 1:1 onto the matching OrderFailure and touches nothing`, async () => {
+      discountService.validateCoupon.mockResolvedValue(discountFailure);
+
+      const result = await service.createOrder(
+        "G1",
+        body({ couponCode: "BAD", confirmedTotal: 20000 })
+      );
+
+      expect(result).toMatchObject(expectedOrderFailure);
+      expect(result.ok === false && result.status).toBe(409);
+      expect(orderRepo.createOrderWithItems).not.toHaveBeenCalled();
+      expect(couponRepo.incrementRedeemedCountIfAvailable).not.toHaveBeenCalled();
+      expect(orderRepo.decrementStockIfAvailable).not.toHaveBeenCalled();
+      expect(cartRepo.deleteCart).not.toHaveBeenCalled();
+    });
+  }
+});
+
+describe("SPEC-DISCOUNT-001 M4 — PRICE_CHANGED compares against the DISCOUNTED total (REQ-DISCOUNT-018, AC-DISCOUNT-018)", () => {
+  beforeEach(() => {
+    discountService.validateCoupon.mockResolvedValue({
+      ok: true,
+      coupon: validCoupon(),
+      discountAmount: 2000,
+    });
+  });
+
+  it("succeeds when confirmedTotal already reflects the discount", async () => {
+    const result = await service.createOrder(
+      "G1",
+      body({ couponCode: "save10", confirmedTotal: 18000 })
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("refuses with PRICE_CHANGED when confirmedTotal ignores the discount", async () => {
+    const result = await service.createOrder(
+      "G1",
+      body({ couponCode: "save10", confirmedTotal: 20000 })
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 409,
+      code: "PRICE_CHANGED",
+      totalAmount: 18000,
+    });
+  });
+
+  it("never increments the coupon's redemption count on a PRICE_CHANGED refusal (design.md §3.1 — 3f is after 3e)", async () => {
+    await service.createOrder("G1", body({ couponCode: "save10", confirmedTotal: 20000 }));
+
+    expect(couponRepo.incrementRedeemedCountIfAvailable).not.toHaveBeenCalled();
+  });
+});
+
+describe("SPEC-DISCOUNT-001 M4 — the coupon is exhausted by the atomic increment (REQ-DISCOUNT-017, AC-DISCOUNT-017)", () => {
+  it("refuses with COUPON_EXHAUSTED and takes no stock lock (design.md §3.1 — 3f before step 4)", async () => {
+    discountService.validateCoupon.mockResolvedValue({
+      ok: true,
+      coupon: validCoupon(),
+      discountAmount: 2000,
+    });
+    couponRepo.incrementRedeemedCountIfAvailable.mockResolvedValue(0);
+
+    const result = await service.createOrder(
+      "G1",
+      body({ couponCode: "save10", confirmedTotal: 18000 })
+    );
+
+    expect(result).toMatchObject({ ok: false, status: 409, code: "COUPON_EXHAUSTED" });
+    expect(orderRepo.decrementStockIfAvailable).not.toHaveBeenCalled();
+    expect(orderRepo.createOrderWithItems).not.toHaveBeenCalled();
+    expect(cartRepo.deleteCart).not.toHaveBeenCalled();
   });
 });
