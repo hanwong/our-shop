@@ -117,6 +117,10 @@ model Product {
   updatedAt   DateTime @updatedAt
   // SPEC-CART-001 M1 — back-relation only; no existing field above changes.
   cartItems   CartItem[]
+  // SPEC-ORDER-001 M1 — back-relation only; no existing field above changes.
+  // Its FK side is Restrict, deliberately unlike cartItems' Cascade, so a
+  // product that has ever been ordered can no longer be deleted (design.md §1.2).
+  orderItems  OrderItem[]
 
   @@index([categoryId]) // REQ-CATALOG-010 category filter
   @@index([createdAt]) // REQ-CATALOG-008 `newest` sort (the default)
@@ -189,5 +193,91 @@ model CartItem {
   // row per (cart, product) is what makes "add the same product again" an
   // increment rather than a duplicate row.
   @@unique([cartId, productId])
+  @@index([productId])
+}
+
+// ---------------------------------------------------------------------------
+// SPEC-ORDER-001 M1 — order domain (GUEST checkout only).
+//
+// Source of truth for these two model shapes and the enum: SPEC-ORDER-001
+// design.md §1. Do not diverge from design.md without updating design.md first
+// (manager-develop is not the owner of SPEC body content).
+//
+// The scope boundary is enforced HERE rather than in prose: there is no
+// `userId`, no `user` relation, and `guestId` is NOT NULL, so a member-owned
+// order is not representable (design.md §1.4). Member checkout is excluded
+// because a server-rendered page cannot identify a member at all — the access
+// token lives only in client memory and the guest cookie is expired at login
+// (spec.md §3, research.md §6).
+// ---------------------------------------------------------------------------
+
+enum OrderStatus {
+  pending_payment // the ONLY status this SPEC ever writes (REQ-ORDER-017)
+  paid // reserved for the follow-up payment SPEC — no transition exists here
+  cancelled // reserved for the follow-up cancellation SPEC
+}
+
+// @MX:ANCHOR fan-in target — every order write in this SPEC reaches the
+// database through the single transaction in order-service.ts, and both
+// checkout screens read this model.
+// @MX:REASON `guestId` is the whole authorization basis for reading an order
+// back (REQ-ORDER-020), so a change to its nullability or to the absence of a
+// member column is a scope-boundary change, not a modelling detail.
+model Order {
+  id          String      @id @default(cuid())
+  orderNumber String      @unique // human-readable, quotable in enquiries (REQ-ORDER-003)
+  status      OrderStatus @default(pending_payment)
+
+  // The owning identity: the `guest_cart_id` value as of the order. NOT NULL,
+  // and there is deliberately no member counterpart (design.md §1.4).
+  guestId String
+
+  // Shipping snapshot — exactly the five fields REQ-ORDER-008 permits. No
+  // email, no payment instrument (REQ-ORDER-009).
+  recipientName  String
+  recipientPhone String
+  postalCode     String
+  address        String
+  deliveryMemo   String?
+
+  // Money snapshot, frozen at creation (REQ-ORDER-003).
+  itemsSubtotal Int // sum of every OrderItem.lineTotal
+  shippingFee   Int
+  totalAmount   Int // itemsSubtotal + shippingFee
+
+  // Second line of defence for REQ-ORDER-016: two concurrent submissions that
+  // both pass the pre-transaction lookup are serialised by this constraint.
+  idempotencyKey String @unique
+
+  items     OrderItem[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([guestId])
+}
+
+model OrderItem {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  productId String
+  // Restrict, deliberately UNLIKE CartItem.product's Cascade: an order line is
+  // an accounting record and must not be destroyed by a product deletion
+  // (design.md §1.2).
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  // Snapshot of the product AS OF the order (REQ-ORDER-002). Joining Product
+  // would give the CURRENT values; an order needs the ones the shopper agreed
+  // to. `lineTotal` is stored rather than recomputed so a later change to the
+  // pricing arithmetic cannot move a past order's figures (design.md §1.1).
+  productName String
+  unitPrice   Int
+  quantity    Int
+  lineTotal   Int
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
   @@index([productId])
 }

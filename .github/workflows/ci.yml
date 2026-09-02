@@ -61,6 +61,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # SPEC-ORDER-001's tests/unit/orders/scope-boundaries.test.ts diffs
+          # against a historical plan-phase commit (`git diff --numstat
+          # <sha> -- <paths>`) to verify PRESERVE-list invariants. The
+          # default shallow checkout (depth 1) does not carry that commit,
+          # so the diff fails with "fatal: bad revision" in CI even though
+          # it passes locally against a full clone. Full history keeps any
+          # such historical-commit diff resolvable.
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v7

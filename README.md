@@ -10,6 +10,7 @@ A TypeScript / Next.js e-commerce backend. This repository currently implements:
 - **SPEC-CART-001** — cart (add/update-quantity/remove) and guest-to-member cart merge on login.
 - **SPEC-CI-001** — GitHub Actions CI: lint/typecheck/schema-validate/test run automatically on every PR and push to `main`.
 - **SPEC-STOREFRONT-001** — the first UI surface: a root document shell (Tailwind CSS v4) and the `/products/{productId}` detail page with an image gallery.
+- **SPEC-ORDER-001** — guest checkout: the `/checkout` order form and the single-transaction order-creation endpoint (price snapshot, stock decrement, idempotency).
 
 ## Stack
 
@@ -138,7 +139,32 @@ Key security properties (see `.moai/specs/SPEC-AUTH-001/` for the full spec/acce
 
 **알려진 한계**(자세한 내용은 `.moai/specs/SPEC-STOREFRONT-001/progress.md` 참고): `npm run build`가 실패한다 — 원인은 이 SPEC이 아니라 `src/middleware.ts` → `src/lib/auth/jwt.ts` → `node:crypto` 경로의 기존 결함이며(Edge 런타임이 `node:crypto`를 번들하지 못함), 이 SPEC의 산출물을 전부 제거해도 동일하게 실패함을 확인했다. 칸반 백로그의 별도 카드로 분리해 추적한다. 폭 375px 뷰포트의 가로 스크롤 여부는 **아직 확인하지 않았다** — 브라우저 E2E 하네스가 없어 자동 판정이 불가능한 수동 확인 항목이며, 통과했다는 뜻이 아니라 아직 아무도 보지 않았다는 뜻이다. 빌드 게이트는 CI에 없어(`.github/workflows/ci.yml`에 `npm run build` 단계 없음) Tailwind 툴체인 회귀는 손으로 돌려야 잡힌다.
 
+## 주문/체크아웃 (SPEC-ORDER-001)
+
+**게스트 전용이다.** 회원 체크아웃은 의도적으로 범위 밖이며, 이유는 편의가 아니라 구조적 충돌이다 — 서버 렌더 페이지는 회원을 식별할 수 없다. 게스트 쿠키는 최상위 내비게이션에 자동으로 실려 오지만, 회원의 액세스 토큰은 클라이언트 메모리에만 있어 그 요청에 붙을 수 없다. `Order` 테이블에 `userId` 컬럼이 아예 없는 것이 이 경계를 문서가 아니라 스키마로 강제한다.
+
+| 경로 | 메서드 | 설명 |
+|---|---|---|
+| `/api/orders` | POST | 게스트 주문 생성. 성공 201. 네 가지 효과(재고 차감·주문·주문 항목·카트 비우기)가 트랜잭션 하나 안에서 일어난다 |
+| `/checkout` | GET | 주문서 작성 화면. 배송 정보 5개 필드(요청사항은 선택), 결제수단·이메일 입력 없음 |
+| `/checkout/complete/[orderId]` | GET | 주문 완료 화면. 주문번호·주문 시점 단가·총액·배송지 + 결제 미완료 고지 |
+
+핸들러는 `src/app/api/orders/`·`src/app/checkout/`에, 도메인 로직은 `src/features/orders/`에, 화면 조각은 `src/components/checkout/`에 있다. 인증을 요구하지 않는다 — `src/middleware.ts`의 매처(`/admin/:path*`)에 `/checkout`이 없다.
+
+주문의 핵심 성질 네 가지:
+
+- **가격 스냅샷** — `OrderItem`은 상품명과 단가를 주문 시점 값으로 복사해 저장한다. 이후 상품 가격이 바뀌어도 주문 내역은 변하지 않는다(`Product` 조인 렌더가 아니다).
+- **금액 교차 검증** — 클라이언트가 보낸 `confirmedTotal`은 지시가 아니라 대조용이다. 서버 계산과 다르면 저장하지 않고 409 `PRICE_CHANGED`에 재계산 금액을 담아 재확인을 요구한다.
+- **멱등성** — 멱등 키는 서버가 주문서를 렌더할 때 발급해 제출 시 돌려받는다. 같은 키의 재제출은 새 주문이 아니라 최초 주문을 그대로 반환한다(`Order.idempotencyKey`가 `@unique`).
+- **재고 차감 시점** — 카트 작업은 재고를 건드리지 않고(SPEC-CART-001 REQ-CART-015), 주문 생성 시점에 조건부로 차감한다(`stock >= quantity`인 경우에만).
+
+실패 응답은 전부 409다: `CART_EMPTY` · `PRICE_CHANGED` · `INSUFFICIENT_STOCK` · `MEMBER_CHECKOUT_UNSUPPORTED`. 마지막 항목이 401/403이 아닌 이유는 회원의 자격 증명이 *유효하되* 이 범위가 서비스할 수 없는 신원이기 때문이다 — 다시 로그인해도 같은 답이 나온다. 유효성 실패만 400이며 잘못된 필드를 한 번에 모두 알려준다.
+
+주문 완료 화면은 **주문 id를 아는 것만으로 열리지 않는다.** 소유권이 질의 자체의 일부라(`getOrderForGuest`) 남의 주문을 가져온 뒤 감추는 형태가 존재하지 않으며, 모든 거부는 "권한 없음"이 아니라 404다 — 구분 가능한 상태 코드는 찍어본 id가 실재하는지를 알려주기 때문이다.
+
+**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-ORDER-001/progress.md` 참고): PostgreSQL이 없는 환경이라 **트랜잭션 원자성·동시 주문 직렬화·unique 경합의 실동작은 관측하지 않았다** — 계획 단계에서 이름을 붙여 제외한 3건이며 통과로 계상하지 않았다. 통합 테스트의 fake가 롤백을 구현하긴 하지만, fake가 되돌리는 것은 fake가 저장한 것이지 데이터베이스가 되돌린 것이 아니다. 마이그레이션도 손으로 작성했고 실제 DB에 적용된 적이 없다. **미결제 주문의 재고 점유를 해제하는 정책이 없다** — 주문 시점에 차감한 재고를 결제로 이어지지 않은 주문에 대해 돌려주지 않는다(잠정 결정, 타임아웃 해제가 향후 방향). 배송비는 `calculateShippingFee()` 한 곳에 격리돼 0원을 반환하는 잠정값이다. `/checkout`으로 가는 화면 링크는 아직 없다(장바구니 UI SPEC의 몫). 결제는 이 범위에 없어 주문은 `pending_payment`에 머문다. `npm run build`는 여전히 실패하는데, 원인은 SPEC-STOREFRONT-001이 이미 기록한 것과 동일한 선행 결함(`src/middleware.ts` → `src/lib/auth/jwt.ts` → `node:crypto`)이며 이 SPEC의 산출물을 트리 밖으로 옮기고 빌드해도 동일하게 실패함을 확인했다 — 백로그 카드로 별도 추적한다.
+
 ## Project documentation
 
 - `.moai/project/product.md`, `structure.md`, `tech.md` — project-wide docs
-- `.moai/specs/SPEC-AUTH-001/`, `.moai/specs/SPEC-CATALOG-001/`, `.moai/specs/SPEC-CATALOG-002/`, `.moai/specs/SPEC-CART-001/`, `.moai/specs/SPEC-STOREFRONT-001/` — each feature's SPEC, plan, acceptance criteria, and progress record
+- `.moai/specs/SPEC-AUTH-001/`, `.moai/specs/SPEC-CATALOG-001/`, `.moai/specs/SPEC-CATALOG-002/`, `.moai/specs/SPEC-CART-001/`, `.moai/specs/SPEC-STOREFRONT-001/`, `.moai/specs/SPEC-ORDER-001/` — each feature's SPEC, plan, acceptance criteria, and progress record
