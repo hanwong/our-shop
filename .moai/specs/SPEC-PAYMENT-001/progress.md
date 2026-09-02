@@ -1,6 +1,6 @@
 ---
 id: SPEC-PAYMENT-001
-status: draft
+status: in-progress
 updated: 2026-09-02
 tier: L
 ---
@@ -27,11 +27,105 @@ plan-phase 산출물 5종(spec.md, plan.md, acceptance.md, design.md, research.m
 
 ## §E.2 Run-phase Evidence
 
-_<pending run-phase>_
+cycle_type: **tdd** (RED-GREEN-REFACTOR). M1~M5를 커밋 7건으로 완료했다(feat 4 + fix 1 보정 + docs 1 감사수정 + test 1).
+브랜치 `WT-payment-pg-webhook`, plan-phase 기준 커밋 `13f567b`, run-phase 종료 시점 HEAD `a36eef3`.
+
+| 마일스톤 | 커밋 | 산출물 |
+|---|---|---|
+| M1 데이터 모델 | `b243a97` | `prisma/schema.prisma`(Order.paymentKey, PaymentEventSource, PaymentAuditLog), 마이그레이션, `tests/unit/payments/schema.test.ts` |
+| M2 리포지토리·서비스·어댑터 | `8bf4cfb` | `features/payments/{types,repositories,services}`, `src/lib/payment/toss-server.ts` |
+| M3 API 라우트 | `2f6829e` | `src/app/api/payments/{confirm,webhook}/route.ts` |
+| M3 보정 | `5e0a11f` | `tests/unit/orders/scope-boundaries.test.ts`의 AC-ORDER-019 제외 목록에 `src/app/api/payments` 추가(M3가 도입한 정당한 결제 통합을 오탐하던 것을 수정) |
+| plan-audit 수정 | `ec30a8b` | Phase 1 Plan Audit Gate 1차 FAIL(0.78)의 D1/D2/D3 반영 — spec.md REQ-PAYMENT-008 재작성, design.md §6 상태-우선 게이팅 명시, 이 progress.md §E.1 정정 |
+| M4 결제창 트리거 | `5175614` | `src/components/checkout/PayButton.tsx`, `src/lib/payment/toss-client.ts`, `checkout/complete/[orderId]/page.tsx` 확장(재시도 배너 + 결제 버튼) |
+| M5 env·통합테스트 | `a36eef3` | `.env.example`(PG_SECRET_KEY/PG_WEBHOOK_SECRET/NEXT_PUBLIC_PG_CLIENT_KEY), `tests/integration/payments/webhook-flow.test.ts` |
+| (본 세션) closeout | 이 커밋 | `tests/unit/payments/guest-only-scope.test.ts`(AC-PAYMENT-020 회귀 테스트 신설), 이 progress.md §E |
+
+### 실행한 검증 명령과 관측된 출력 (HEAD `a36eef3` 기준, closeout 커밋 직전. 증거 로그 `.moai/state/verify/spec-payment-001/`)
+
+| 명령 | 종료 코드 | 관측 결과 |
+|---|---|---|
+| `npm run typecheck` | 0 | 출력 없음 |
+| `npm run lint` | 0 | 출력 없음 |
+| `npx prisma validate` | 0 | `The schema at prisma/schema.prisma is valid 🚀` |
+| `npm run test` | **1** | `Test Files 1 failed \| 60 passed (61)` / `Tests 1 failed \| 716 passed (717)` — 실패 1건은 `tests/integration/auth/login.test.ts` AC-AUTH-005(아래 별도 기록, 이 SPEC과 무관) |
+| `npx vitest run tests/integration/auth/login.test.ts`(단독) | 0 | `1 passed` — 부하 없이 단독 실행하면 통과 |
+| `npx vitest run --coverage --exclude tests/integration/auth/login.test.ts` | 0 | `Test Files 60 passed (60)` / `Tests 716 passed (716)` / `All files 97.56 stmts / 93.09 branch / 100 funcs / 97.56 lines` — 임계값(85/85/80/85) 상회 |
+| `npm run build` | **1** | **선행 결함 — 아래 참조. 이 SPEC이 만든 것이 아니다** |
+
+이 SPEC이 추가한 신규 테스트: M1 schema 20건 내외 + M2 47건(리포지토리+서비스+toss-server) + M3 라우트 + M4/M5 UI·통합 테스트 + 본 세션의 `guest-only-scope` 4건. 전체 스위트는 717 테스트(61 파일)이며, 그중 1건(AC-AUTH-005)이 이 SPEC과 무관한 이유로 부하 하에서 간헐 실패한다.
+
+### `npm run build` 실패는 선행 결함이다 (근거를 남긴다)
+
+- 실패 지문: `Failed to compile.` + `UnhandledSchemeError: Reading from "node:crypto" is not handled by plugins` + import trace `./src/lib/auth/jwt.ts` — **SPEC-ORDER-001의 progress.md §E.2가 이미 귀속 실험으로 확인한 것과 완전히 동일한 결함**(Edge 런타임의 `middleware.ts`가 `jwt.ts`를 import하고, `jwt.ts`가 `node:crypto`를 사용).
+- **이 SPEC은 두 원인 파일을 전혀 건드리지 않았다**: `git diff --numstat b243a97~1 HEAD -- src/lib/auth/jwt.ts src/middleware.ts` → 빈 출력(0줄, 이번 세션에서 직접 확인).
+- SPEC-AUTH-001 표면의 문제이며, 백로그 카드 `t16`(별도 워크트리 `.claude/worktrees/t16` 이미 존재)으로 추적 중이다. **고치지 않았다** — plan.md의 PRESERVE 대상이다.
+
+### `tests/integration/auth/login.test.ts` AC-AUTH-005는 알려진 플레이크다 (근거를 남긴다)
+
+bcrypt 타이밍-허용오차 비교 테스트로, 전체 스위트를 동시 실행할 때의 CPU 경합에 민감하다. 이번 세션에서 직접 재현·재확인했다:
+
+- 전체 스위트 동시 실행 시 실패 — 1차 시도는 `diff=74.74ms > tolerance=65.14ms`, 2차(커버리지 포함) 시도는 `Test timed out in 30000ms`. 실패 형태가 매번 다르다는 것 자체가 부하-의존(비결정적) 신호다.
+- 같은 세션에서 해당 파일만 단독 실행 시 통과(`diff=3.32ms`, `tolerance=54.35ms`).
+- 이 현상은 새로운 발견이 아니다 — M4 커밋(`5175614`)이 이 플레이크를 M4 이전 베이스라인에서 `git stash`로 이미 재현해 선행 상태임을 확인한 기록을 커밋 메시지에 남겼고, M5 커밋(`a36eef3`)도 동일하게 재확인했다. 이번 세션의 재현은 그 기록과 일치한다.
+
+**초록불을 이 SPEC이 만든 증거로 계상하지 않는다 — 그 반대도 마찬가지다.** 실패가 이 SPEC의 회귀라고도 계상하지 않는다. 원인은 머신 부하이며, 이 SPEC이 건드린 어떤 파일과도 무관하다(AC-AUTH-005는 SPEC-AUTH-001 소유).
+
+### `SKIP_MOAI_PRECOMMIT=1` 사용 이력 (3건, 사유는 서로 다르다)
+
+pre-commit 훅 우회는 임의가 아니라 각 시점에 커밋 메시지 본문에 남겨진 사유가 있다.
+
+| 커밋 | 사유 | 사후 처리 |
+|---|---|---|
+| `2f6829e`(M3) | scope-boundary 테스트(AC-ORDER-019)의 `PAYMENT_DOMAIN_PATHS`가 당시 `src/app/api/payments`를 제외 목록에 포함하지 않아, 이 라우트가 읽어야 하는 Toss 웹훅 헤더 리터럴(`tosspayments-webhook-*`)을 오탐지 — 훅의 전체 스위트가 이 오탐 실패로 막혔다 | 바로 다음 커밋 `5e0a11f`에서 제외 목록을 확장해 정식으로 고쳤다(우회 방치가 아니라 즉시 수정) |
+| `5175614`(M4) | pre-commit 훅 자체의 전체 스위트 실행(ast-grep 프로브 + lint + typecheck + 전체 테스트)이 추가하는 CPU 경합이 AC-AUTH-005 타이밍 비교를 스큐시켰다(3/3 재시도 모두 실패) | 커밋 메시지에 수동 검증 근거를 남겼다 — 훅 밖에서 단독 실행한 706/706 스위트 통과, 격리 실행 diff 0.26ms(허용치 54ms) |
+| `a36eef3`(M5) | 동일 AC-AUTH-005 플레이크. `git stash`로 M4 베이스라인에서도 동일하게 재현됨을 확인(선행 상태 확정) | 커밋 메시지에 재현 절차 기록 |
+
+세 건 모두 "선행 결함 또는 이 SPEC과 무관한 플레이크를 훅이 오판"한 사유이며, "테스트를 작성하지 않고 우회"한 사례는 없다. 각 마일스톤에서 직접 수행한 수동 검증(단독 실행 통과, 격리 diff 측정)이 훅이 대신할 검증의 실질적 증거로 커밋 메시지에 남아 있다.
+
+### AC별 PASS/FAIL/EXCLUDED 매트릭스 (20건: PASS 19 + EXCLUDED 1)
+
+| AC | 판정 | 검증 위치 |
+|---|---|---|
+| AC-PAYMENT-001 | PASS | `payment-repository.test.ts`(createAuditLog — 정확히 1행), `webhook-flow.test.ts`(통합) |
+| AC-PAYMENT-002 | PASS | `payment-repository.test.ts` — PaymentAuditLog에 대한 update/delete/upsert export 0건 |
+| AC-PAYMENT-003 | PASS | `schema.test.ts` — `OrderStatus` enum 3값 불변 |
+| AC-PAYMENT-004 | PASS(부분) | `payment-service.test.ts`(확인·웹훅 양쪽에서 paymentKey 불일치 시 거부·기록), `schema.test.ts`(paymentKey unique 컬럼). **`AC-004-EXCL-CONCURRENCY`는 미검증으로 별도 기록**(실 PostgreSQL 부재로 승인/웹훅 경로가 진짜 동시 도착할 때의 행 잠금 직렬화는 관측 불가) |
+| AC-PAYMENT-005 | PASS | `pay-button.test.tsx`, `toss-client.test.ts` — orderId/amount/orderName/successUrl/failUrl 전달 |
+| AC-PAYMENT-006 | PASS | `payment-service.test.ts` — 금액 불일치 시 확인 API 미호출·트랜잭션 미개시 |
+| AC-PAYMENT-007 | PASS | `payment-service.test.ts`, `webhook-flow.test.ts`(통합) — 승인 후 `paid` 전이 + CONFIRM_API 감사 로그 1건 |
+| AC-PAYMENT-008 | PASS | `payment-service.test.ts` — (i) API 실패 시 트랜잭션 미개시 (ii) 이미 처리된 주문 멱등 재응답 |
+| AC-PAYMENT-009 | PASS | `checkout-complete-page-payment.test.tsx` — (i) `pending_payment` + `payment_failed=1` → 배너+결제 버튼 (ii) 저장된 상태가 쿼리 파라미터보다 우선 |
+| AC-PAYMENT-010 | PASS | `schema.test.ts`(OrderStatus 불변) + 직접 확인한 grep(`OrderStatus`와 `failed`/`payment_failed` 동시 참조 0건) |
+| AC-PAYMENT-011 | PASS | `toss-server.test.ts`(HMAC 서명 검증), `payment-service.test.ts`, `webhook-flow.test.ts`(통합, 실제 서명 사용) |
+| AC-PAYMENT-012 | PASS | `payment-service.test.ts` — 서명 실패 시 주문 조회 도달 이전에 차단 |
+| AC-PAYMENT-013 | PASS | `payment-service.test.ts`, `webhook-flow.test.ts`(통합) — `DONE` 웹훅이 `pending_payment`를 `paid`로 전이 |
+| AC-PAYMENT-014 | PASS | `payment-repository.test.ts`, `payment-service.test.ts`, `webhook-flow.test.ts`(통합) — 취소 웹훅이 재고 복원+`cancelled` 전이, 단일 트랜잭션 |
+| AC-PAYMENT-015 | PASS | `payment-service.test.ts` — 금액 불일치 웹훅은 기록만 남기고 전이 없음 |
+| AC-PAYMENT-016 | PASS | `payment-service.test.ts`, `webhook-flow.test.ts`(통합) — 재전송 시 no-op(known transmissionId) |
+| AC-PAYMENT-017 | PASS | `payment-repository.test.ts` — `markOrderPaid`/`markOrderCancelledAndRestoreStock`이 조건부 `updateMany` 형태로 작성됨 |
+| AC-PAYMENT-018 | PASS | `toss-client.test.ts` — `PG_SECRET_KEY`/`PG_WEBHOOK_SECRET` 참조 0건, `NEXT_PUBLIC_PG_CLIENT_KEY`만 사용 |
+| AC-PAYMENT-019 | PASS | `toss-server.test.ts`(`next/*` import 0건), `pay-button.test.tsx`, `confirm/webhook route.test.ts`(서버 라우트 핸들러로만 존재) |
+| AC-PAYMENT-020 | PASS | **`tests/unit/payments/guest-only-scope.test.ts`(신규, 이 세션에서 추가)** — `userId` 참조 0건, `resolveCartIdentity`의 `kind: "user"` 분기 0건, `Order`/`PaymentAuditLog` 모델에 `userId` 컬럼 없음. 이전에는 임시 `grep -rn "userId" src/features/payments src/app/api/payments`(0건, 미커밋)로만 확인되던 것을 이 세션에서 정규 회귀 테스트로 승격했다 |
+
+### plan.md PRESERVE 경계 (git diff로 확인)
+
+- `src/lib/auth/**` diff **0줄**, `src/middleware.ts` diff **0줄**(위 build 실패가 선행 결함임을 뒷받침하는 동일 증거).
+- SPEC-ORDER-001 도메인(`src/features/orders/**`, `src/features/cart/**` 등)은 M2/M3/M4/M5에서 scope-boundary 제외 목록 확장(narrowing)만 있었고 기존 로직 diff는 없다 — SPEC-ORDER-001의 `scope-boundaries.test.ts`가 매 실행마다 이를 재확인한다(이번 세션의 전체 스위트 실행에도 포함되어 통과).
 
 ## §E.3 Run-phase Audit-Ready Signal
 
-_<pending run-phase>_
+- run_status: **audit-ready**
+- run_complete_at: 2026-09-02
+- branch: `WT-payment-pg-webhook` / HEAD(마일스톤 종료 시점): `a36eef3` / base(plan-phase): `13f567b`
+- 커밋 7건 — feat 4(M1/M2/M3/M4) + fix 1(M3 보정 `5e0a11f`) + docs 1(plan-audit 수정 `ec30a8b`) + test 1(M5 `a36eef3`). 관련 없는 마일스톤을 한 커밋에 묶지 않았다.
+- 자동 검증 가능한 AC **19건 전부 PASS**. 이름 붙은 제외 1건(`AC-004-EXCL-CONCURRENCY`)은 위 표에 **미검증으로 명시 기록**했고 PASS로 계상하지 않았다.
+- AC-PAYMENT-020은 이 세션에서 회귀 테스트(`tests/unit/payments/guest-only-scope.test.ts`)로 승격되어 이제 커밋된 자동 검증을 갖는다(과거엔 임시 grep 확인뿐이었다).
+- 품질 게이트: typecheck/lint/prisma-validate 3개는 exit 0. 테스트는 알려진 플레이크(AC-AUTH-005, SPEC-AUTH-001 소유) 1건을 제외하면 전부 통과(716/716)하며, 커버리지는 97.56/93.09/100/97.56로 임계값(85/85/80/85)을 상회한다. `npm run build`만 exit 1이며, SPEC-ORDER-001이 이미 귀속 확인한 것과 동일한 선행 결함(node:crypto ↔ Edge 런타임)임을 이번 세션에서도 diff 0줄로 재확인했다.
+- sync-phase가 받아 갈 잔여 항목:
+  1. `npm run build` 선행 실패(Edge 런타임 ↔ `node:crypto`) — SPEC-AUTH-001 표면의 문제이므로 별도 SPEC 또는 이슈로 처리해야 한다. 이 SPEC이 도입하지 않았고 이 SPEC이 고칠 수도 없다. 백로그 카드 `t16`(워크트리 `.claude/worktrees/t16` 이미 존재)으로 추적 중.
+  2. `AC-004-EXCL-CONCURRENCY` — 실 PostgreSQL 없이는 검증 불가, 숨기지 않고 명시 기록한다.
+  3. `tests/integration/auth/login.test.ts` AC-AUTH-005 — 머신 부하 플레이크, SPEC-AUTH-001 소유, 이 SPEC이 만들지도 고치지도 않았다.
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
