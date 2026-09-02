@@ -2,7 +2,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import type { CartDTO } from "@/features/cart/types/cart";
 
@@ -228,10 +228,16 @@ describe("SPEC-ORDER-001 M5 — the form collects five fields and nothing more (
     render(await CheckoutPage());
   });
 
-  it("renders exactly the five permitted inputs", () => {
+  it("renders exactly the five permitted inputs in the shipping form (AC-ORDER-008)", () => {
+    // Scoped to the shipping <form> — SPEC-DISCOUNT-001 M6b added a coupon
+    // code input to the page (outside this form, applied via its own button
+    // rather than form submission), so a page-wide count would no longer
+    // isolate what THIS criterion is actually about: what CheckoutForm
+    // collects.
+    const form = document.querySelector("form")!;
     const inputs = [
-      ...screen.getAllByRole("textbox"),
-      ...document.querySelectorAll("input:not([type='hidden']):not([type='text'])"),
+      ...within(form).getAllByRole("textbox"),
+      ...form.querySelectorAll("input:not([type='hidden']):not([type='text'])"),
     ];
 
     expect(inputs).toHaveLength(5);

@@ -3,10 +3,11 @@
  * endpoint and screens exchange.
  *
  * Framework-independent by design, matching features/cart/types/cart.ts:
- * nothing here imports from `next/*` or `@prisma/client`, per structure.md's
- * rule that `features/` must not depend on the delivery mechanism. That is why
- * `OrderStatusDTO` restates the three enum values as a string union rather than
- * re-exporting Prisma's generated enum.
+ * nothing here imports from `next/*`; the one `@prisma/client` import below is
+ * type-only, matching order-repository.ts's and discount-service.ts's own
+ * convention, per structure.md's rule that `features/` must not depend on the
+ * delivery mechanism. That is why `OrderStatusDTO` restates the three enum
+ * values as a string union rather than re-exporting Prisma's generated enum.
  *
  * Note what is ABSENT, deliberately:
  *  - No payment-instrument field anywhere (REQ-ORDER-009). There is no card
@@ -19,7 +20,15 @@
  * The contrast with CartItemDTO is the point of this SPEC: a cart line carries
  * the CURRENT price read live on every request, while an order line carries the
  * price AS OF the order and never changes again (REQ-ORDER-002).
+ *
+ * SPEC-DISCOUNT-001 M4 extends this file with the applied-discount snapshot
+ * (`couponCode` / `discountAmount` on `CreateOrderInput` and `OrderDTO`) and
+ * the four coupon refusal codes, folded into the SAME flat `OrderFailure`
+ * union rather than a nested wrapper (design.md §4) — the route handler
+ * switches on `.code` for these exactly as it already does for the other five.
  */
+
+import type { DiscountFailure } from "@/features/discounts/types/discount";
 
 /** The order lifecycle values. This SPEC only ever writes `pending_payment`. */
 export type OrderStatusDTO = "pending_payment" | "paid" | "cancelled";
@@ -48,9 +57,18 @@ export interface CreateOrderInput {
   /**
    * The total the shopper actually saw. Compared against the server's own
    * recomputation and then DISCARDED — it is a cross-check, never the figure
-   * that gets stored (design.md §4).
+   * that gets stored (design.md §4). Now the DISCOUNTED figure, once a coupon
+   * is applied (REQ-DISCOUNT-018).
    */
   confirmedTotal: number;
+  /**
+   * The coupon code the shopper submitted, or `null` for none
+   * (SPEC-DISCOUNT-001 REQ-DISCOUNT-019). Deliberately REQUIRED rather than
+   * optional-undefined: the validator must explicitly decide "no code
+   * submitted" (`null`) from "some code submitted" (a string), so nothing
+   * downstream can mistake an unset field for a decision never made.
+   */
+  couponCode: string | null;
 }
 
 /** One line of an order, frozen at creation (REQ-ORDER-002). */
@@ -74,15 +92,25 @@ export interface OrderDTO {
   itemsSubtotal: number;
   shippingFee: number;
   totalAmount: number;
+  /**
+   * The applied coupon's code, or `null` when none was applied
+   * (SPEC-DISCOUNT-001 REQ-DISCOUNT-014/019). A snapshot copy, not a live
+   * lookup — it does not move if the coupon is later changed or deleted.
+   */
+  couponCode: string | null;
+  /** The discount already subtracted into `totalAmount` above. `0` for none. */
+  discountAmount: number;
   shipping: ShippingInfo;
   createdAt: string;
 }
 
 /**
  * The five ways an otherwise well-formed submission can be refused
- * (design.md §8, extended by SPEC-ORDER-002 plan.md §2). Each is a 409, not a
- * 400: the request itself is fine, it is the server's state that disagrees with
- * it.
+ * (design.md §8, extended by SPEC-ORDER-002 plan.md §2), plus the four coupon
+ * refusals SPEC-DISCOUNT-001 adds (spec.md §4 "쿠폰 검증과 거절",
+ * `DiscountFailureCode` in features/discounts/types/discount.ts). Each is a
+ * 409, not a 400: the request itself is fine, it is the server's state that
+ * disagrees with it.
  *
  * `CONCURRENCY_RETRY` is the one that says nothing is wrong with the request AT
  * ALL — the database aborted the transaction to break a deadlock or a
@@ -94,7 +122,11 @@ export type OrderFailureCode =
   | "CART_EMPTY"
   | "INSUFFICIENT_STOCK"
   | "PRICE_CHANGED"
-  | "CONCURRENCY_RETRY";
+  | "CONCURRENCY_RETRY"
+  | "COUPON_NOT_FOUND"
+  | "COUPON_EXPIRED"
+  | "COUPON_MINIMUM_NOT_MET"
+  | "COUPON_EXHAUSTED";
 
 /** One product the cart wanted more of than the catalogue currently has. */
 export interface InsufficientStockProduct {
@@ -124,6 +156,17 @@ export type OrderFailure =
   // would name a product that may be perfectly available (SPEC-ORDER-002
   // plan.md §3).
   | { status: 409; error: string; code: "CONCURRENCY_RETRY" }
+  // SPEC-DISCOUNT-001 M4 — the four coupon refusals, mapped 1:1 from
+  // DiscountFailure (design.md §3.1 3b, design.md §4). `Extract` pulls each
+  // member's `code` + any extra field (COUPON_MINIMUM_NOT_MET's
+  // `requiredMinimum`) straight from the SAME type discount-service.ts
+  // returns, rather than hand-duplicating that shape here; `error` is added
+  // because every OrderFailure variant carries one (OrderAbort's constructor
+  // reads `failure.error`), which DiscountFailure itself does not.
+  | (Extract<DiscountFailure, { code: "COUPON_NOT_FOUND" }> & { error: string })
+  | (Extract<DiscountFailure, { code: "COUPON_EXPIRED" }> & { error: string })
+  | (Extract<DiscountFailure, { code: "COUPON_MINIMUM_NOT_MET" }> & { error: string })
+  | (Extract<DiscountFailure, { code: "COUPON_EXHAUSTED" }> & { error: string })
   // design.md §8's last row: an unexpected transaction failure answers 500 with
   // NO code. A cart line stored at quantity <= 0 lands here (REQ-ORDER-004) —
   // the request is well-formed and the server state is wrong, so there is

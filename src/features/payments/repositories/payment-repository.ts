@@ -1,5 +1,9 @@
 import type { OrderStatus, Prisma, PaymentEventSource } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import {
+  decrementRedeemedCountIfPositive,
+  findCouponByCode,
+} from "@/features/discounts/repositories/coupon-repository";
 
 /**
  * SPEC-PAYMENT-001 M2 — Prisma query layer for the payment domain.
@@ -117,6 +121,32 @@ export async function markOrderPaid(
  *
  * Items are read via `tx.orderItem`, not via order-repository.ts (plan.md §4
  * PRESERVE) — the payment domain does its own Prisma queries for order data.
+ *
+ * SPEC-DISCOUNT-001 M5 (REQ-DISCOUNT-021, design.md §6) — immediately after
+ * the stock-restore loop, and still inside the SAME `count === 1` branch (so
+ * the same transaction `tx` covers both effects), the order's applied coupon
+ * usage is released:
+ *
+ *   1. Read the order's `couponCode` snapshot. This is a cheap point read —
+ *      the row is guaranteed to exist, since the `updateMany` above just
+ *      touched it.
+ *   2. `couponCode === null` means no coupon was ever applied
+ *      (REQ-DISCOUNT-019's path) — nothing further to do.
+ *   3. Otherwise, look up the coupon by that snapshot code. The snapshot is
+ *      a copy (design.md §1.2), never a foreign key, so the coupon row named
+ *      by it may no longer exist.
+ *   4. A deleted coupon row is design.md §6's explicitly documented case —
+ *      "쿠폰 행이 이미 삭제되었을 수 있다... 조용히 건너뛴다" (the coupon row
+ *      may already be deleted... silently skip). There is no counter left to
+ *      restore, and that is not a reason to fail the cancellation itself.
+ *   5. Otherwise, release one redemption via the SAME conditional-atomic
+ *      shape the M4 increment uses (`decrementRedeemedCountIfPositive`),
+ *      guarded so it can never drive the counter below 0.
+ *
+ * The function's own return value is UNCHANGED by this addition — the
+ * coupon release is a side effect of the `count === 1` branch, not a new
+ * signal the caller (payment-service.ts, which only checks `count === 1`)
+ * needs to inspect.
  */
 export async function markOrderCancelledAndRestoreStock(
   tx: PaymentClient,
@@ -138,6 +168,23 @@ export async function markOrderCancelledAndRestoreStock(
       data: { stock: { increment: item.quantity } },
     });
   }
+
+  // SPEC-DISCOUNT-001 M5 — release this order's coupon usage, if any, in the
+  // same transaction as the stock restore above (design.md §6).
+  const cancelledOrder = await tx.order.findUnique({
+    where: { id: orderId },
+    select: { couponCode: true },
+  });
+  if (cancelledOrder?.couponCode != null) {
+    const coupon = await findCouponByCode(cancelledOrder.couponCode, tx);
+    if (coupon !== null) {
+      await decrementRedeemedCountIfPositive(tx, coupon.id);
+    }
+    // coupon === null: the coupon row was deleted since the order was
+    // placed. Silently skip — design.md §6 — there is no counter to
+    // restore, and that must not fail the cancellation itself.
+  }
+
   return updated.count;
 }
 

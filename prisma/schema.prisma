@@ -245,6 +245,16 @@ model Order {
   shippingFee   Int
   totalAmount   Int // itemsSubtotal + shippingFee
 
+  // SPEC-DISCOUNT-001 M1 — coupon snapshot, NOT a foreign key. Same reasoning
+  // as OrderItem.productName/unitPrice below: a join would give the CURRENT
+  // coupon value, but the order needs the value the customer agreed to at
+  // checkout, frozen even if the coupon is later edited or deleted
+  // (REQ-DISCOUNT-014, design.md §1.2). `@default(0)`/nullable keep every
+  // existing order row valid after migration — `discountAmount = 0` and
+  // `couponCode = null` together mean "no coupon applied" (REQ-DISCOUNT-019).
+  couponCode     String? // uppercase-normalized copy of the applied code, or null
+  discountAmount Int     @default(0) // amount already subtracted into totalAmount above
+
   // Second line of defence for REQ-ORDER-016: two concurrent submissions that
   // both pass the pre-transaction lookup are serialised by this constraint.
   idempotencyKey String @unique
@@ -331,4 +341,57 @@ model PaymentAuditLog {
   createdAt DateTime @default(now())
 
   @@index([orderId])
+}
+
+// ---------------------------------------------------------------------------
+// SPEC-DISCOUNT-001 M1 — coupon/discount domain (guest orders only). Source
+// of truth for this enum and model: SPEC-DISCOUNT-001 design.md §1. Do not
+// diverge from design.md without updating design.md first (manager-develop is
+// not the owner of SPEC body content).
+//
+// This SPEC adds exactly one new table (Coupon, below) and two columns to
+// Order (couponCode/discountAmount, above). No other existing model changes.
+// ---------------------------------------------------------------------------
+
+enum DiscountType {
+  PERCENTAGE // value = percent, 0 < value <= 100 (REQ-DISCOUNT-003)
+  FIXED_AMOUNT // value = won
+}
+
+model Coupon {
+  id String @id @default(cuid())
+
+  // Stored uppercase-normalized (REQ-DISCOUNT-002). The application layer
+  // uppercases before every read and write, so a case-sensitive unique index
+  // is sufficient — no citext extension needed (the only extension already in
+  // use is pg_trgm, for a different SPEC's search index; design.md §1.1).
+  code           String       @unique
+  type           DiscountType
+  value          Int
+  minOrderAmount Int          @default(0)
+
+  // GLOBAL cap, NOT a per-guest/per-user limit — this repository has no
+  // reliable per-guest identity to enforce against (REQ-DISCOUNT-022,
+  // spec.md §3 Out of Scope — 인별 사용 제한). "Global" here means: this
+  // number is the total redemptions of this code across every order, ever.
+  maxRedemptions Int
+  // @MX:ANCHOR this column is written ONLY via the conditional atomic update
+  // in coupon-repository.ts (design.md §3.2) — `updateMany` with a
+  // `redeemedCount < maxRedemptions` WHERE clause, never a plain read-then-
+  // write.
+  // @MX:REASON a plain read-then-write races: two concurrent orders reading
+  // the same redeemedCount can both pass validation and both increment,
+  // silently exceeding maxRedemptions (REQ-DISCOUNT-016).
+  redeemedCount Int @default(0)
+
+  startsAt DateTime
+  endsAt   DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Deliberately no relation to Order — Order.couponCode is a snapshot copy,
+  // not a foreign key (see the Order model comment above, and OrderItem's
+  // productName/unitPrice for the established precedent).
+  @@index([code])
 }

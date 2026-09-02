@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { Coupon } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
 import { findCartByGuestId, deleteCart } from "@/features/cart/repositories/cart-repository";
@@ -19,6 +20,9 @@ import type {
   OrderResult,
   ShippingInfo,
 } from "@/features/orders/types/order";
+import { validateCoupon } from "@/features/discounts/services/discount-service";
+import { incrementRedeemedCountIfAvailable } from "@/features/discounts/repositories/coupon-repository";
+import type { DiscountFailure } from "@/features/discounts/types/discount";
 
 /**
  * SPEC-ORDER-001 M3 — order creation, and the guest-scoped read-back.
@@ -191,6 +195,22 @@ function validate(body: unknown): ValidationResult {
     fieldErrors.confirmedTotal = "정수 금액이어야 합니다";
   }
 
+  // SPEC-DISCOUNT-001 REQ-DISCOUNT-019 — fully optional, never a validation
+  // failure when absent. undefined/null/blank all normalize to "no coupon"
+  // (null); anything else is passed through TRIMMED, for discount-service to
+  // normalize (uppercase) and validate further — this layer only decides
+  // ABSENT vs SUBMITTED, never whether the code is real.
+  const rawCouponCode = body.couponCode;
+  let couponCode: string | null = null;
+  if (rawCouponCode !== undefined && rawCouponCode !== null) {
+    if (typeof rawCouponCode !== "string") {
+      fieldErrors.couponCode = "문자열이어야 합니다";
+    } else {
+      const trimmed = rawCouponCode.trim();
+      couponCode = trimmed === "" ? null : trimmed;
+    }
+  }
+
   if (Object.keys(fieldErrors).length > 0) return { ok: false, fieldErrors };
 
   return {
@@ -199,6 +219,7 @@ function validate(body: unknown): ValidationResult {
       shipping: { ...(shipping as Omit<ShippingInfo, "deliveryMemo">), deliveryMemo },
       idempotencyKey: idempotencyKey!,
       confirmedTotal: confirmedTotal as number,
+      couponCode,
     },
   };
 }
@@ -229,6 +250,34 @@ function fail<T>(failure: OrderFailure): OrderResult<T> {
 /** Prisma's unique-constraint violation. */
 function isUniqueViolation(error: unknown): boolean {
   return isRecord(error) && error.code === "P2002";
+}
+
+/**
+ * Maps a `DiscountFailure` (discount-service.ts's own refusal shape) 1:1 onto
+ * the matching `OrderFailure` coupon variant (SPEC-DISCOUNT-001 M4,
+ * design.md §3.1 step 3b).
+ *
+ * A dedicated Korean `error` message per code, because DiscountFailure itself
+ * carries none (discount-service.ts has no user-facing text to own — that is
+ * an order-domain concern, same as every other OrderFailure message already
+ * living in this file).
+ */
+function toCouponOrderFailure(failure: DiscountFailure): OrderFailure {
+  switch (failure.code) {
+    case "COUPON_NOT_FOUND":
+      return { status: 409, error: "존재하지 않는 쿠폰 코드입니다", code: "COUPON_NOT_FOUND" };
+    case "COUPON_EXPIRED":
+      return { status: 409, error: "쿠폰 사용 기간이 아닙니다", code: "COUPON_EXPIRED" };
+    case "COUPON_MINIMUM_NOT_MET":
+      return {
+        status: 409,
+        error: "최소 주문 금액에 도달하지 않았습니다",
+        code: "COUPON_MINIMUM_NOT_MET",
+        requiredMinimum: failure.requiredMinimum,
+      };
+    case "COUPON_EXHAUSTED":
+      return { status: 409, error: "쿠폰 사용 한도가 모두 소진되었습니다", code: "COUPON_EXHAUSTED" };
+  }
 }
 
 /**
@@ -300,6 +349,8 @@ function toOrderDTO(order: OrderWithItems): OrderDTO {
     itemsSubtotal: order.itemsSubtotal,
     shippingFee: order.shippingFee,
     totalAmount: order.totalAmount,
+    couponCode: order.couponCode,
+    discountAmount: order.discountAmount,
     shipping: {
       recipientName: order.recipientName,
       recipientPhone: order.recipientPhone,
@@ -436,8 +487,7 @@ export async function createOrder(guestId: string, body: unknown): Promise<Order
         throw new OrderAbort({ status: 500, error: "주문을 처리할 수 없습니다" });
       }
 
-      // 3. Recompute every figure from the prices just read, then compare
-      //    against what the shopper actually saw.
+      // 3a. Recompute itemsSubtotal from the prices just read (unchanged).
       const items: OrderItemDTO[] = cart.items.map((item) => ({
         productId: item.productId,
         productName: item.product.name,
@@ -446,9 +496,44 @@ export async function createOrder(guestId: string, body: unknown): Promise<Order
         lineTotal: item.product.price * item.quantity,
       }));
       const itemsSubtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
-      const shippingFee = calculateShippingFee(itemsSubtotal);
-      const totalAmount = itemsSubtotal + shippingFee;
 
+      // 3b. SPEC-DISCOUNT-001 — validate the coupon, if one was submitted, on
+      //     THIS transaction client (design.md §3.1). A fail-fast, friendly
+      //     pre-check: it exists ALONGSIDE 3f's atomic increment below, never
+      //     instead of it — 3b alone would race under concurrent orders, and
+      //     3f alone could not distinguish WHY a coupon was refused
+      //     (design.md §3.1's own reasoning for keeping both).
+      //     calculateDiscount() (M2's pure engine) is invoked INSIDE
+      //     validateCoupon, never re-implemented here (design.md §2).
+      let coupon: Coupon | null = null;
+      let discountAmount = 0;
+      if (input.couponCode !== null) {
+        const couponValidation = await validateCoupon(
+          input.couponCode,
+          itemsSubtotal,
+          new Date(),
+          tx
+        );
+        if (!couponValidation.ok) {
+          const { ok, ...discountFailure } = couponValidation;
+          void ok;
+          throw new OrderAbort(toCouponOrderFailure(discountFailure));
+        }
+        coupon = couponValidation.coupon;
+        discountAmount = couponValidation.discountAmount;
+      }
+      // input.couponCode === null: discountAmount stays 0, coupon stays null —
+      // byte-identical to the pre-SPEC behaviour (REQ-DISCOUNT-019).
+
+      // 3d. totalAmount now subtracts the discount before adding shipping
+      //     (REQ-DISCOUNT-005). shippingFee is unaffected — the discount never
+      //     touches it (spec.md §2: shippingFee is a constant 0 today anyway).
+      const shippingFee = calculateShippingFee(itemsSubtotal);
+      const totalAmount = itemsSubtotal - discountAmount + shippingFee;
+
+      // 3e. confirmedTotal cross-check, now against the DISCOUNTED total
+      //     (REQ-DISCOUNT-018) — otherwise every coupon-applied order would be
+      //     rejected here even though nothing is actually wrong.
       if (input.confirmedTotal !== totalAmount) {
         // The client's figure is a CROSS-CHECK, never an instruction: the
         // server stores its own arithmetic and asks the shopper to re-confirm
@@ -459,6 +544,31 @@ export async function createOrder(guestId: string, body: unknown): Promise<Order
           code: "PRICE_CHANGED",
           totalAmount,
         });
+      }
+
+      // 3f. The REAL enforcement — conditional atomic increment of the
+      //     coupon's redemption count (design.md §3.2, REQ-DISCOUNT-016).
+      //     Placed AFTER 3e (a PRICE_CHANGED rejection is unrelated to the
+      //     coupon; incrementing first would waste a redemption on a request
+      //     that was always going to be rejected) and BEFORE step 4 below (a
+      //     coupon that just lost this race must never acquire a stock lock
+      //     first — design.md §3.1's own ordering rationale for both edges).
+      if (coupon !== null) {
+        const redeemed = await incrementRedeemedCountIfAvailable(
+          tx,
+          coupon.id,
+          coupon.maxRedemptions
+        );
+        if (redeemed !== 1) {
+          // Lost the race in 3f's atomic update — 3b's pre-check passed at
+          // read time, but a concurrent order won the last redemption first
+          // (REQ-DISCOUNT-017).
+          throw new OrderAbort({
+            status: 409,
+            error: "쿠폰 사용 한도가 모두 소진되었습니다",
+            code: "COUPON_EXHAUSTED",
+          });
+        }
       }
 
       // 4. Conditional decrement per line. Ordered before the order insert
@@ -509,6 +619,8 @@ export async function createOrder(guestId: string, body: unknown): Promise<Order
         itemsSubtotal,
         shippingFee,
         totalAmount,
+        couponCode: coupon?.code ?? null,
+        discountAmount,
         items,
       });
 
@@ -528,6 +640,8 @@ export async function createOrder(guestId: string, body: unknown): Promise<Order
         itemsSubtotal,
         shippingFee,
         totalAmount,
+        couponCode: coupon?.code ?? null,
+        discountAmount,
         shipping: input.shipping,
         // The service's clock rather than the row's DEFAULT now(): the create
         // selects only the id, and the two differ by less than the round trip.

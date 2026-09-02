@@ -61,6 +61,8 @@ const ORDER: OrderDTO = {
   itemsSubtotal: 139000,
   shippingFee: 0,
   totalAmount: 139000,
+  couponCode: null,
+  discountAmount: 0,
   shipping: {
     recipientName: "홍길동",
     recipientPhone: "010-1234-5678",

@@ -195,6 +195,27 @@ Key security properties (see `.moai/specs/SPEC-AUTH-001/` for the full spec/acce
 
 **알려진 한계**(자세한 내용은 `.moai/specs/SPEC-PAYMENT-001/progress.md` 참고): PostgreSQL이 없는 환경이라 **확인 API와 웹훅이 실제로 동시 도착할 때의 행 잠금 직렬화(`AC-004-EXCL-CONCURRENCY`)는 미검증**이며 PASS로 계상하지 않는다. 관리자·사용자 주도 취소·환불 API는 이 범위 밖이다(칸반 백로그 카드 `t12`, 향후 백오피스 주문 관리 SPEC의 몫) — 이 SPEC이 처리하는 취소는 PG가 먼저 알린 웹훅뿐이다. 미결제 주문의 재고 점유를 시간 경과로 해제하는 만료 작업(스케줄러/배치)도 없다(이벤트 주도 복원만 지원). 확인 실패·결제창 중단 시 새 상태값 없이 `pending_payment`에 남아 재시도를 허용한다. 가상계좌·정기결제·해외 간편결제·정산 웹훅·ARS 결제, 회원 결제 경로는 모두 범위 밖이다. `npm run build`는 여전히 실패하는데, SPEC-STOREFRONT-001·SPEC-ORDER-001이 이미 기록한 것과 동일한 선행 결함(`src/middleware.ts` → `src/lib/auth/jwt.ts` → `node:crypto`)이며 이 SPEC이 도입하지 않았다(diff 0줄로 확인, 백로그 카드 `t16`).
 
+## 쿠폰·할인 (SPEC-DISCOUNT-001)
+
+**게스트 전용, 주문 단위 단일 쿠폰.** 정률(`PERCENTAGE`)·정액(`FIXED_AMOUNT`) 두 유형을 지원하며, 할인은 `itemsSubtotal`에만 적용되고 배송비는 건드리지 않는다 — `totalAmount = itemsSubtotal - discountAmount + shippingFee`. 할인을 `Order.totalAmount`에 미리 녹여 넣는 설계라 결제 경로(`payment-service.ts`)는 한 글자도 바뀌지 않는다.
+
+| 경로 | 메서드 | 설명 |
+|---|---|---|
+| `/api/discounts/validate` | POST | 쿠폰 사전 검증. 코드와 `itemsSubtotal`을 받아 할인액 또는 거절 사유만 돌려주며, 어떤 행도 쓰지 않는다(사용분 예약/점유 아님) |
+| `/api/orders` (SPEC-ORDER-001 확장) | POST | 주문 생성 시 쿠폰 검증·할인 산출·사용 횟수 증가가 같은 트랜잭션 안에서 수행된다 |
+
+핸들러는 `src/app/api/discounts/`에, 도메인 로직은 `src/features/discounts/`(순수 계산 엔진 + 검증 서비스 + 조회 전용 리포지토리)에, 체크아웃 UI 추가분은 `src/components/checkout/`(`CheckoutInteractive.tsx` 신규)에 있다.
+
+핵심 성질:
+
+- **정률은 원 단위 내림(`floor`)**, 산출 할인액은 `itemsSubtotal`을 넘지 않도록 상한이 걸려 `totalAmount`는 음수가 되지 않는다.
+- **쿠폰 사용 횟수 상한은 조건부 원자 갱신**(재고 차감과 같은 모양 — SPEC-ORDER-002 선례 차용)으로 지켜진다. 두 주문이 마지막 한 장을 동시에 요청하면 하나만 성공하고 나머지는 409 `COUPON_EXHAUSTED`.
+- **결제 취소 시 사용분도 함께 해제된다** — 재고 복원과 같은 트랜잭션 안에서 쿠폰 `redeemedCount`를 되돌린다.
+- 쿠폰 거절 사유 4종(`COUPON_NOT_FOUND`·`COUPON_EXPIRED`·`COUPON_MINIMUM_NOT_MET`·`COUPON_EXHAUSTED`)은 모두 409이며, 체크아웃 화면은 각각 구별되는 문구를 보여준다.
+- `/api/discounts/validate`는 IP 기준 속도 제한이 걸려 있다(`"discount-validate"` 전용 버킷) — 유효한 쿠폰 코드를 스크립트로 탐색하는 것을 막기 위한 sync-phase 보안 검토의 결과다.
+
+**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-DISCOUNT-001/progress.md` 참고): **인별(1인 1회) 사용 제한은 없다** — 전역 총량 상한(`maxRedemptions`)만 있으며, 게스트 신원이 쿠키에서 오고 쿠키가 지워질 수 있어 인별 제한을 강제할 수단이 없다. 쿠폰 사용 횟수 동시성(`AC-DISCOUNT-016`)은 개발자 기계의 살아 있는 PostgreSQL에서는 실제로 관측했지만, 이 저장소의 CI에는 `services: postgres`가 없어 **CI에서는 판정되지 않는다**(SPEC-ORDER-002와 동일한 능력 게이트 공백). 무료배송 쿠폰, 쿠폰 중복 적용, 관리자 쿠폰 저작 화면·API, 상품·카테고리 한정 쿠폰, 코드 없는 자동 프로모션, 미결제 이탈 주문의 쿠폰 사용분 시간 기반 자동 해제는 모두 범위 밖이다(결제 취소 웹훅 도달 시 해제는 지원한다).
+
 ## Project documentation
 
 - `.moai/project/product.md`, `structure.md`, `tech.md` — project-wide docs

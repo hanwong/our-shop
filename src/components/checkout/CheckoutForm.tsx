@@ -65,9 +65,18 @@ interface SubmitFailure {
 export function CheckoutForm({
   idempotencyKey,
   confirmedTotal,
+  couponCode,
 }: {
   idempotencyKey: string;
   confirmedTotal: number;
+  /**
+   * SPEC-DISCOUNT-001 M6b. The applied coupon's code, or `null` when none is
+   * applied — passed straight through into the request body, matching
+   * `CreateOrderInput.couponCode` (order-service.ts). This component decides
+   * nothing about coupons: `confirmedTotal` already arrives discount-inclusive
+   * from the parent that owns the coupon-application state (design.md §5).
+   */
+  couponCode: string | null;
 }) {
   const router = useRouter();
   const formId = useId();
@@ -103,6 +112,7 @@ export function CheckoutForm({
           },
           idempotencyKey,
           confirmedTotal,
+          couponCode,
         }),
       });
 

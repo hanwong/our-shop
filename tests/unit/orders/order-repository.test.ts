@@ -167,6 +167,8 @@ describe("SPEC-ORDER-001 M2 — createOrderWithItems (REQ-ORDER-001/002/011)", (
     itemsSubtotal: 20000,
     shippingFee: 0,
     totalAmount: 20000,
+    couponCode: null,
+    discountAmount: 0,
     items: [
       { productId: "p-1", productName: "Tee", unitPrice: 10000, quantity: 2, lineTotal: 20000 },
     ],

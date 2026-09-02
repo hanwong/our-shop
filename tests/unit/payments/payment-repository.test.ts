@@ -90,7 +90,12 @@ describe("payment-repository — markOrderPaid (REQ-PAYMENT-017 conditional tran
 
 describe("payment-repository — markOrderCancelledAndRestoreStock (REQ-PAYMENT-014, same-transaction)", () => {
   it("restores stock for every item only when the conditional transition applied", async () => {
-    const txOrder = { updateMany: vi.fn().mockResolvedValue({ count: 1 }) };
+    const txOrder = {
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      // SPEC-DISCOUNT-001 M5 — the coupon-release step reads the couponCode
+      // snapshot after the stock restore; a no-coupon order returns null.
+      findUnique: vi.fn().mockResolvedValue({ couponCode: null }),
+    };
     const txOrderItem = {
       findMany: vi.fn().mockResolvedValue([
         { productId: "p1", quantity: 3 },
@@ -135,6 +140,130 @@ describe("payment-repository — markOrderCancelledAndRestoreStock (REQ-PAYMENT-
     expect(count).toBe(0);
     expect(txOrderItem.findMany).not.toHaveBeenCalled();
     expect(txProduct.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("payment-repository — markOrderCancelledAndRestoreStock coupon release (SPEC-DISCOUNT-001 M5, REQ-DISCOUNT-021, design.md §6)", () => {
+  /**
+   * Builds a fake transaction client covering both the order/orderItem/
+   * product surface the stock-restore loop needs AND the coupon surface the
+   * M5 release step needs, so one `tx` object drives the whole function.
+   */
+  function fakeTx(overrides: {
+    orderUpdateCount: number;
+    couponCode?: string | null;
+    couponRow?: { id: string } | null;
+    decrementCount?: number;
+  }) {
+    const txOrder = {
+      updateMany: vi.fn().mockResolvedValue({ count: overrides.orderUpdateCount }),
+      findUnique: vi.fn().mockResolvedValue(
+        overrides.orderUpdateCount === 1 ? { couponCode: overrides.couponCode ?? null } : null
+      ),
+    };
+    const txOrderItem = { findMany: vi.fn().mockResolvedValue([]) };
+    const txProduct = { update: vi.fn().mockResolvedValue({}) };
+    const txCoupon = {
+      findUnique: vi.fn().mockResolvedValue(overrides.couponRow ?? null),
+      updateMany: vi.fn().mockResolvedValue({ count: overrides.decrementCount ?? 0 }),
+    };
+    return {
+      tx: { order: txOrder, orderItem: txOrderItem, product: txProduct, coupon: txCoupon } as never,
+      txOrder,
+      txOrderItem,
+      txProduct,
+      txCoupon,
+    };
+  }
+
+  it("(a) a coupon-applied order's cancellation restores stock AND decrements redeemedCount in the same transaction", async () => {
+    const { tx, txOrder, txOrderItem, txProduct, txCoupon } = fakeTx({
+      orderUpdateCount: 1,
+      couponCode: "SAVE10",
+      couponRow: { id: "c-1" },
+      decrementCount: 1,
+    });
+    (txOrderItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { productId: "p1", quantity: 2 },
+    ]);
+    const { markOrderCancelledAndRestoreStock } = await import(
+      "@/features/payments/repositories/payment-repository"
+    );
+
+    const count = await markOrderCancelledAndRestoreStock(tx, "o1");
+
+    // both effects land together on the happy path
+    expect(count).toBe(1);
+    expect(txProduct.update).toHaveBeenCalledWith({
+      where: { id: "p1" },
+      data: { stock: { increment: 2 } },
+    });
+    expect(txOrder.findUnique).toHaveBeenCalledWith({
+      where: { id: "o1" },
+      select: { couponCode: true },
+    });
+    expect(txCoupon.findUnique).toHaveBeenCalledWith({ where: { code: "SAVE10" } });
+    expect(txCoupon.updateMany).toHaveBeenCalledWith({
+      where: { id: "c-1", redeemedCount: { gt: 0 } },
+      data: { redeemedCount: { decrement: 1 } },
+    });
+  });
+
+  it("(a-rollback) all writes in this call share ONE transaction client — none is a side transaction", async () => {
+    // The repository function never opens its own `prisma.$transaction`; it
+    // only ever writes through the `tx` its caller (payment-service.ts's own
+    // `prisma.$transaction`) supplies. Asserting there is no second-argument
+    // transaction/callback anywhere in this call is what stands in for "or
+    // neither happens on rollback" here (this unit layer has no live DB to
+    // force a real rollback against — that is AC-DISCOUNT-016's concurrency
+    // layer, gated on a live PostgreSQL per acceptance.md §I).
+    const { tx, txCoupon, txProduct } = fakeTx({
+      orderUpdateCount: 1,
+      couponCode: "SAVE10",
+      couponRow: { id: "c-1" },
+      decrementCount: 1,
+    });
+    const { markOrderCancelledAndRestoreStock } = await import(
+      "@/features/payments/repositories/payment-repository"
+    );
+
+    await markOrderCancelledAndRestoreStock(tx, "o1");
+
+    for (const fn of [txCoupon.findUnique, txCoupon.updateMany, txProduct.update] as Array<
+      ReturnType<typeof vi.fn>
+    >) {
+      for (const call of fn.mock.calls) {
+        expect(call).toHaveLength(1); // no extra tx/callback argument passed anywhere
+      }
+    }
+  });
+
+  it("(b) a no-coupon order's cancellation is unaffected — no coupon table write attempted, no error", async () => {
+    const { tx, txCoupon } = fakeTx({ orderUpdateCount: 1, couponCode: null });
+    const { markOrderCancelledAndRestoreStock } = await import(
+      "@/features/payments/repositories/payment-repository"
+    );
+
+    const count = await markOrderCancelledAndRestoreStock(tx, "o1");
+
+    expect(count).toBe(1);
+    expect(txCoupon.findUnique).not.toHaveBeenCalled();
+    expect(txCoupon.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("(c) the coupon row was deleted between order creation and cancellation — cancellation still succeeds, decrement silently skipped, no error thrown", async () => {
+    const { tx, txCoupon } = fakeTx({
+      orderUpdateCount: 1,
+      couponCode: "SAVE10",
+      couponRow: null, // deleted since the order was placed
+    });
+    const { markOrderCancelledAndRestoreStock } = await import(
+      "@/features/payments/repositories/payment-repository"
+    );
+
+    await expect(markOrderCancelledAndRestoreStock(tx, "o1")).resolves.toBe(1);
+    expect(txCoupon.findUnique).toHaveBeenCalledWith({ where: { code: "SAVE10" } });
+    expect(txCoupon.updateMany).not.toHaveBeenCalled();
   });
 });
 
