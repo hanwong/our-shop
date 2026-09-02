@@ -49,11 +49,24 @@ export function OrderSummary({
   itemsSubtotal,
   shippingFee,
   totalAmount,
+  discountAmount,
+  couponCode,
 }: {
   cart: CartDTO;
   itemsSubtotal: number;
   shippingFee: number;
   totalAmount: number;
+  /**
+   * SPEC-DISCOUNT-001 M6b (AC-DISCOUNT-023). Passed IN, like the three money
+   * figures above — this component recomputes nothing, so `totalAmount`
+   * arriving discount-inclusive stays the single source of truth for what the
+   * shopper is charged.
+   */
+  discountAmount: number;
+  /** The applied coupon's code, or `null` when none is applied. Shown only to
+   * label the discount row — never used to decide whether to render it
+   * (`discountAmount > 0` alone decides that, per REQ-DISCOUNT-023). */
+  couponCode: string | null;
 }) {
   return (
     <section aria-labelledby="order-summary-heading" className="rounded-lg border border-neutral-200 p-4">
@@ -89,6 +102,16 @@ export function OrderSummary({
           <dt className="text-neutral-600">상품 합계</dt>
           <dd className="text-neutral-900">{formatWon(itemsSubtotal)}</dd>
         </div>
+        {/* REQ-DISCOUNT-023: present exactly while discountAmount > 0 — absent
+            from the DOM (not merely hidden) otherwise. */}
+        {discountAmount > 0 ? (
+          <div className="flex justify-between">
+            <dt className="text-neutral-600">
+              할인 금액{couponCode ? ` (${couponCode})` : ""}
+            </dt>
+            <dd className="text-neutral-900">-{formatWon(discountAmount)}</dd>
+          </div>
+        ) : null}
         <div className="flex justify-between">
           <dt className="text-neutral-600">배송비</dt>
           <dd className="text-neutral-900">{formatWon(shippingFee)}</dd>

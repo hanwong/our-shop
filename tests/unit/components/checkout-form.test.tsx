@@ -50,7 +50,7 @@ afterEach(cleanup);
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal("fetch", fetchMock);
-  render(<CheckoutForm idempotencyKey="key-1" confirmedTotal={139000} />);
+  render(<CheckoutForm idempotencyKey="key-1" confirmedTotal={139000} couponCode={null} />);
 });
 
 describe("SPEC-ORDER-001 — what the form submits", () => {
@@ -77,6 +77,8 @@ describe("SPEC-ORDER-001 — what the form submits", () => {
       // The figure the summary displayed, for the server to check its own
       // recomputation against (design.md §4).
       confirmedTotal: 139000,
+      // SPEC-DISCOUNT-001 M6b — null when no coupon is applied.
+      couponCode: null,
     });
   });
 
@@ -99,6 +101,26 @@ describe("SPEC-ORDER-001 — what the form submits", () => {
     submit();
 
     await waitFor(() => expect(push).toHaveBeenCalledWith("/checkout/complete/order-42"));
+  });
+});
+
+describe("SPEC-DISCOUNT-001 M6b — the applied coupon code (design.md §4)", () => {
+  it("sends the applied coupon code when one is present", async () => {
+    cleanup();
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CheckoutForm idempotencyKey="key-1" confirmedTotal={134000} couponCode="SAVE5000" />);
+    fetchMock.mockResolvedValue(jsonResponse(201, { id: "order-1" }));
+    fillRequired();
+    submit();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.couponCode).toBe("SAVE5000");
+    // The parent computes the discounted total; this component passes it
+    // through untouched — the same `confirmedTotal` contract M5 already had.
+    expect(body.confirmedTotal).toBe(134000);
   });
 });
 

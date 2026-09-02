@@ -56,14 +56,22 @@ function lineFor(name: string): HTMLElement {
   return element as HTMLElement;
 }
 
-function renderSummary(items: CartDTO["items"]) {
+function renderSummary(
+  items: CartDTO["items"],
+  discount: { discountAmount: number; couponCode: string | null } = {
+    discountAmount: 0,
+    couponCode: null,
+  }
+) {
   const built = cart(items);
   render(
     <OrderSummary
       cart={built}
       itemsSubtotal={built.subtotal}
       shippingFee={0}
-      totalAmount={built.subtotal}
+      totalAmount={built.subtotal - discount.discountAmount}
+      discountAmount={discount.discountAmount}
+      couponCode={discount.couponCode}
     />
   );
 }
@@ -135,5 +143,33 @@ describe("SPEC-ORDER-002 M3 — per-line stock state (AC-ORDER-030)", () => {
     // stock === quantity is buyable — the conditional decrement uses `gte`, so
     // marking it short here would contradict what the server will do.
     expect(lineFor("딱맞음").textContent).not.toMatch(/재고|품절/);
+  });
+});
+
+describe("SPEC-DISCOUNT-001 M6b — the discount row (AC-DISCOUNT-023 (iii))", () => {
+  const ONE_ITEM = [line("텀블러", { stock: 10, quantity: 1 })];
+
+  it("shows a discount row with its value when discountAmount > 0", () => {
+    renderSummary(ONE_ITEM, { discountAmount: 5000, couponCode: "SAVE5000" });
+
+    expect(document.body.textContent).toMatch(/할인/);
+    expect(document.body.textContent).toContain("5,000");
+  });
+
+  it("renders no discount row at all when discountAmount is 0", () => {
+    renderSummary(ONE_ITEM, { discountAmount: 0, couponCode: null });
+
+    // "존재하지 않는다" per AC-DISCOUNT-023 — absent from the DOM, not merely
+    // hidden. `<dt>`/`<dd>` count is the mechanical proxy: with no discount
+    // row there are exactly 2 pairs (상품 합계, 배송비); a discount row adds a
+    // 3rd before both go away entirely.
+    expect(document.body.textContent).not.toMatch(/할인/);
+  });
+
+  it("does not change when the discount row is absent (regression: REQ-DISCOUNT-019 shape)", () => {
+    renderSummary(ONE_ITEM);
+
+    expect(screen.getByText("상품 합계")).toBeDefined();
+    expect(screen.getByText("배송비")).toBeDefined();
   });
 });

@@ -2,9 +2,8 @@ import { cookies } from "next/headers";
 
 import { GUEST_CART_COOKIE_NAME } from "@/lib/auth/guest-identity";
 import { getCart } from "@/features/cart/services/cart-service";
-import { CheckoutForm } from "@/components/checkout/CheckoutForm";
+import { CheckoutInteractive } from "@/components/checkout/CheckoutInteractive";
 import { CheckoutUnavailable } from "@/components/checkout/CheckoutUnavailable";
-import { OrderSummary } from "@/components/checkout/OrderSummary";
 import {
   calculateShippingFee,
   generateIdempotencyKey,
@@ -60,7 +59,11 @@ export default async function CheckoutPage() {
   // (REQ-ORDER-014).
   const itemsSubtotal = cart.subtotal;
   const shippingFee = calculateShippingFee(itemsSubtotal);
-  const totalAmount = itemsSubtotal + shippingFee;
+  // No `totalAmount` computed here any more (SPEC-DISCOUNT-001 M6b):
+  // CheckoutInteractive is the single owner of the discount-inclusive total
+  // now — it derives `itemsSubtotal - discountAmount + shippingFee` itself
+  // once a coupon is (or is not) applied, so a value computed here would be
+  // stale the moment a coupon changes it.
 
   // Minted server-side per render and carried in the form (design.md §5). A
   // refresh yields a new key, which is intended: the key exists to absorb a
@@ -71,13 +74,17 @@ export default async function CheckoutPage() {
     <main className="mx-auto max-w-4xl px-4 py-8">
       <h1 className="text-2xl font-semibold text-neutral-900">주문서 작성</h1>
 
-      <div className="mt-8 grid gap-8 md:grid-cols-2">
-        <CheckoutForm idempotencyKey={idempotencyKey} confirmedTotal={totalAmount} />
-        <OrderSummary
+      <div className="mt-8">
+        {/* SPEC-DISCOUNT-001 M6b — CheckoutInteractive is the single client
+            component that owns coupon-application state and composes the
+            coupon input with OrderSummary + CheckoutForm (design.md §5): a
+            server component cannot hold client state, and two independent
+            client components could not share it without this common owner. */}
+        <CheckoutInteractive
           cart={cart}
           itemsSubtotal={itemsSubtotal}
           shippingFee={shippingFee}
-          totalAmount={totalAmount}
+          idempotencyKey={idempotencyKey}
         />
       </div>
 
