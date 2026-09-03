@@ -1,6 +1,6 @@
 ---
 id: SPEC-ORDER-003
-status: draft
+status: completed
 updated: 2026-09-03
 tier: M
 ---

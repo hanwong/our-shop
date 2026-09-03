@@ -1,6 +1,6 @@
 ---
 id: SPEC-ORDER-003
-status: in-progress
+status: completed
 updated: 2026-09-03
 tier: M
 ---
@@ -322,4 +322,18 @@ $ createOrder() 본문(order-service.ts:446)에 닿는 diff hunk 0건 (grep으�
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_&lt;pending sync-phase&gt;_
+**sync-phase 완료 (2026-09-03).** Pre-Sync Gate + Deployment Readiness: working tree clean(사전 존재 `.moai/lessons-inbox.jsonl` 외 무변경), 945/945 테스트 통과(`AC-AUTH-005` 1건은 이 SPEC과 무관한 사전 존재 타이밍 플레이키 — 격리 실행 시 통과 재확인, 부하 상황에서만 실패), typecheck·lint 종료 코드 0, 마이그레이션·신규 env 변수·breaking change 없음 — READY.
+
+**독립 sync-auditor 감사: PASS, 가중 95/100** (Functionality 95 · Security 95 HARD · Craft 93 · Consistency 95). must-pass 두 차원 모두 PASS라 firewall 미발동. progress.md의 산문 주장에 의존하지 않고 테스트·`git diff`·설정 파일을 직접 재실행/재대조했다(PRESERVE 3항목 zero-diff, AC-ORDER-043 런타임 리댁션, AC-ORDER-048 쿼리 레벨 권한, 연락처 정규화 격차 종결 확인 포함). 블로킹 결함 0건 — 4건 전부 optional/info. 보고서: `.moai/reports/sync-audit/SPEC-ORDER-003-2026-09-03.md`(오케스트레이터가 직접 열어 PASS 판정과 존재를 대조 확인).
+
+**보안 검토(OWASP 관점, 별도 Agent 위임): PASS, Critical/High 결함 0건.** Injection·타이밍/열거·쿠키 소유권 대조는 구조적으로 안전함을 코드+테스트 직접 대조로 확인. Medium 2건(조회 엔드포인트가 IP 단일 축 속도 제한만 가짐 — 로그인과 달리 2차 축 없음 / 공유 버킷 15분 잠금이 인증 없는 공개 조회 엔드포인트엔 과함, `discount-validate`에서 물려받은 기존 패턴) · Low 2건(서버 렌더에만 의존해 안전한 `id` 필드 노출 경로 / 빈 문자열 게스트 쿠키 가장자리 사례, 실질 위험 없음) — 전부 advisory로 남기고 CHANGELOG·README "sync-phase 검토" 절에 기록, 코드 수정은 이 커밋 범위에 포함하지 않았다(둘 다 PASS 판정이 그 위에 서 있지 않다고 명시).
+
+**Phase 9 (MX 태그): P1/P2 차단 위반 0건.** 신규 export 함수 전부 프로덕션 코드 기준 fan-in < 3(테스트 호출 제외), 유일한 신규 async 핸들러(`route.ts` POST)는 기존 라우트와 동일한 try/catch 패턴을 따른다.
+
+**Phase 10 (커버리지): 98.18% stmts** (SPEC 소유 모듈 범위, `--coverage` 직접 측정) — 임계값 85% 대비 큰 폭 상회. 신규 테스트 생성 불필요.
+
+**의존성 매니페스트 감사**: `package.json`/`package-lock.json`은 이 SPEC 범위에서 무변경. `npm audit --omit=dev`가 이 SPEC과 무관한 사전 존재 전이 의존성 취약점(critical 1건 `tar`, high 4건 `postcss`/`prisma 설정 체인`/`@mapbox/node-pre-gyp`)을 보고했다 — 전부 빌드/CLI 시점 도구 체인이며 이 SPEC의 런타임 코드 경로에 있지 않다. 이 SPEC의 커밋 범위에서 고치지 않고(범위 밖 전역 의존성 갱신은 다른 SPEC들의 작업과 충돌할 위험), lead에게 별도 보고했다.
+
+**문서 동기화**: CHANGELOG.md·README.md에 SPEC-ORDER-003 절 추가(추가/plan-audit 이력/sync-phase 검토/알려진 한계). spec.md·plan.md·acceptance.md·progress.md 프런트매터 `status: draft`/`in-progress` → `completed`로 전이(이 커밋).
+
+**sync-phase를 막는 항목 없음. PR #13 업데이트 및 병합 준비 완료로 판단.**

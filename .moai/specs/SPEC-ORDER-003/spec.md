@@ -2,7 +2,7 @@
 id: SPEC-ORDER-003
 title: "게스트 주문 재방문 조회와 주문 상태 표시"
 version: "0.1.0"
-status: draft
+status: completed
 created: 2026-09-03
 updated: 2026-09-03
 author: snake
