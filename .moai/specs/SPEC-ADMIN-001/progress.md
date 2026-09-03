@@ -219,6 +219,77 @@ id, `role="alert"` 최상위 폼 오류, 제출 중 `disabled` + 버튼 라벨 �
 파일이지만 M1이 유발한 회귀이므로 최소 수정). AC-ADMIN-004/005 PASS 커버, AC-ADMIN-006
 PARTIAL(클라이언트 절반만 — 서버 측 거부 절반은 M3에서 검증) 커버.
 
+### 마일스톤 M3 — 관리자 주문 목록
+
+**Task 0 — AC-ADMIN-006 서버 측 거부 절반 완결(M2가 유예해 둔 절반을 이 마일스톤에서 닫음)**:
+M2의 progress.md 기록이 명시적으로 남겨 둔 대로, AC-ADMIN-006의 전체 주장("로그인은
+성공하지만 관리자 데이터는 어디에도 노출되지 않고 진입이 거부된다")은 `/staff/orders`의
+Server Component 게이트에 의존했다. 이 마일스톤이 그 게이트 자체다 — `resolveAdminSession()`을
+호출해 결과가 `null`이면(쿠키 없음·만료·폐기·비관리자 역할, REQ-ADMIN-003에 따라 네 사유
+모두 동일하게 취급) `redirect("/staff/login")`을 실행하며, 이 판정이 실패로 끝나는 경로에서는
+`listOrdersForAdmin()`을 포함해 어떤 주문 데이터 조회도 일어나지 않는다. 신규 테스트 "never
+calls listOrdersForAdmin ... on the redirected path"가 저장소 mock이 호출되지 않았음을 직접
+관측해 이를 확인한다. **AC-ADMIN-006을 이제 PARTIAL이 아닌 완전 PASS로 표시한다** — M2가
+검증한 클라이언트 절반(응답 본문 내용과 무관하게 역할 분기 없이 항상 동일한 목적지로 이동)과
+이 마일스톤이 검증한 서버 절반(실제 차단 + 데이터 미노출)이 합쳐져 REQ-ADMIN-006을 완전히
+충족한다.
+
+**RED** (`admin-order-repository.test.ts`, 구현 전 — 모듈 부재로 6건 전부 FAIL):
+```
+$ npx vitest run tests/unit/admin/admin-order-repository.test.ts
+ FAIL  tests/unit/admin/admin-order-repository.test.ts > ... > queries with an empty where
+   filter when no status is given, and never scopes by guestId
+ Error: Cannot find module '@/features/admin/repositories/admin-order-repository' imported
+   from '.../tests/unit/admin/admin-order-repository.test.ts'.
+ (동일 사유로 나머지 5건도 전부 FAIL — 모듈 부재)
+
+ Test Files  1 failed (1)
+      Tests  6 failed (6)
+```
+
+**RED** (`staff-orders-page.test.tsx`, 구현 전 — 페이지 파일 부재로 스위트 자체가 실패):
+```
+$ npx vitest run tests/unit/app/staff-orders-page.test.tsx
+ FAIL  tests/unit/app/staff-orders-page.test.tsx [ tests/unit/app/staff-orders-page.test.tsx ]
+Error: Failed to resolve import "@/app/staff/orders/page" from
+"tests/unit/app/staff-orders-page.test.tsx". Does the file exist?
+Test Files  1 failed (1)
+     Tests  no tests
+```
+
+**GREEN** (동일 두 명령, 구현 후):
+```
+$ npx vitest run tests/unit/admin/admin-order-repository.test.ts tests/unit/app/staff-orders-page.test.tsx
+ ✓ tests/unit/admin/admin-order-repository.test.ts (6 tests) 7ms
+ ✓ tests/unit/app/staff-orders-page.test.tsx (10 tests) 37ms
+
+ Test Files  2 passed (2)
+      Tests  16 passed (16)
+```
+
+**설계 대비 실측 보정 — 없음**: `admin-order-repository.ts`는 `product-repository.ts`의
+패턴(`LIST_SELECT satisfies Prisma.OrderSelect`, `Promise.all` 동시 조회, `skip`/`take`)을
+그대로 따랐다. 다만 상태별 정렬 키가 필요했던 상품과 달리 주문은 이차 정렬 충돌이 없으므로
+`SORT_ORDER_BY` 같은 `Record` 대신 `createdAt desc` + `id asc` 고정 2키 배열 하나만 둔다
+(design.md가 요구한 대로). `page.tsx`의 `DEFAULT_PAGE`/`DEFAULT_PAGE_SIZE`/`MAX_PAGE_SIZE`
+값(1/20/100)도 `product.ts`의 값을 그대로 재사용했다(REQ-ADMIN-009).
+
+**타입 호환성 메모(리포지토리 계층 vs page/types 계층의 관례 차이)**: `admin-order-repository.ts`는
+`@prisma/client`에서 `OrderStatus`를 타입으로 import한다(리포지토리 계층의 기존 관례,
+`product-repository.ts`가 `Prisma.*`를 import하는 것과 동일). 반면 `admin.ts`와 `page.tsx`는
+이 저장소 전체의 관례(`src/features/orders/types/order.ts`가 이미 확립한 "features/는 배송
+메커니즘에 의존하지 않는다")를 따라 Prisma를 import하지 않고 `"pending_payment" | "paid" |
+"cancelled"` 리터럴 유니온으로 상태값을 재기술한다 — Prisma가 생성하는 `OrderStatus` 타입
+자체가 `(typeof OrderStatus)[keyof typeof OrderStatus]`로 동일한 리터럴 유니온으로 귀결되므로,
+두 표현은 구조적으로 동일해 캐스트 없이 서로 호환된다(`npx tsc --noEmit` 오류 0건으로 확인).
+
+산출물: `src/features/admin/repositories/admin-order-repository.ts`(신규),
+`src/features/admin/types/admin.ts`(신규 — 이 SPEC에서 처음 사용),
+`src/app/staff/orders/page.tsx`(신규),
+`tests/unit/admin/admin-order-repository.test.ts`(신규, 6 tests),
+`tests/unit/app/staff-orders-page.test.tsx`(신규, 10 tests — redirect-gate 2건 포함).
+AC-ADMIN-006(PARTIAL→완전 PASS로 승격)/007/008/009 커버.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 _<pending run-phase>_
