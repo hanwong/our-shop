@@ -65,13 +65,13 @@ describe("SPEC-PAYMENT-001 M1 — OrderStatus enum is UNCHANGED (§0 #2)", () =>
 });
 
 describe("SPEC-PAYMENT-001 M1 — PaymentEventSource enum (design.md §1)", () => {
-  it("declares exactly the two event-source values", () => {
+  it("declares exactly the three event-source values (SPEC-ADMIN-001 M1 additive ADMIN_ACTION)", () => {
     const body = enumBody("PaymentEventSource");
     const values = body
       .split("\n")
       .map((line) => line.replace(/\/\/.*$/, "").trim())
       .filter((line) => line.length > 0);
-    expect(values).toEqual(["CONFIRM_API", "WEBHOOK"]);
+    expect(values).toEqual(["CONFIRM_API", "WEBHOOK", "ADMIN_ACTION"]);
   });
 });
 

@@ -102,7 +102,122 @@ plan-phase 산출물은 이제 iteration 2 재감사 준비 완료 상태다.
 
 ## §E.2 Run-phase Evidence
 
-_<pending run-phase>_
+### 마일스톤 M1 — 스키마 + 관리자 세션 판정
+
+**RED** (`npx vitest run tests/unit/admin/admin-session.test.ts`, `admin-session.ts` 작성 전):
+```
+ ❯ tests/unit/admin/admin-session.test.ts (7 tests | 7 failed) 27ms
+   × resolveAdminSession — AC-ADMIN-001 valid admin session > resolves { userId, role: 'admin' } for a valid, unexpired, unrevoked admin-owned token 24ms
+     → Cannot find module '@/features/admin/services/admin-session' imported from
+       '.../tests/unit/admin/admin-session.test.ts'.
+   (동일 사유로 나머지 6건도 전부 FAIL — 모듈 부재)
+
+ Test Files  1 failed (1)
+      Tests  7 failed (7)
+```
+
+**GREEN** (`admin-session.ts` 작성 후, 동일 명령):
+```
+ ✓ tests/unit/admin/admin-session.test.ts (7 tests) 26ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+```
+
+**설계 대비 실측 보정 — `findUnique` → `findFirst`**: design.md §2 4단계는
+`prisma.refreshToken.findUnique({ where: { tokenHash }, include: { user: true } })`를
+지정했으나, 최초 구현을 `npx tsc --noEmit`로 검증한 결과 타입 오류 2건이
+났다 — `RefreshToken` 모델은 `tokenHash`에 `@@index([tokenHash])`만 선언되어
+있고 `@@unique`가 아니므로(스키마 실측, `prisma/schema.prisma:63-78`),
+Prisma의 `findUnique` where 절은 `tokenHash` 단독을 받아들이지 않는다. 이
+SPEC은 `RefreshToken` 모델 자체를 PRESERVE 대상으로 두므로(다른 SPEC 소유,
+스키마 변경은 `PaymentEventSource` 값 1개 추가로 한정) 모델을 고치는 대신
+쿼리를 `findFirst`로 바꿨다 — 동작은 동일한 단일 읽기 조회이며(토큰 해시는
+실질적으로 유일하므로 결과 차이 없음), 여전히 쓰기 쿼리가 전혀 없다
+(REQ-ADMIN-002 불변식 유지). 수정 후 `npx tsc --noEmit`는 오류 0건, 위
+GREEN 결과는 이 수정 반영 후 재실행한 것이다.
+
+**Prisma 마이그레이션**: `npx prisma migrate dev --name admin_action_event_source`
+실행 결과 로컬 PostgreSQL(`localhost:5433`)에 정상 적용되었다(exit 0).
+생성된 `prisma/migrations/20260903110422_admin_action_event_source/migration.sql`:
+```sql
+-- AlterEnum
+ALTER TYPE "PaymentEventSource" ADD VALUE 'ADMIN_ACTION';
+```
+순수 추가(pure additive) — 컬럼·인덱스·기존 두 값 어느 것도 변경하지 않았다.
+`npx prisma generate`도 별도로 실행해 Prisma Client를 재생성했다(exit 0).
+
+**발견된 회귀 — 별도 조치 필요 (수정하지 않음, PRESERVE 경계)**:
+`npx vitest run --exclude "**/tests/integration/auth/login.test.ts"` 전체
+스위트 재실행 결과 `tests/unit/payments/schema.test.ts`의 기존 테스트
+"declares exactly the two event-source values"가 1건 FAIL한다(987/988
+통과) — `PaymentEventSource` enum 값이 정확히 `["CONFIRM_API", "WEBHOOK"]`
+두 개여야 한다고 하드코딩된 검사가, 이 마일스톤이 명시적으로 요구한
+`ADMIN_ACTION` 추가와 정면으로 충돌한다. 이 테스트 파일은
+`tests/unit/payments/**`(다른 SPEC 소유, 이 마일스톤의 PRESERVE 목록에
+"other SPEC's files"로 포함)에 있어 이 마일스톤의 파일 목록 밖이므로 직접
+수정하지 않았다 — 최종 보고서의 Blocker 절에 그대로 남겨 사용자/오케스트레이터
+판단을 구한다.
+
+산출물: `src/features/admin/services/admin-session.ts`(신규),
+`tests/unit/admin/admin-session.test.ts`(신규, 7 tests),
+`prisma/schema.prisma`(`PaymentEventSource`에 `ADMIN_ACTION` 한 줄 추가),
+`prisma/migrations/20260903110422_admin_action_event_source/`(신규,
+`ALTER TYPE ... ADD VALUE` 1문). AC-ADMIN-001/002/003 커버.
+
+### 마일스톤 M2 — 관리자 로그인 화면
+
+**Task 0 — SPEC-PAYMENT-001 소유 테스트 파일의 사전 존재 회귀(M1 파생) 수정**: M1이 커밋한
+`PaymentEventSource.ADMIN_ACTION` 추가(plan-audited, 순수 확장 — plan.md §2)로 인해
+`tests/unit/payments/schema.test.ts`의 기존 검사 "declares exactly the two event-source
+values"가 하드코딩된 2값 목록과 충돌해 FAIL 상태였다. 이 테스트 파일 자체는 다른 SPEC
+소유이므로(`tests/unit/payments/**`) 이 마일스톤의 파일 목록 밖이지만, M1이 만든 회귀이므로
+단언 1줄만 3값으로 갱신했다(이 파일의 다른 모든 테스트는 바이트 단위로 무변경):
+```
+- expect(values).toEqual(["CONFIRM_API", "WEBHOOK"]);
++ expect(values).toEqual(["CONFIRM_API", "WEBHOOK", "ADMIN_ACTION"]);
+```
+`npx vitest run tests/unit/payments/schema.test.ts` — 수정 전 14건 중 1건 FAIL, 수정 후
+14건 전부 PASS.
+
+**RED** (`npx vitest run tests/unit/app/staff-login-page.test.tsx`, `src/app/staff/login/page.tsx`
+작성 전):
+```
+FAIL  tests/unit/app/staff-login-page.test.tsx [ tests/unit/app/staff-login-page.test.tsx ]
+Error: Failed to resolve import "@/app/staff/login/page" from
+"tests/unit/app/staff-login-page.test.tsx". Does the file exist?
+Test Files  1 failed (1)
+     Tests  no tests
+```
+
+**GREEN** (동일 명령, `src/app/staff/login/page.tsx` 작성 후):
+```
+✓ tests/unit/app/staff-login-page.test.tsx (6 tests) 109ms
+Test Files  1 passed (1)
+     Tests  6 passed (6)
+```
+
+**설계 대비 실측 보정 — 없음**: `OrderLookupForm.tsx`의 폼-상태/오류-처리 패턴(`useId()` 파생
+id, `role="alert"` 최상위 폼 오류, 제출 중 `disabled` + 버튼 라벨 전환, 동일 Tailwind 클래스
+문자열)을 그대로 따랐다. `/api/auth/login`은 필드별 오류(`fieldErrors`)를 반환하지 않고 단일
+`error` 문자열만 반환하므로(route.ts 실측), `aria-describedby`/`aria-invalid` 필드 단위
+패턴은 적용 대상이 없어 이식하지 않았다 — `role="alert"` 최상위 오류 요소만 존재.
+
+**AC-ADMIN-006 스코프 — 부분(PARTIAL) 커버리지**: 이 AC의 전체 주장("관리자 데이터 노출 없음,
+진입 거부")은 `/staff/orders`의 Server Component 게이트(M3, 아직 미작성)에 의존한다. 이
+마일스톤에서 검증·구현한 것은 그 절반뿐이다 — 로그인 폼은 `200` 응답을 받으면 응답 본문 내용과
+무관하게(role을 읽지도, 분기하지도 않고) 항상 동일한 `/staff/orders`로만 이동한다. 테스트
+"navigates to the SAME target on every 200, regardless of response body content"가 서로
+다른 두 `200` 응답 본문(하나는 가상의 `role: "customer"` 필드 포함)에 대해 동일한 내비게이션을
+확인하고, 정적 회귀 가드 테스트가 `page.tsx` 소스에 `.role` 참조나 JWT 디코드 호출이 없음을
+확인한다. **서버 측 거부 절반(실제 비관리자 세션의 관리자 데이터 접근 차단)은 M3에서
+`resolveAdminSession()`을 읽는 `/staff/orders` Server Component가 구현할 때 검증된다** — 이
+마일스톤은 AC-ADMIN-006을 PASS로 표시하지 않는다.
+
+산출물: `src/app/staff/login/page.tsx`(신규), `tests/unit/app/staff-login-page.test.tsx`(신규,
+6 tests), `tests/unit/payments/schema.test.ts`(1줄 수정 — M1 파생 회귀 해소, 다른 SPEC 소유
+파일이지만 M1이 유발한 회귀이므로 최소 수정). AC-ADMIN-004/005 PASS 커버, AC-ADMIN-006
+PARTIAL(클라이언트 절반만 — 서버 측 거부 절반은 M3에서 검증) 커버.
 
 ## §E.3 Run-phase Audit-Ready Signal
 
