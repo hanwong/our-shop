@@ -13,6 +13,7 @@ A TypeScript / Next.js e-commerce backend. This repository currently implements:
 - **SPEC-ORDER-001** — guest checkout: the `/checkout` order form and the single-transaction order-creation endpoint (price snapshot, stock decrement, idempotency).
 - **SPEC-PAYMENT-001** — Toss Payments PG integration: payment-window trigger, confirm callback, and payment/cancellation webhook processing (guest-only).
 - **SPEC-ORDER-003** — guest order revisit lookup: order-number + phone lookup, a cookie-only bypass entry, and order-status display, with rate limiting and response redaction.
+- **SPEC-ADMIN-001** — this repository's first admin (back-office) surface: `/staff/login`, `/staff/orders` list, `/staff/orders/{orderId}` detail, and admin-triggered order cancellation.
 
 ## Stack
 
@@ -256,7 +257,49 @@ Key security properties (see `.moai/specs/SPEC-AUTH-001/` for the full spec/acce
 
 **알려진 한계**(자세한 내용은 `.moai/specs/SPEC-DISCOUNT-001/progress.md` 참고): **인별(1인 1회) 사용 제한은 없다** — 전역 총량 상한(`maxRedemptions`)만 있으며, 게스트 신원이 쿠키에서 오고 쿠키가 지워질 수 있어 인별 제한을 강제할 수단이 없다. 쿠폰 사용 횟수 동시성(`AC-DISCOUNT-016`)은 개발자 기계의 살아 있는 PostgreSQL에서는 실제로 관측했지만, 이 저장소의 CI에는 `services: postgres`가 없어 **CI에서는 판정되지 않는다**(SPEC-ORDER-002와 동일한 능력 게이트 공백). 무료배송 쿠폰, 쿠폰 중복 적용, 관리자 쿠폰 저작 화면·API, 상품·카테고리 한정 쿠폰, 코드 없는 자동 프로모션, 미결제 이탈 주문의 쿠폰 사용분 시간 기반 자동 해제는 모두 범위 밖이다(결제 취소 웹훅 도달 시 해제는 지원한다).
 
+## 관리자 백오피스 — 주문 목록·상태 변경 (SPEC-ADMIN-001)
+
+**이 저장소의 첫 관리자(백오피스) 화면이다.** `product.md` 핵심 기능 #6("관리자 상품·주문 관리")의 주문 관리 절반을 다룬다 — 관리자가 전체 주문을 조회하고, 상세를 열어 확인하고, 취소 상태로 전이시킬 수 있다. 상품 관리 절반은 별도 백로그 카드(`t11`)의 몫이다.
+
+| 경로 | 메서드 | 설명 |
+|---|---|---|
+| `/staff/login` | GET/POST | 관리자 로그인 화면. 기존 `/api/auth/login`을 그대로 호출한다(신규 로그인 로직 없음) |
+| `/staff/orders` | GET | 전체 주문 목록(게스트 귀속과 무관), 상태 필터, 기존 카탈로그 페이지네이션 관례 |
+| `/staff/orders/[orderId]` | GET | 주문 상세 — 배송지 스냅샷·항목별 상품명/단가/수량·금액 내역·현재 상태. 결제수단·`paymentKey`는 노출하지 않는다 |
+| `/admin/api/orders/[orderId]/status` | PATCH | 상태 변경(취소만). `pending_payment→cancelled`/`paid→cancelled` 두 전이만 허용 |
+
+핸들러·화면은 `src/app/staff/`·`src/app/admin/api/`에, 도메인 로직은 `src/features/admin/`(신규 피처)에 있다.
+
+### 관리자 세션 판정 — 새 인증 체계를 만들지 않는다
+
+`SPEC-AUTH-001`이 이미 관리자 역할 필드(`User.role`)와 `/admin/:path*` RBAC 미들웨어(`src/middleware.ts`)를 만들어 두었다. 하지만 그 미들웨어는 액세스 토큰이 클라이언트 메모리에만 있다는 설계(REQ-AUTH-009) 때문에 **API 호출은 게이팅할 수 있어도 관리자 페이지의 최초 브라우저 내비게이션은 게이팅할 수 없다** — SPEC-ORDER-001이 회원 체크아웃에서 부딪힌 것과 같은 구조적 벽이다.
+
+이 SPEC이 채택한 우회로: 액세스 토큰과 달리 **리프레시 토큰은 이미 httpOnly 쿠키**로 전달되므로 서버가 읽을 수 있다. `resolveAdminSession()`이 기존 리프레시 토큰 쿠키를 **읽기 전용으로** 조회해(해시 대조 → `RefreshToken` 행 → 연결된 `User.role`) admin 여부를 판정한다 — 새 쿠키를 발급하지도, 토큰을 회전시키지도 않는다. `src/middleware.ts`는 한 줄도 수정하지 않았다(`git diff` 0줄로 SPEC 전체 이력에 걸쳐 재확인, 아래 CI 게이트도 이를 회귀 가드로 고정한다). 이 세션 판정 로직은 도메인 데이터(주문이든 상품이든)와 무관하게 설계되어, `t11`(관리자 상품 백오피스, 향후 SPEC)이 그대로 재사용할 수 있다.
+
+핵심 성질:
+
+- **쓰기마다 재판정** — 상태 변경 API는 페이지 진입 시점의 판정을 재사용하지 않고 요청마다 `resolveAdminSession()`을 다시 호출한다(REQ-ADMIN-017). CSRF 방지는 `SPEC-AUTH-001`이 이미 확립한 방식(`src/lib/auth/csrf.ts`)을 그대로 적용한다.
+- **거부 사유를 구별할 수 없다** — 쿠키 없음·만료·폐기·비관리자 역할, 네 사유 모두 동일한 거부 응답으로 귀결된다.
+- **허용된 전이는 취소뿐이다** — `paid`로의 전이 경로는 관리자에게 존재하지 않는다. 결제 완료 전이는 오직 `SPEC-PAYMENT-001`의 승인·웹훅 경로만의 권한이다.
+- **취소 부작용은 `SPEC-PAYMENT-001`과 동일하다** — 하나의 트랜잭션 안에서 주문을 `cancelled`로 전이시키고, 항목별 재고를 복원하고, 적용된 쿠폰이 있으면 사용분을 해제한다. `payment-repository.ts`(다른 SPEC 소유)는 수정하지 않고 관리자 전용 함수(`cancelOrderAsAdmin`)로 별도 작성했다 — `pending_payment` 소스도 포함해야 하는 등 요구사항 모양이 달랐기 때문이다.
+- **감사 로그는 관리자 트리거를 구별한다** — 모든 관리자 취소는 정확히 하나의 `PaymentAuditLog` 행을 남기며, 그 트리거 출처는 승인 API 응답(`CONFIRM_API`)·웹훅(`WEBHOOK`)과 구별되는 신규 값(`ADMIN_ACTION`)이다.
+
+### 신규 Prisma 마이그레이션 (순수 추가)
+
+이 SPEC은 `PaymentAuditLog`의 트리거 출처를 구별하기 위해 `PaymentEventSource` enum에 값 하나를 추가한다:
+
+```sql
+-- AlterEnum
+ALTER TYPE "PaymentEventSource" ADD VALUE 'ADMIN_ACTION';
+```
+
+**순수 추가(pure additive)** — 기존 두 값(`CONFIRM_API`/`WEBHOOK`)도, 다른 어떤 컬럼·인덱스도 변경하지 않는다. down-migration이 필요 없는 종류의 변경이며(enum 값 추가는 되돌리기 어렵지만 데이터 손실 위험이 없다), 신규 필수 환경변수는 없다.
+
+인수 기준 18건(AC-ADMIN-001~018, 그중 AC-ADMIN-014는 a/b 두 하위 관측) 전부 이 개발 환경에서 관측 가능한 형태로 PASS.
+
+**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-ADMIN-001/progress.md` 참고): 배송(이행) 상태 기계·새 상태값(`preparing`/`shipped`/`delivered`)은 범위 밖이다(백로그 카드 `t24`). 관리자 계정 프로비저닝(가입 화면·API)은 없다 — 관리자 계정은 Prisma seed나 수동 DB 갱신으로 확보하는 운영 절차로 취급한다. 환불·부분 취소·PG 환불 API 호출·일괄 상태 변경·검색·감사 로그 열람 UI는 모두 범위 밖이다. 두 관리자가 같은 주문을 동시에 취소하는 경쟁 상황은 조건부 원자 갱신(`updateMany` where 절에 소스 상태 포함) 형태로 정적으로만 확인했다(`SPEC-ORDER-002`의 `AC-013-EXCL-CONCURRENCY`와 동일한 성격의 제외).
+
 ## Project documentation
 
 - `.moai/project/product.md`, `structure.md`, `tech.md` — project-wide docs
-- `.moai/specs/SPEC-AUTH-001/`, `.moai/specs/SPEC-CATALOG-001/`, `.moai/specs/SPEC-CATALOG-002/`, `.moai/specs/SPEC-CART-001/`, `.moai/specs/SPEC-STOREFRONT-001/`, `.moai/specs/SPEC-ORDER-001/`, `.moai/specs/SPEC-PAYMENT-001/`, `.moai/specs/SPEC-ORDER-003/` — each feature's SPEC, plan, acceptance criteria, and progress record
+- `.moai/specs/SPEC-AUTH-001/`, `.moai/specs/SPEC-CATALOG-001/`, `.moai/specs/SPEC-CATALOG-002/`, `.moai/specs/SPEC-CART-001/`, `.moai/specs/SPEC-STOREFRONT-001/`, `.moai/specs/SPEC-ORDER-001/`, `.moai/specs/SPEC-PAYMENT-001/`, `.moai/specs/SPEC-ORDER-003/`, `.moai/specs/SPEC-ADMIN-001/` — each feature's SPEC, plan, acceptance criteria, and progress record

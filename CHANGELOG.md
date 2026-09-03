@@ -4,6 +4,35 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+### 추가 — SPEC-ADMIN-001: 관리자 주문 목록·상태 변경 백오피스
+
+**이 저장소의 첫 관리자(백오피스) 화면 표면.** `product.md` 핵심 기능 #6("관리자 상품·주문 관리")의 주문 관리 절반을 다룬다. `SPEC-ORDER-001`·`SPEC-ORDER-003`·`SPEC-PAYMENT-001` 세 선행 SPEC이 각자 독립적으로 관리자 주문 관리를 이 SPEC(백로그 `t12`)에 명시적으로 위임해 두었다.
+
+- `src/app/staff/login/page.tsx`(신규) — 관리자 로그인 화면. 기존 `POST /api/auth/login`을 그대로 제출한다(로그인 로직 재구현 없음). 성공 시 응답 본문 내용과 무관하게 항상 `/staff/orders`로만 이동한다(역할 분기 없음 — 서버 측 거부는 목록 페이지의 게이트가 담당).
+- `src/app/staff/orders/page.tsx`(신규) — 전체 주문 목록. 특정 게스트 귀속에 한정되지 않고, 상태 필터(`OrderStatus`)와 기존 카탈로그 페이지네이션 관례(`page`/`pageSize`)를 그대로 따른다. `resolveAdminSession()` 판정이 실패하면 어떤 주문 조회도 호출하지 않고 즉시 `/staff/login`으로 리다이렉트한다.
+- `src/app/staff/orders/[orderId]/page.tsx` + `CancelOrderButton.tsx`(신규) — 주문 상세(배송지 스냅샷·항목별 상품명/단가/수량·금액 내역·현재 상태) + 취소 버튼. 결제수단·`paymentKey`는 Prisma `select` 절 자체에도, 렌더링된 HTML에도 존재하지 않는다(쿼리 레벨 + 렌더 레벨 이중 확인). 허용된 상태 전이(`pending_payment`/`paid` → 취소)에서만 취소 조작이 나타나며, 어떤 소스 상태에서도 "결제완료로 변경" 같은 조작은 존재하지 않는다.
+- `PATCH /admin/api/orders/[orderId]/status`(신규) — 상태 변경 API. 정의되지 않은 전이(이미 `cancelled`인 주문 재전이, `paid`로의 직접 전이 시도)는 거부되며 주문·재고·감사 로그 어느 것도 변경하지 않는다. 요청마다 `resolveAdminSession()`을 다시 호출한다(페이지 진입 시점 판정 재사용 금지, REQ-ADMIN-017) — CSRF 방지는 `SPEC-AUTH-001`의 기존 방식(`src/lib/auth/csrf.ts`)을 그대로 적용한다.
+- `src/features/admin/services/admin-session.ts`(신규) — `resolveAdminSession()`. 기존 리프레시 토큰 쿠키를 **읽기 전용으로** 조회해(해시 대조 → `RefreshToken` → `User.role`) admin 여부를 판정한다. 새 쿠키 발급·토큰 회전 없음. 도메인 데이터와 무관하게 설계되어 향후 관리자 상품 백오피스(백로그 `t11`)가 재사용할 수 있다.
+- `src/features/admin/repositories/admin-order-repository.ts`(신규) — 목록/상세 조회 + `cancelOrderAsAdmin()`(단일 트랜잭션 안에서 취소 전이 + 항목별 재고 복원 + 적용 쿠폰 사용분 해제, `SPEC-PAYMENT-001`의 웹훅 취소 부작용과 동일). `pending_payment` 소스도 포함해야 하는 등 요구사항 모양이 `payment-repository.ts`(다른 SPEC 소유, 수정하지 않음)와 달라 관리자 전용 함수로 별도 작성했다.
+- `PaymentEventSource.ADMIN_ACTION`(스키마 EXTEND, 순수 추가) — 관리자 트리거 취소를 승인 API(`CONFIRM_API`)·웹훅(`WEBHOOK`)과 구별하는 신규 `PaymentAuditLog` 트리거 값. 모든 관리자 취소는 정확히 하나의 감사 로그 행을 남긴다.
+
+**관리자 세션 판정 설계 결정 — 새 인증 체계를 만들지 않는다.** `SPEC-AUTH-001`이 이미 관리자 역할 필드(`User.role`)와 `/admin/:path*` RBAC 미들웨어(`src/middleware.ts`, `REQ-AUTH-022`)를 만들어 두었지만, 그 미들웨어는 액세스 토큰이 클라이언트 메모리에만 있다는 설계(REQ-AUTH-009) 때문에 API 호출은 게이팅할 수 있어도 관리자 페이지의 최초 브라우저 내비게이션 자체는 원리적으로 게이팅할 수 없다 — 이 미들웨어 자신의 문서 주석이 "API 전용" 범위임을 명시하며 관리자 페이지 서빙 방법을 이 SPEC에 명시적으로 미뤄 둔 지점이다. 대안으로 `src/middleware.ts`를 직접 수정하는 방법도 검토했으나, 완료된 SPEC의 소유 파일을 건드리는 것을 피하기 위해 기각했다. 채택한 해법: 액세스 토큰과 달리 **리프레시 토큰은 이미 httpOnly 쿠키**로 전달되므로 서버가 읽을 수 있다는 사실을 이용해, 기존 리프레시 토큰을 **읽기 전용으로 한 번 더 소비**하는 함수 하나(`resolveAdminSession()`)를 추가했다 — 새 토큰 종류를 발명하지 않고, 회전을 트리거하지 않으므로 `SPEC-AUTH-001`의 기존 불변식(REQ-AUTH-008/009/010)을 하나도 위반하지 않는다. `src/middleware.ts`는 이 SPEC 전체 이력에서 한 줄도 수정하지 않았으며(`git diff` 0줄, 신규 회귀 가드 테스트로 고정), 이 설계는 향후 관리자 상품 백오피스(백로그 `t11`)가 세션 판정 로직을 그대로 재사용할 수 있도록 도메인 데이터와 무관하게 유지했다.
+
+인수 기준 18건(AC-ADMIN-001~018, AC-ADMIN-014는 a/b 두 하위 관측 포함 — 총 19행) 전부 PASS.
+
+### plan-audit 이력 — SPEC-ADMIN-001
+
+plan-audit iteration 1은 원점수 0.857(Tier L 임계값 0.85 상회)로 측정되었으나 결함 D2가 blocking이라 verdict는 FAIL이었다 — `design.md` §4가 `markOrderCancelledAndRestoreStock()`을 확장하지 않는 근거로 든 주장("웹훅 감사 로그 기록이 그 함수 안에 한 몸으로 묶여 있다")이 실제 코드(`payment-service.ts:272-283`)와 달랐다. 코드 검증된 내용으로 `design.md`를 교체하고, REQ-ADMIN-008의 GEARS 라벨 오류(Where→When)와 범위 밖 절 정리(minor, non-blocking)를 함께 수정해 iteration 2 재감사 준비를 마쳤다.
+
+### 알려진 한계 — SPEC-ADMIN-001
+
+- **배송(이행) 상태 기계는 범위 밖이다.** `preparing`/`shipped`/`delivered` 같은 신규 상태값, 운송장 번호, 배송 상태 전이 UI는 다루지 않는다(백로그 카드 `t24`, `SPEC-ORDER-003`이 이미 확정한 제외를 승계).
+- **관리자 상품 백오피스는 범위 밖이다** — 이 SPEC은 주문 관리만 다룬다(백로그 카드 `t11`).
+- **관리자 계정 프로비저닝은 범위 밖이다** — `POST /api/auth/signup`은 항상 `customer` 기본값으로 생성하며, 관리자 계정을 만드는 경로가 저장소 어디에도 없다. 관리자 계정은 Prisma seed나 수동 DB 갱신으로 확보하는 운영 절차로 취급한다.
+- **환불·부분 취소, PG 환불 API 호출, 일괄 상태 변경, 주문 내용 수정, 검색, 감사 로그 열람 UI, 상태 변경 알림(이메일/SMS)은 모두 범위 밖이다** — 근거는 `SPEC-PAYMENT-001`/`SPEC-ORDER-001`/`SPEC-ORDER-003`이 이미 확정한 제외와 동일하다.
+- **두 관리자의 동시 취소 레이스는 정적 형태 검사만으로 확인했다** — `cancelOrderAsAdmin()`이 조건부 원자 `updateMany`(where 절에 소스 상태 포함) 형태를 쓴다는 것은 확인했으나, 실제 두 트랜잭션이 동시에 붙었을 때의 락 경합·직렬화 순서는 관측하지 않았다(`SPEC-ORDER-002`의 `AC-013-EXCL-CONCURRENCY`와 동일한 성격의 제외, `acceptance.md` 자체가 명시).
+- **`tests/integration/auth/login.test.ts`의 `AC-AUTH-005`는 알려진 사전 존재 플레이크다**(백로그 카드 `t20`, 이 SPEC과 무관). 전체 스위트 동시 실행 시 부하로 타이밍 허용치를 초과할 수 있다 — 격리 실행에서는 통과함을 재확인했다.
+
 ### 추가 — SPEC-STOREFRONT-002: 장바구니 화면·상품 담기 UI 및 체크아웃 화면 스타일 정리
 
 **게스트 전용.** 이 저장소에 없던 두 화면 표면(`/cart`, 상품 상세의 담기 컨트롤)을 새로 만들고, 이미 완성되어 있던 `/checkout` 화면 6개 파일의 Tailwind 클래스 표기만 정리했다 — 체크아웃 기능(폼·쿠폰·결제)은 재구현하지 않았다.

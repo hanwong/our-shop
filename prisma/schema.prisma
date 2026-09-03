@@ -315,6 +315,7 @@ model OrderItem {
 enum PaymentEventSource {
   CONFIRM_API // success redirect -> confirm API call path
   WEBHOOK // PAYMENT_STATUS_CHANGED webhook path
+  ADMIN_ACTION // SPEC-ADMIN-001 — cancellation triggered by the admin backoffice
 }
 
 // @MX:ANCHOR fan-in target — every payment state transition in this SPEC
