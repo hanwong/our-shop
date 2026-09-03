@@ -187,6 +187,76 @@ Error: Failed to resolve import "@/app/orders/lookup/[orderNumber]/page" from "t
 
 **잔여 위험**: `tests/integration/auth/login.test.ts`의 AC-AUTH-005 응답시간 비교 테스트가 머신 부하에 따라 간헐적으로 실패하는 사전 존재 플레이키 테스트임을 관측했다(이 SPEC과 무관, 재실행 시 통과 확인). `tests/integration/discounts/coupon-model.test.ts`도 의도된 실패를 검증하는 과정에서 `prisma:error` 로그를 출력하지만 테스트 자체는 항상 통과한다(오탐 아님).
 
+### M3 — 조회 엔드포인트 레이트리밋과 노출 금지 항목의 동적 검증 (완료, TDD)
+
+**범위**: `src/app/api/orders/lookup/route.ts`에 레이트리밋 확인(`checkIpRateLimit("orders-lookup", request)`)을 POST 핸들러 최상단에 추가(AC-ORDER-041), 그리고 성공 응답 본문에서 `id`/`paymentKey`/`idempotencyKey`/`guestId`를 벗겨내는 응답 재구성 로직을 추가(AC-ORDER-043). `tests/unit/api/orders/lookup-route.test.ts`에 두 AC의 테스트를 추가했다. M4(회귀 확인)는 이 커밋 범위 밖.
+
+**작업 환경 메모**: 이 worktree는 `feat/SPEC-ORDER-003` 로컬 브랜치를 (주 체크아웃이 이미 점유하고 있어) 직접 공유할 수 없었다. `origin/feat/SPEC-ORDER-003`(M1+M2 포함, HEAD `e36ce0b`)에서 로컬 브랜치 `spec-order-003-m3`를 새로 만들어 작업했고, 커밋은 `origin/feat/SPEC-ORDER-003`로 직접 푸시한다.
+
+**설계 결정 — 노출 금지 필드를 라우트에서 벗겨내는 이유(AC-ORDER-043)**: `toOrderDTO()`(order-service.ts, PRESERVE 대상 — M3에서 수정하지 않음)가 반환하는 `OrderDTO`에는 `paymentKey`/`idempotencyKey`/`guestId` 필드가 타입 자체에 없어 이미 구조적으로 안전하다. 그러나 `id`(내부 DB 기본키)는 `OrderDTO` 타입에 실제로 존재하며, 이는 `checkout/complete/[orderId]/page.tsx`(PRESERVE 대상)가 `orderId={order.id}`로 필요로 하는 값이라 `toOrderDTO()` 자체나 공유 `OrderDTO` 타입을 수정할 수 없다(수정 시 PRESERVE 위반과 결제 완료 화면 회귀를 동시에 일으킨다). 대신 이 SPEC이 소유한 `/api/orders/lookup` 라우트에서만 성공 응답 직전에 `id`를 구조 분해로 제거했다 — 나머지 세 필드(`paymentKey`/`idempotencyKey`/`guestId`)도 같은 자리에서 함께 구조 분해해 방어적으로 제거한다(서비스 계층이 훗날 실수로 이 필드들을 포함하게 되어도 이 라우트의 응답에는 영향이 없도록).
+
+**RED (구현 전 실패, 커밋 전 로컬 관측)**:
+
+```
+$ npx vitest run tests/unit/api/orders/lookup-route.test.ts
+ ❯ tests/unit/api/orders/lookup-route.test.ts (8 tests | 2 failed) 11ms
+   × SPEC-ORDER-003 M3 — repeated failures from one origin are rate-limited (AC-ORDER-041) > answers 429 on the 6th request within the window and calls the repository ZERO times on it
+     → expected 404 to be 429 // Object.is equality
+   × SPEC-ORDER-003 M3 — the response body never carries an internal identifier or secret (AC-ORDER-043) > never serializes paymentKey, idempotencyKey, guestId, or a bare internal id
+     → expected '{"id":"order-1","orderNumber":"ORD-20…' not to match /paymentKey/
+ Test Files  1 failed (1) / Tests  2 failed | 6 passed (8)
+```
+
+**GREEN (구현 후)**: `npx vitest run tests/unit/api/orders/lookup-route.test.ts` → `Test Files 1 passed (1)` / `Tests 8 passed (8)`.
+
+**E1 — AC PASS/FAIL 매트릭스**
+
+| AC | 상태 | 검증 명령 | 관측 결과 |
+|---|---|---|---|
+| AC-ORDER-041 | PASS | `npx vitest run tests/unit/api/orders/lookup-route.test.ts -t "AC-ORDER-041"` | `✓ ... answers 429 on the 6th request within the window and calls the repository ZERO times on it` `✓ ... keeps a different origin's quota untouched by another origin's lockout` (2건, 8건 중 6건 스킵) |
+| AC-ORDER-043 | PASS | `npx vitest run tests/unit/api/orders/lookup-route.test.ts -t "AC-ORDER-043"` | `✓ ... never serializes paymentKey, idempotencyKey, guestId, or a bare internal id` (1건, 8건 중 7건 스킵) |
+
+**E2 — 전체 빌드**: `npm run build` → exit 0. baseline과 동일하게 정적/동적 라우트 구성 그대로, `ƒ /api/orders/lookup` 라우트 유지.
+
+**E3 — 전체 테스트**: `npm test` → `Test Files 76 passed (76)` / `Tests 945 passed (945)` (M2 baseline 942건 + M3 신규 3건 = 945건, 회귀 0건). AC-041 테스트 2건(429 본검증 + 다른 출처 격리 확인) + AC-043 테스트 1건. `tests/integration/auth/login.test.ts`의 AC-AUTH-005는 이번 실행에서 통과했다(diff=28.37ms/34.68ms, tolerance=35.41ms/36.51ms — 두 차례 전체 실행 모두 통과, 플레이키 재현 없음).
+
+**E4 — typecheck·lint**: `npx tsc --noEmit`(§3 Definition of Done의 정확한 명령) → exit 0, 신규 오류 0건. `npm run lint` → exit 0, 신규 경고 0건.
+
+**E5 — PRESERVE 확인**: `git diff --stat -- src/lib/auth/rate-limit.ts` → 출력 없음(무변경). `git diff --stat -- src/app/checkout/` → 출력 없음(무변경). `git diff --stat -- prisma/schema.prisma` → 출력 없음(무변경). `git diff --stat -- src/features/orders/repositories/order-repository.ts` → 출력 없음(무변경). 최종 `git diff --stat`은 `src/app/api/orders/lookup/route.ts`와 `tests/unit/api/orders/lookup-route.test.ts` 2개 파일만 보고한다(`git status --short`로 교차 확인). 빌드 과정에서 Next.js가 `tsconfig.json`을 자동으로 재포맷·`allowJs: true` 추가한 부수효과가 있었으나, 이 SPEC 범위 밖이라 `git checkout -- tsconfig.json`으로 되돌리고 `npx tsc --noEmit`이 원본 `tsconfig.json`으로도 여전히 통과함을 재확인했다.
+
+**E6 — 커밋/푸시**: 이 항목은 이 커밋 자신을 가리키므로 커밋 SHA는 `git log -1`로 사후 확인. 커밋 메시지 예정: `feat(SPEC-ORDER-003): M3 rate-limit lookup endpoint + dynamic redaction`. `git push origin spec-order-003-m3:feat/SPEC-ORDER-003`(로컬 브랜치명이 다르므로 refspec 명시).
+
+**E7 — 블로커**: 없음.
+
+**E8 — RED 실패 출력(verbatim)**:
+
+```
+$ npx vitest run tests/unit/api/orders/lookup-route.test.ts
+
+ ❯ tests/unit/api/orders/lookup-route.test.ts (8 tests | 2 failed) 11ms
+   × SPEC-ORDER-003 M3 — repeated failures from one origin are rate-limited (AC-ORDER-041) > answers 429 on the 6th request within the window and calls the repository ZERO times on it 4ms
+     → expected 404 to be 429 // Object.is equality
+   × SPEC-ORDER-003 M3 — the response body never carries an internal identifier or secret (AC-ORDER-043) > never serializes paymentKey, idempotencyKey, guestId, or a bare internal id 1ms
+     → expected '{"id":"order-1","orderNumber":"ORD-20…' not to match /paymentKey/
+
+ FAIL  tests/unit/api/orders/lookup-route.test.ts > SPEC-ORDER-003 M3 — repeated failures from one origin are rate-limited (AC-ORDER-041) > answers 429 on the 6th request within the window and calls the repository ZERO times on it
+AssertionError: expected 404 to be 429 // Object.is equality
+- Expected: 429
++ Received: 404
+ ❯ tests/unit/api/orders/lookup-route.test.ts:205:26
+
+ FAIL  tests/unit/api/orders/lookup-route.test.ts > SPEC-ORDER-003 M3 — the response body never carries an internal identifier or secret (AC-ORDER-043) > never serializes paymentKey, idempotencyKey, guestId, or a bare internal id
+AssertionError: expected '{"id":"order-1","orderNumber":"ORD-20…' not to match /paymentKey/
++ Received:
+"{\"id\":\"order-1\",\"orderNumber\":\"ORD-20260903-0AB123\",\"status\":\"pending_payment\",\"items\":[],\"itemsSubtotal\":20000,\"shippingFee\":0,\"totalAmount\":20000,\"couponCode\":null,\"discountAmount\":0,\"shipping\":{\"recipientName\":\"홍길동\",\"recipientPhone\":\"010-1234-5678\",\"postalCode\":\"06236\",\"address\":\"서울시 강남구 테헤란로 1\",\"deliveryMemo\":null},\"createdAt\":\"2026-09-03T00:00:00.000Z\",\"paymentKey\":\"pk_live_super_secret\",\"idempotencyKey\":\"idem-key-super-secret\",\"guestId\":\"guest-super-secret\"}"
+ ❯ tests/unit/api/orders/lookup-route.test.ts:279:26
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 6 passed (8)
+```
+
+**M3에서 결정하지 않은 것**: 없음 — plan.md §3이 M3에 명시적으로 넘긴 두 항목(레이트리밋 배선, 응답 본문 동적 검증) 모두 이 커밋에서 완결했다.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 _&lt;pending run-phase&gt;_
