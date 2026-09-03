@@ -2,7 +2,7 @@
 id: SPEC-ADMIN-002
 title: "관리자 상품 등록/수정 백오피스"
 version: "0.1.0"
-status: in-progress
+status: implemented
 created: 2026-09-04
 updated: 2026-09-04
 author: snake

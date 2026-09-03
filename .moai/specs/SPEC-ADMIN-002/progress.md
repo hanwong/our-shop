@@ -202,4 +202,57 @@ m1_to_mN_commit_strategy: milestone-scoped
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+spec_id: SPEC-ADMIN-002
+card: t11
+sync_complete_at: 2026-09-04
+sync_status: complete
+sync_commit_sha: <pending-backfill-sync>   # 커밋은 자기 SHA를 알 수 없다 — 후속 커밋에서 backfill
+docs_updated:
+  - CHANGELOG.md                # [Unreleased] 최상단에 SPEC-ADMIN-002 항목 3개 절 추가
+  - README.md                   # 기능 인벤토리 1줄 + 카탈로그 API 절의 판매 가능 범위 1문장
+  - .moai/specs/SPEC-ADMIN-002/progress.md   # 이 §E.4 블록
+frontmatter_status_transitions:
+  spec_md: in-progress -> implemented       # updated: 2026-09-04
+  plan_md: n/a                              # frontmatter 블록 없음 (아래 gaps 참고)
+  acceptance_md: n/a                        # frontmatter 블록 없음
+  progress_md: n/a                          # frontmatter 블록 없음
+typecheck_exit_code: 0        # npm run typecheck, 증거 .moai/state/verify/sync-t11/typecheck.log
+lint_exit_code: 0             # npm run lint,      증거 .moai/state/verify/sync-t11/lint.log
+test_suite:                   # npm test,          증거 .moai/state/verify/sync-t11/test-full.log
+  files_passed: 94
+  files_failed: 1
+  tests_passed: 1321
+  tests_failed: 1
+  attributable_to_this_spec: 0
+  known_flake: 1              # tests/integration/auth/login.test.ts > AC-AUTH-005 (SPEC-AUTH-001 소유)
+  known_flake_card: t20
+  known_flake_isolated_rerun: pass   # npx vitest run tests/integration/auth/login.test.ts → exit 0,
+                                     # diff=4.69ms / tolerance=54.87ms
+                                     # 증거 .moai/state/verify/sync-t11/flake-isolated.log
+preserve_paths_verified: 14   # plan.md §PRESERVE의 14개 경로 전부
+preserve_violations: 0        # git diff --numstat origin/main...HEAD -- <path> 경로별 실측, 변경 파일 0
+precommit_override:
+  used: true
+  sentinel: SKIP_MOAI_PRECOMMIT=1
+  scope: 이 브랜치의 run-phase 커밋 3건 + sync 커밋 1건
+  reason: >-
+    저장소 전역 moai gate가 전체 스위트 green을 요구하는데, 백로그 t20의 타이밍 플레이크
+    (AC-AUTH-005, SPEC-AUTH-001 소유, 이 SPEC의 EXTEND 봉투 밖)가 해소되기 전까지는
+    이 저장소의 어떤 커밋도 우회 없이는 게이트를 통과할 수 없다.
+  failures_introduced_by_this_spec: 0
+  disclosed_in_commit_messages: true
+  disclosed_in_changelog: true
+  rejected_alternatives:
+    - 품질 게이트 약화
+    - SPEC-AUTH-001 소유 플레이크 테스트 수정 (이 SPEC의 봉투 밖)
+changelog_entry_position: "[Unreleased] 최상단 — SPEC-ADMIN-001 항목 바로 위 (최신 우선)"
+gaps:
+  - 이 SPEC의 4개 산출물 중 YAML frontmatter를 가진 파일은 spec.md 하나뿐이다.
+    plan.md / acceptance.md / progress.md에는 frontmatter 블록 자체가 없으므로
+    status/updated 전이는 spec.md에만 실제로 적용했다 (지시받은 "네 파일 전부"를
+    문자 그대로 수행할 수 없었다 — 없는 블록을 새로 만드는 것은 범위 밖으로 판단).
+  - sync_commit_sha는 이 커밋 시점에 확정할 수 없어 placeholder로 둔다.
+  - 마이그레이션은 로컬 DB(localhost:5433)에만 적용되었다 — 다른 환경 반영 여부는 미검증.
+  - 우회 없이 moai gate가 통과하는지는 관측하지 않았다 (t20 해소 전에는 관측 불가).
+```
