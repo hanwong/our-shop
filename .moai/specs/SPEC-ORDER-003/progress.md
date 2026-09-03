@@ -91,6 +91,21 @@ $ npx vitest run tests/unit/orders/order-service.test.ts
 
 **M1에서 결정하지 않은 것 (범위 밖으로 명시)**: acceptance.md §2 엣지 케이스가 언급하는 연락처 표기 정규화(`010-1234-5678` vs `01012345678`)는 이번 M1에 포함하지 않았다. 주문 생성 시점(order-service.ts의 주문 생성 트랜잭션, PRESERVE 대상)이 연락처를 정규화하지 않고 저장하므로, 조회 쪽만 정규화하면 저장된 표기와 다른 표기로 조회 시 존재하는 주문도 못 찾을 위험이 있다 — 이는 쓰기 경로를 건드리는 결정이라 이 SPEC의 PRESERVE 목록과 충돌한다. 주문 번호는 대소문자만 정규화했다(`generateOrderNumber()`가 항상 대문자를 생성하므로 이 정규화는 저장 표기와 항상 일치해 안전하다). 연락처 표기 정규화가 필요하면 별도 결정으로 M2/M3 또는 후속 SPEC에서 다뤄야 한다.
 
+## §F Phase 4 Mode Selection
+
+**Input parameters** (기록: M1 위임 직전, Implementation Kickoff Approval 통과 후): tier=M · scope≈6 files (`order-repository.ts` 확장, `order-service.ts` 확장, 조회 입력 화면 신설, 조회 결과 화면 신설, 각 테스트 파일) · domain count=1 (단일 모듈 `src/features/orders` 내 백엔드+프런트엔드) · file language mix=TypeScript 100% · concurrency benefit=LOW (M1→M2→M3→M4 순차 의존 — M1의 조회 권한 규칙이 M2 화면의 전제)
+
+| 모드 | 선택 여부 | 근거 |
+|---|---|---|
+| direct | 미선택 | 자명한 한 줄 수정이 아님 — 마일스톤 4개, 파일 6개 |
+| **serial** | **선택** | 코딩 중심 작업 + 마일스톤 간 순차 의존. Anthropic 코딩 작업 병렬화 지침에 부합 |
+| fanout | 미선택 | 멀티 도메인 리서치가 아님 — 단일 모듈 순차 구현 |
+| sweep | 미선택 | 기계적 대량 변환이 아님 — 마일스톤마다 다른 설계 판단이 필요 |
+
+**Decision: serial**
+
+**Justification**: Tier M, 단일 모듈(`src/features/orders`) 내 코딩 중심 작업이며 M1(조회 권한 규칙)이 M2(화면) 이하 모든 마일스톤의 전제 조건이라 병렬화 이득이 없다. manager-develop 1개를 마일스톤마다 순차로 위임하는 `serial` 모드가 적합하다.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 _&lt;pending run-phase&gt;_
