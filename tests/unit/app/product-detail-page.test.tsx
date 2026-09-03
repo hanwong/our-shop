@@ -13,6 +13,15 @@ import type { ProductDetail } from "@/features/catalog/types/product";
  * catalog service, branches on failure, and hands the payload to a pure view.
  * These tests assert exactly that boundary — the rendering of the payload is
  * ProductDetailView's own test.
+ *
+ * SPEC-STOREFRONT-002 M4 note: `firstRenderSources()` below excludes
+ * AddToCartButton.tsx from the no-fetch/no-useEffect scan. That control is a
+ * separate client-component "island" (matching ProductGallery's existing
+ * pattern) whose fetch() call is click-triggered, not render-triggered — the
+ * same "first render vs later interaction" distinction
+ * tests/unit/app/checkout-page.test.tsx already draws for CheckoutForm.tsx.
+ * `storefrontSources()` (unfiltered) still backs every other assertion in
+ * this file unchanged.
  */
 
 // `notFound()` THROWS in the real App Router — that is how it aborts rendering
@@ -57,6 +66,22 @@ function storefrontSources(): string[] {
   );
 }
 
+/**
+ * Only the FIRST-RENDER path. AddToCartButton.tsx (SPEC-STOREFRONT-002 M4)
+ * is deliberately excluded — it is a client "island" whose fetch() call
+ * fires from a click handler, not from render, the same distinction
+ * checkout-page.test.tsx draws for CheckoutForm.tsx.
+ */
+function firstRenderSources(): string[] {
+  const roots = ["src/app/products", "src/components/product"];
+  return roots.flatMap((root) =>
+    readdirSync(root, { recursive: true, encoding: "utf8" })
+      .filter((entry) => entry.endsWith(".tsx"))
+      .filter((entry) => !entry.endsWith("AddToCartButton.tsx"))
+      .map((entry) => readFileSync(join(root, entry), "utf8"))
+  );
+}
+
 // Testing Library's auto-cleanup is not registered without vitest `globals`,
 // so mounted trees are torn down explicitly between tests.
 afterEach(cleanup);
@@ -79,12 +104,21 @@ describe("ProductDetailPage — AC-STOREFRONT-003 / 005", () => {
     expect(getProductDetail).toHaveBeenCalledWith("p-1");
   });
 
-  it("does not fetch product data from the browser", () => {
-    // AC-003(b): no client-side data loading anywhere in the detail UI.
-    for (const source of storefrontSources()) {
+  it("does not fetch product data from the browser on the initial render", () => {
+    // AC-003(b): no client-side data loading anywhere in the FIRST-RENDER
+    // detail UI. AddToCartButton's click-triggered fetch is excluded — see
+    // the file-level note above.
+    for (const source of firstRenderSources()) {
       expect(source).not.toMatch(/\bfetch\s*\(/);
       expect(source).not.toMatch(/\buseEffect\b/);
     }
+  });
+
+  it("keeps AddToCartButton's fetch confined to its own click handler", () => {
+    const source = readFileSync("src/components/product/AddToCartButton.tsx", "utf8");
+
+    expect(source).not.toMatch(/\buseEffect\b/);
+    expect(source).toMatch(/\bfetch\s*\(/);
   });
 
   it("requires no authentication and never redirects", () => {

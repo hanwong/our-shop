@@ -1,4 +1,5 @@
 import { ProductGallery } from "@/components/product/ProductGallery";
+import { AddToCartButton } from "@/components/product/AddToCartButton";
 import type { ProductDetail } from "@/features/catalog/types/product";
 
 /**
@@ -13,6 +14,13 @@ import type { ProductDetail } from "@/features/catalog/types/product";
  * iterated over the payload. That explicitness is what keeps AC-STOREFRONT-009
  * holding when the catalog DTO later grows a field: a new key appears on the
  * object without silently appearing on the screen.
+ *
+ * SPEC-STOREFRONT-002 M4 — AddToCartButton is assembled here, immediately
+ * after the stock paragraph and before the description (design.md §5's
+ * precise insertion point). `AddToCartButton` is a separate client-component
+ * "island" — the same pattern ProductGallery already established — so this
+ * component stays a server component; only the button's own subtree crosses
+ * the client boundary (plan.md §I R4).
  */
 
 /**
@@ -48,6 +56,8 @@ export function ProductDetailView({ product }: { product: ProductDetail }) {
           <span className="text-neutral-600">재고 {product.stock}개 남음</span>
         )}
       </p>
+
+      <AddToCartButton productId={product.id} stock={product.stock} />
 
       {/* The full description, deliberately not clamped or truncated
           (AC-STOREFRONT-006). */}
