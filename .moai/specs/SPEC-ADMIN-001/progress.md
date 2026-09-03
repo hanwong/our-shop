@@ -781,7 +781,7 @@ backlog `t20`) — 이 SPEC과 무관, M1~M5 전 마일스톤의 확립된 관�
 
 ```yaml
 sync_complete_at: 2026-09-03
-sync_commit_sha: pending-backfill-SPEC-ADMIN-001
+sync_commit_sha: 9da4c51
 sync_status: audit-ready
 b12_self_test_a: PASS  # grep -c 'SPEC-ADMIN-001' CHANGELOG.md → 3 (own new section headers, first emission — no parallel-session duplicate)
 b12_self_test_b: PASS  # grep -oE 'AC-([A-Z0-9]+-)*[0-9]+' acceptance.md | sort -u | wc -l → 19 (matches CHANGELOG's "18건, AC-ADMIN-014 a/b 포함 총 19행")
