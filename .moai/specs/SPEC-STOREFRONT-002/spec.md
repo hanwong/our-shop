@@ -2,7 +2,7 @@
 id: SPEC-STOREFRONT-002
 title: "장바구니 화면·상품 담기 UI 및 체크아웃 화면 스타일 정리"
 version: "0.1.0"
-status: draft
+status: completed
 created: 2026-09-03
 updated: 2026-09-03
 author: snake

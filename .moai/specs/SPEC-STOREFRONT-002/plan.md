@@ -1,6 +1,6 @@
 ---
 id: SPEC-STOREFRONT-002
-status: draft
+status: completed
 updated: 2026-09-03
 tier: M
 ---

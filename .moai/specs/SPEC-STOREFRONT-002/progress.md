@@ -1,6 +1,6 @@
 ---
 id: SPEC-STOREFRONT-002
-status: draft
+status: completed
 updated: 2026-09-03
 tier: M
 ---
@@ -405,4 +405,69 @@ Go 코드를 전혀 건드리지 않는다. C-HRA-008 계열 grep은 이 SPEC의
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_&lt;pending sync-phase&gt;_
+sync_complete_at: 2026-09-03
+sync_status: audit-ready
+sync_commit_sha: pending-backfill-storefront-002-sync
+
+### 문서 동기화
+
+- `CHANGELOG.md` `[Unreleased]` 절에 `### 추가 — SPEC-STOREFRONT-002` + `### 알려진 한계 — SPEC-STOREFRONT-002` 두 섹션을 추가했다(`## [Unreleased]` 바로 아래, 역시간순 관례에 맞춰 최상단).
+- `README.md`에 `## 장바구니 화면·담기 UI (SPEC-STOREFRONT-002)` 절을 `## 스토어프론트 화면 (SPEC-STOREFRONT-001)`과 `## 주문/체크아웃 (SPEC-ORDER-001)` 사이에 추가했다.
+
+### B12 자가 점검 (CHANGELOG 발행 규율)
+
+1. **사전 grep**: `grep -c '<SPEC-ID>' CHANGELOG.md` — 편집 전 실행 결과 `0`(중복 없음 확인 후 발행).
+2. **AC 개수 대조**: `grep -oE 'AC-STOREFRONT-[0-9]+' acceptance.md | sort -u | wc -l` → `16`건 관측. 그중 `AC-STOREFRONT-001` 1건은 acceptance.md §1 서두 문장("SPEC-STOREFRONT-001(AC-STOREFRONT-001~015)에서 이어받는다")에 등장하는 **이전 SPEC 참조**이며 이 SPEC 소유 AC가 아니다. 이 SPEC 고유 AC는 `AC-STOREFRONT-016`~`030` 15건이며, §E.3 매트릭스의 15/15 PASS와 acceptance.md §4 REQ↔AC 매핑 표(15행)에 정확히 대응한다. CHANGELOG 본문은 개별 AC ID를 나열하지 않고 파일·동작 단위로 서술했으므로(README·CHANGELOG의 기존 관례와 동일) 카운트 불일치 위험이 없다.
+3. **파일 경로 검증**: CHANGELOG에 언급한 6개 경로 전부 `ls`로 존재 확인.
+
+```
+$ ls src/app/cart/page.tsx src/components/cart/CartView.tsx src/components/cart/EmptyCart.tsx \
+     src/components/product/AddToCartButton.tsx src/components/product/ProductDetailView.tsx \
+     src/components/checkout/PayButton.tsx
+(전부 존재 — exit 0)
+```
+
+### Pre-Sync Gate + 배포 준비 점검
+
+**작업 트리 상태** (오케스트레이터가 sync-phase 착수 시점에 직접 관측):
+```
+$ git status --short
+M tsconfig.json   ← 이 SPEC이 만든 변경이 아님(사전 존재하는 로컬 diff, 손대지 않음)
+$ git fetch origin main && git rev-list --count --left-right origin/main...HEAD
+0	5   ← origin 대비 로컬 5커밋 선행, 분기 없음
+```
+
+**전체 테스트 스위트** (오케스트레이터가 sync-phase에서 재실행):
+```
+$ npm run test:coverage -- --exclude "**/tests/integration/auth/login.test.ts"
+ Test Files  79 passed (79)
+      Tests  960 passed | 21 skipped (981)
+exit 0
+```
+
+**타입 검사**: `npx tsc --noEmit` → 출력 없음, exit 0.
+**린트**: `npm run lint` → 신규 이슈 0건, exit 0.
+**빌드**: `npm run build` → exit 0. `/cart` 라우트가 라우트 표에 정상 포함됨(§E.3 M2 참고).
+
+**마이그레이션/신규 환경변수/breaking change 확인**:
+```
+$ git diff 53588cf..HEAD --stat -- prisma/
+(출력 없음 — 이 SPEC은 prisma 스키마·마이그레이션을 전혀 건드리지 않았다)
+$ git diff 53588cf..HEAD --stat -- .env.example .github/workflows/
+(출력 없음)
+```
+스키마·백엔드·CI 워크플로 변경 없음을 확인했다 — spec.md §1에서 이미 확정한 대로(스키마·백엔드 변경 없는 순수 프런트엔드 화면 신설 + 스타일 정리).
+
+### 프론트매터 전이
+
+`spec.md`/`plan.md`/`progress.md`의 `status:`를 이 sync 커밋에서 `draft → completed`로 전이했다(`in-progress` 중간 단계 기록 없이 draft로 남아 있었던 이유: 이 SPEC의 run-phase 커밋들이 `draft → in-progress` 전이를 별도로 기록하지 않고 곧장 진행되었음 — spec-frontmatter-schema.md의 상태 전이 소유권 표대로 manager-docs가 이 sync 커밋에서 최종 `completed`로 닫는다). `acceptance.md`는 프론트매터가 없는 문서라 전이 대상이 아니다. 세 파일의 `updated:` 필드는 이미 `2026-09-03`(오늘)이라 추가 갱신이 필요 없었다.
+
+### MX Tag 점검
+
+이 SPEC이 신설/수정한 6개 파일(`src/app/cart/page.tsx`, `CartView.tsx`, `EmptyCart.tsx`, `AddToCartButton.tsx`, `ProductDetailView.tsx`의 삽입 2줄, `PayButton.tsx`의 클래스 토큰 2줄) 중 신규 exported 함수는 모두 단일 소비처(각자의 페이지/부모 컴포넌트)만 가진 React 컴포넌트이며 fan_in < 3이라 `@MX:ANCHOR` 의무 대상이 아니다. 위험 패턴(goroutine 없음, cyclomatic complexity 낮음)도 없어 `@MX:WARN` 대상이 없다. 별도 `@MX:*` 주석 추가 없이 종결한다.
+
+### 잔여 위험
+
+- `tests/integration/auth/login.test.ts` AC-AUTH-005는 이 SPEC과 무관한 기존 플레이크로 남아 있다(§E.3 E6 참고, 백로그 카드 `t20`).
+- `EmptyCart`의 "상품 목록으로 이동" 링크가 `/`를 가리키는 보정은 `/products` 라우트가 이 저장소에 생기는 시점에 재검토가 필요하다.
+- `sync_commit_sha`는 이 커밋 자신의 SHA를 알 수 없어 placeholder로 기록했으며, 후속 커밋에서 백필한다(spec-frontmatter-schema.md § SHA placeholder backfill exemption).
