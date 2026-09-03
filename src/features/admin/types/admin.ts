@@ -102,3 +102,88 @@ export interface CancelOrderRequestBody {
 export type AdminOrderStatusChangeResult =
   | { ok: true }
   | { ok: false; status: 400 | 401 | 403 | 404 | 409; error: string };
+
+/**
+ * SPEC-ADMIN-002 M2 — admin PRODUCT types (REQ-ADMIN-021~032).
+ *
+ * Appended to this same file rather than split into a new one, matching how
+ * SPEC-ADMIN-001 added its M3 list types and then its M4 detail types here in
+ * turn. The order types above are unchanged, as are DEFAULT_PAGE /
+ * DEFAULT_PAGE_SIZE / MAX_PAGE_SIZE, which the admin product list reuses
+ * verbatim rather than declaring its own (REQ-ADMIN-023).
+ *
+ * Same framework-independence discipline as the rest of the file: no `next/*`
+ * and no `@prisma/client` imports.
+ */
+
+/**
+ * One row of the admin product list (REQ-ADMIN-021's display fields).
+ *
+ * Carries `isActive` — unlike every customer-facing product DTO, which must
+ * not expose it (REQ-ADMIN-036). The admin list is the one surface that has to
+ * show sellability, because it is where a suspended product is found and
+ * restored.
+ */
+export interface AdminProductListItemDTO {
+  id: string;
+  name: string;
+  price: number;
+  stock: number;
+  isActive: boolean;
+  categoryName: string;
+  /** ISO-8601, serialized once at the page component, like AdminOrderListItemDTO. */
+  createdAt: string;
+}
+
+/** The admin product list response, including pagination metadata. */
+export interface PaginatedAdminProducts {
+  items: AdminProductListItemDTO[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+}
+
+/** The admin product detail view — the edit form's initial values (REQ-ADMIN-025). */
+export interface AdminProductDetailDTO {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  stock: number;
+  images: string[];
+  categoryId: string;
+  isActive: boolean;
+}
+
+/**
+ * The editable field set, shared by create (REQ-ADMIN-024) and edit
+ * (REQ-ADMIN-025).
+ *
+ * `isActive` is deliberately ABSENT. Sellability changes only through
+ * PATCH .../active (design.md §1), so a form submission structurally cannot
+ * revive or suspend a product as a side effect of an edit.
+ */
+export interface ProductInput {
+  name: string;
+  description: string;
+  price: number;
+  stock: number;
+  images: string[];
+  categoryId: string;
+}
+
+/** Which submitted fields were rejected, and why (REQ-ADMIN-030). */
+export type ProductInputErrors = Partial<Record<keyof ProductInput, string>>;
+
+/** The only body `PATCH /admin/api/products/[productId]/active` accepts. */
+export interface SetProductActiveBody {
+  isActive: boolean;
+}
+
+/** A category option in the product form's select (REQ-ADMIN-029). */
+export interface AdminCategoryOptionDTO {
+  id: string;
+  name: string;
+  slug: string;
+}
