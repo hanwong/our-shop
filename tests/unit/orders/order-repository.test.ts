@@ -229,6 +229,70 @@ describe("SPEC-ORDER-001 M2 — findOrderForGuest (REQ-ORDER-020)", () => {
   });
 });
 
+describe("SPEC-ORDER-003 M1 — findOrderByNumberAndPhone (REQ-ORDER-034 ~ 037, plan.md §1)", () => {
+  it("bakes BOTH orderNumber and recipientPhone into ONE findFirst where clause", async () => {
+    await repo.findOrderByNumberAndPhone("ORD-20260903-0001", "010-1234-5678");
+
+    // Both conditions in the SAME query, not "fetch by orderNumber then
+    // compare recipientPhone in application code" — a fetch-then-compare
+    // shape is one missed branch away from leaking a stranger's order
+    // (plan.md §1's rejected alternative).
+    expect(singleton.order.findFirst).toHaveBeenCalledTimes(1);
+    expect(singleton.order.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { orderNumber: "ORD-20260903-0001", recipientPhone: "010-1234-5678" },
+      })
+    );
+  });
+
+  it("joins the items so the lookup result can render the order snapshot", async () => {
+    await repo.findOrderByNumberAndPhone("ORD-20260903-0001", "010-1234-5678");
+
+    const [arg] = singleton.order.findFirst.mock.calls[0]!;
+    expect(arg).toHaveProperty("include.items");
+  });
+
+  it("runs on the transaction client when given one", async () => {
+    const tx = fakeTx();
+    await repo.findOrderByNumberAndPhone("ORD-20260903-0001", "010-1234-5678", tx as never);
+
+    expect(tx.order.findFirst).toHaveBeenCalledTimes(1);
+    expect(singleton.order.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe("SPEC-ORDER-003 M2 — findOrderByNumberForGuest (REQ-ORDER-044, plan.md §3 M2)", () => {
+  it("bakes BOTH orderNumber and guestId into ONE findFirst where clause", async () => {
+    await repo.findOrderByNumberForGuest("ORD-20260903-0001", "G1");
+
+    // Same discipline as findOrderForGuest() and findOrderByNumberAndPhone()
+    // above: ownership is part of the WHERE, never fetch-then-compare — this
+    // is the cookie-bypass path (AC-ORDER-048), so it carries the same
+    // structural guarantee against leaking a stranger's order.
+    expect(singleton.order.findFirst).toHaveBeenCalledTimes(1);
+    expect(singleton.order.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { orderNumber: "ORD-20260903-0001", guestId: "G1" },
+      })
+    );
+  });
+
+  it("joins the items so the cookie-bypass path can render the order snapshot", async () => {
+    await repo.findOrderByNumberForGuest("ORD-20260903-0001", "G1");
+
+    const [arg] = singleton.order.findFirst.mock.calls[0]!;
+    expect(arg).toHaveProperty("include.items");
+  });
+
+  it("runs on the transaction client when given one", async () => {
+    const tx = fakeTx();
+    await repo.findOrderByNumberForGuest("ORD-20260903-0001", "G1", tx as never);
+
+    expect(tx.order.findFirst).toHaveBeenCalledTimes(1);
+    expect(singleton.order.findFirst).not.toHaveBeenCalled();
+  });
+});
+
 describe("SPEC-ORDER-001 M2 — module boundaries", () => {
   const source = readFileSync("src/features/orders/repositories/order-repository.ts", "utf8");
 

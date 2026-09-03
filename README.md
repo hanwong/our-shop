@@ -12,6 +12,7 @@ A TypeScript / Next.js e-commerce backend. This repository currently implements:
 - **SPEC-STOREFRONT-001** — the first UI surface: a root document shell (Tailwind CSS v4) and the `/products/{productId}` detail page with an image gallery.
 - **SPEC-ORDER-001** — guest checkout: the `/checkout` order form and the single-transaction order-creation endpoint (price snapshot, stock decrement, idempotency).
 - **SPEC-PAYMENT-001** — Toss Payments PG integration: payment-window trigger, confirm callback, and payment/cancellation webhook processing (guest-only).
+- **SPEC-ORDER-003** — guest order revisit lookup: order-number + phone lookup, a cookie-only bypass entry, and order-status display, with rate limiting and response redaction.
 
 ## Stack
 
@@ -173,6 +174,29 @@ Key security properties (see `.moai/specs/SPEC-AUTH-001/` for the full spec/acce
 
 **개발자 기계에서만 닫힌 관측이다 — CI에서는 아직 실행되지 않는다.** `.github/workflows/ci.yml`의 `DATABASE_URL`은 여전히 자리표시자이며, 하네스는 도달 불가 시 사유를 남기고 건너뛴다. `AC-026-EXCL-CONCURRENCY`·`AC-034-EXCL-DEADLOCK`은 CI 기준으로는 열린 채이고, CI 필수 검사로의 승격은 후속 SPEC-CI-001 소유 SPEC으로 명시적으로 미뤄졌다(plan-phase에서 사용자가 확인·수용한 공백). 자세한 내용은 `.moai/specs/SPEC-ORDER-002/progress.md` 참고.
 
+### 재방문 조회와 상태 표시 (SPEC-ORDER-003)
+
+**게스트 전용.** SPEC-ORDER-001의 주문 완료 화면을 벗어나면 그 주문을 다시 볼 방법이 없었다 — 이 SPEC이 재방문 조회 수단을 만든다. 배송지 주소록 관리와 배송 이행 상태 기계는 원래 같은 백로그 카드(`t8`)에 묶여 있었지만 이 SPEC에서 분리했다(각각 카드 `t23`·`t24`).
+
+| 경로 | 메서드 | 설명 |
+|---|---|---|
+| `/api/orders/lookup` | POST | 주문번호 + 수령인 연락처 대조 조회. IP 속도 제한(5회/60초, 15분 잠금) |
+| `/orders/lookup` | GET | 조회 입력 화면. 대조값 결과는 URL 이동 없이 폼 내부 상태로만 렌더링 |
+| `/orders/lookup/[orderNumber]` | GET | 체크아웃 완료 시 발급된 게스트 쿠키만으로 여는 별도 진입로 |
+
+핸들러는 `src/app/api/orders/lookup/`·`src/app/orders/lookup/`에, 도메인 로직은 기존 `src/features/orders/`에 이어 붙였다(`order-repository.ts`·`order-service.ts` 확장), 화면 조각은 `src/components/orders/`에 있다.
+
+핵심 성질:
+
+- **가져온 뒤 비교 금지** — 주문번호 + 수령인 연락처(또는 주문번호 + 게스트 쿠키 id)를 하나의 Prisma `findFirst` where절에 함께 담는다. "존재하지 않는 주문번호"와 "실재하지만 연락처 불일치"가 상태 코드·본문·조회 호출 횟수까지 완전히 동일해 주문 존재 여부를 추측할 수단이 없다.
+- **쿠키 우회는 소유권 대조다** — 쿠키 존재만으로 열리지 않는다. `{ orderNumber, guestId }`를 하나의 쿼리에 담아 대조하므로 다른 게스트의 쿠키는 404로 거부되며 주문 존재 여부조차 드러나지 않는다.
+- **민감 필드 이중 방어** — `paymentKey`/`idempotencyKey`/`guestId`는 `OrderDTO` 타입 자체에 없어 구조적으로 안전하고, `id`(결제 완료 화면이 필요로 해 타입에서 뺄 수 없는 유일한 필드)는 `/api/orders/lookup` 라우트가 응답 직전에 구조 분해로 벗겨낸다.
+- **표시 상태는 기존 3종뿐이다** — 새 이행 상태값을 도입하지 않고 기존 `OrderStatus`(`pending_payment`/`paid`/`cancelled`)만 재방문 조회 화면에 표시한다.
+
+인수 기준 13건(AC-ORDER-037~049) 전부 PASS. sync-phase 독립 감사(가중 95/100)와 보안 검토 모두 Critical/High 결함 없음 — 발견된 4건(속도 제한 축 부족·잠금 정책 강도·서버 렌더 의존 필드 노출·빈 쿠키 가장자리 사례)은 모두 자문(advisory) 등급으로 남겨두었다. 자세한 내용은 `CHANGELOG.md`의 "sync-phase 검토 — SPEC-ORDER-003" 참고.
+
+**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-ORDER-003/progress.md` 참고): **연락처 표기 정규화는 다루지 않는다** — 체크아웃 시점(자유 텍스트 저장)과 조회 시점 문자열이 정확히 일치해야 주문을 찾으며, 근본 수정은 이 SPEC이 보존해야 하는 주문 생성 트랜잭션을 건드려야 해 범위 밖으로 확정했다(2026-09-03 사용자 결정, 백로그 카드 `t25`). IP 기반 속도 제한이 신뢰 가능한 프록시의 `x-forwarded-for`를 전제하는 것은 `/api/auth/login`에서 물려받은 기존 위험이며 이 SPEC이 새로 만들지 않았다.
+
 ## 결제 (SPEC-PAYMENT-001)
 
 **게스트 전용, 웹훅 주도 취소만 처리한다.** SPEC-ORDER-001이 명시적으로 유예한 두 책임 — 결제 승인·웹훅 처리, `pending_payment` 이후의 상태 전이 — 을 이 SPEC이 인수한다. PG사는 토스페이먼츠. 이 SPEC이 다루는 주문은 SPEC-ORDER-001이 만든 게스트 주문뿐이다.
@@ -219,4 +243,4 @@ Key security properties (see `.moai/specs/SPEC-AUTH-001/` for the full spec/acce
 ## Project documentation
 
 - `.moai/project/product.md`, `structure.md`, `tech.md` — project-wide docs
-- `.moai/specs/SPEC-AUTH-001/`, `.moai/specs/SPEC-CATALOG-001/`, `.moai/specs/SPEC-CATALOG-002/`, `.moai/specs/SPEC-CART-001/`, `.moai/specs/SPEC-STOREFRONT-001/`, `.moai/specs/SPEC-ORDER-001/`, `.moai/specs/SPEC-PAYMENT-001/` — each feature's SPEC, plan, acceptance criteria, and progress record
+- `.moai/specs/SPEC-AUTH-001/`, `.moai/specs/SPEC-CATALOG-001/`, `.moai/specs/SPEC-CATALOG-002/`, `.moai/specs/SPEC-CART-001/`, `.moai/specs/SPEC-STOREFRONT-001/`, `.moai/specs/SPEC-ORDER-001/`, `.moai/specs/SPEC-PAYMENT-001/`, `.moai/specs/SPEC-ORDER-003/` — each feature's SPEC, plan, acceptance criteria, and progress record

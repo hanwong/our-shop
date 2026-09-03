@@ -112,6 +112,51 @@ export async function findOrderForGuest(
   return client.order.findFirst({ where: { id: orderId, guestId }, include: ORDER_INCLUDE });
 }
 
+/**
+ * The order matching BOTH the order number and the recipient phone
+ * (SPEC-ORDER-003 M1 — REQ-ORDER-034 ~ 037, plan.md §1).
+ *
+ * Same discipline as findOrderForGuest() above: the comparison is part of the
+ * WHERE, never "fetch by orderNumber then compare recipientPhone in
+ * application code". A fetch-then-compare shape is one missed branch away
+ * from leaking a stranger's order — plan.md §1's explicitly rejected
+ * alternative. This also gives REQ-ORDER-036 its indistinguishable-failure
+ * property for free: a nonexistent order number and a real order number with
+ * the wrong phone both produce the same `null`, so the caller cannot even ask
+ * which one happened.
+ */
+export async function findOrderByNumberAndPhone(
+  orderNumber: string,
+  recipientPhone: string,
+  client: OrderClient = prisma
+): Promise<OrderWithItems | null> {
+  return client.order.findFirst({
+    where: { orderNumber, recipientPhone },
+    include: ORDER_INCLUDE,
+  });
+}
+
+/**
+ * The order matching BOTH the order number and the presenting guest's own
+ * identity (SPEC-ORDER-003 M2 — REQ-ORDER-044, plan.md §3 M2).
+ *
+ * This is the COOKIE-BYPASS path: a request whose guest cookie already owns
+ * the order opens it without presenting the contrast phone value at all
+ * (AC-ORDER-048). Same discipline as findOrderForGuest() and
+ * findOrderByNumberAndPhone() above — ownership is part of the WHERE, never
+ * "fetch by order number then compare guestId in application code".
+ */
+export async function findOrderByNumberForGuest(
+  orderNumber: string,
+  guestId: string,
+  client: OrderClient = prisma
+): Promise<OrderWithItems | null> {
+  return client.order.findFirst({
+    where: { orderNumber, guestId },
+    include: ORDER_INCLUDE,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Writes — transaction client REQUIRED, no singleton default
 // ---------------------------------------------------------------------------

@@ -175,3 +175,29 @@ export type OrderFailure =
 
 /** The service's return shape: a value, or a refusal that maps to a response. */
 export type OrderResult<T> = { ok: true; data: T } | ({ ok: false } & OrderFailure);
+
+/**
+ * SPEC-ORDER-003 M1 — the guest revisit lookup submission (REQ-ORDER-034).
+ * Both fields are the raw, untrimmed strings a form would submit; format
+ * validation and normalization happen in order-service.ts.
+ */
+export interface LookupOrderInput {
+  orderNumber: string;
+  recipientPhone: string;
+}
+
+/**
+ * The two ways a lookup submission can fail. Deliberately collapsed to ONE
+ * shape for "no such order" and "a real order number with the wrong phone" —
+ * order-repository.ts's findOrderByNumberAndPhone() makes that collapse
+ * structural (a single WHERE clause returns the same `null` either way), so
+ * this type never grows a discriminant for the missing case (REQ-ORDER-036).
+ * `404` carries no order field of any kind — see AC-ORDER-038.
+ */
+export type LookupOrderFailure =
+  | { status: 400; error: string; fieldErrors: Record<string, string> }
+  | { status: 404; error: string; code: "NOT_FOUND" };
+
+export type LookupOrderResult =
+  | { ok: true; data: OrderDTO }
+  | ({ ok: false } & LookupOrderFailure);
