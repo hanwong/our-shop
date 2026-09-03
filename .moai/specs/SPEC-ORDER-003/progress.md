@@ -1,6 +1,6 @@
 ---
 id: SPEC-ORDER-003
-status: draft
+status: in-progress
 updated: 2026-09-03
 tier: M
 ---
@@ -38,7 +38,58 @@ plan-phase 산출물 3종(spec.md, plan.md, acceptance.md) 작성 완료. Tier M
 
 ## §E.2 Run-phase Evidence
 
-_&lt;pending run-phase&gt;_
+### M1 — 조회 권한 규칙과 실패 표면 (완료, TDD)
+
+**범위**: `order-repository.ts`에 `findOrderByNumberAndPhone()` 추가, `order-service.ts`에 `lookupOrderByNumberAndPhone()` 유스케이스 추가, `types/order.ts`에 `LookupOrderInput`/`LookupOrderFailure`/`LookupOrderResult` 추가. M2(화면)·M3(레이트리밋)·M4(회귀 확인)는 이 커밋 범위 밖.
+
+**RED (구현 전 실패, 커밋 전 로컬 관측)**:
+
+```
+$ npx vitest run tests/unit/orders/order-repository.test.ts
+ × SPEC-ORDER-003 M1 — findOrderByNumberAndPhone (...) > bakes BOTH orderNumber and recipientPhone into ONE findFirst where clause
+   → repo.findOrderByNumberAndPhone is not a function
+ × ... joins the items so the lookup result can render the order snapshot
+   → repo.findOrderByNumberAndPhone is not a function
+ × ... runs on the transaction client when given one
+   → repo.findOrderByNumberAndPhone is not a function
+ Test Files  1 failed (1) / Tests  3 failed | 16 passed (19)
+
+$ npx vitest run tests/unit/orders/order-service.test.ts
+ × SPEC-ORDER-003 M1 — lookupOrderByNumberAndPhone > AC-ORDER-037 ... > returns the order when orderNumber AND recipientPhone both match
+   → service.lookupOrderByNumberAndPhone is not a function
+ (동일하게 AC-ORDER-038/039/040/047×2 — 총 6건 모두 "is not a function")
+ Test Files  1 failed (1) / Tests  6 failed | 78 passed (84)
+```
+
+**GREEN (구현 후)**: `npx vitest run tests/unit/orders/order-repository.test.ts tests/unit/orders/order-service.test.ts` → `Test Files 2 passed (2)` / `Tests 103 passed (103)`.
+
+**E1 — AC PASS/FAIL 매트릭스**
+
+| AC | 상태 | 검증 명령 | 관측 결과 |
+|---|---|---|---|
+| AC-ORDER-037 | PASS | `npx vitest run tests/unit/orders/order-service.test.ts -t "AC-ORDER-037"` | `✓ ... returns the order when orderNumber AND recipientPhone both match` |
+| AC-ORDER-038 | PASS | `npx vitest run tests/unit/orders/order-service.test.ts -t "AC-ORDER-038"` | `✓ ... returns a failure carrying no order field when the phone does not match` |
+| AC-ORDER-039 | PASS | `npx vitest run tests/unit/orders/order-service.test.ts -t "AC-ORDER-039"` | `✓ ... returns the SAME status and body for a nonexistent order number and a wrong-phone match` |
+| AC-ORDER-040 | PASS | `npx vitest run tests/unit/orders/order-service.test.ts -t "AC-ORDER-040"` | `✓ ... calls the repository EXACTLY once for both the not-found and the mismatch path` |
+| AC-ORDER-047 | PASS | `npx vitest run tests/unit/orders/order-service.test.ts -t "AC-ORDER-047"` | `✓ ... names both a blank order number and a malformed phone, and never calls the repository` / `✓ ... passes a well-formed submission through to the repository` |
+
+전체 배치 실행(6건 동시): `npx vitest run tests/unit/orders/order-service.test.ts -t "AC-ORDER-037|AC-ORDER-038|AC-ORDER-039|AC-ORDER-040|AC-ORDER-047"` → `Test Files 1 passed (1)` / `Tests 6 passed | 78 skipped (84)`.
+
+**E2 — 전체 빌드**: `npm run build` → exit 0 (baseline과 동일하게 정적 페이지 18/18 생성, `/checkout/complete/[orderId]` 라우트 그대로).
+
+**E3 — 전체 테스트**: `npm test` → `Test Files 71 passed (71)` / `Tests 910 passed (910)` (baseline 901건 + 신규 9건 = 910건, 회귀 0건).
+
+**E4 — typecheck·lint**: `npm run typecheck` → exit 0, 신규 오류 0건. `npm run lint` → exit 0, 신규 경고 0건 (baseline도 동일하게 clean이었음).
+
+**E5 — PRESERVE 확인**: `findOrderForGuest()`는 `git diff`상 changed line 0줄(추가만 그 뒤에 발생). `git status --short src/app/checkout/complete/[orderId]/page.tsx` → 출력 없음(무변경). `prisma/schema.prisma` 무변경, `prisma/migrations/` 신규 디렉터리 없음(4개 기존 마이그레이션 그대로).
+
+**E6 — 커밋/푸시**: 이 항목은 이 커밋 자신을 가리키므로 `git log -1`로 사후 확인. 커밋 메시지: `feat(SPEC-ORDER-003): M1 게스트 재방문 조회 권한 규칙과 실패 표면`. `git push` 결과는 아래 §E.3에 기록.
+
+**E7 — 블로커**: 없음.
+
+**핵심 설계 확인**: `findOrderByNumberAndPhone()`은 `where: { orderNumber, recipientPhone }`을 단일 `findFirst` 호출에 담아 plan.md §1이 요구하는 "가져온 뒤 비교" 금지를 지킨다. "없는 주문"과 "대조 실패"가 같은 `null`을 내는 것은 서비스 계층의 분기가 아니라 이 단일 쿼리 구조에서 나오는 성질이라 REQ-ORDER-036이 "공짜로" 충족된다(plan.md §1 서술과 일치).
+
+**M1에서 결정하지 않은 것 (범위 밖으로 명시)**: acceptance.md §2 엣지 케이스가 언급하는 연락처 표기 정규화(`010-1234-5678` vs `01012345678`)는 이번 M1에 포함하지 않았다. 주문 생성 시점(order-service.ts의 주문 생성 트랜잭션, PRESERVE 대상)이 연락처를 정규화하지 않고 저장하므로, 조회 쪽만 정규화하면 저장된 표기와 다른 표기로 조회 시 존재하는 주문도 못 찾을 위험이 있다 — 이는 쓰기 경로를 건드리는 결정이라 이 SPEC의 PRESERVE 목록과 충돌한다. 주문 번호는 대소문자만 정규화했다(`generateOrderNumber()`가 항상 대문자를 생성하므로 이 정규화는 저장 표기와 항상 일치해 안전하다). 연락처 표기 정규화가 필요하면 별도 결정으로 M2/M3 또는 후속 SPEC에서 다뤄야 한다.
 
 ## §E.3 Run-phase Audit-Ready Signal
 

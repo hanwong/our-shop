@@ -7,6 +7,7 @@ import {
   createOrderWithItems,
   decrementStockIfAvailable,
   findOrderByIdempotencyKey,
+  findOrderByNumberAndPhone,
   findOrderForGuest,
   findStockByProductIds,
   type OrderWithItems,
@@ -14,6 +15,8 @@ import {
 import type {
   CreateOrderInput,
   InsufficientStockProduct,
+  LookupOrderInput,
+  LookupOrderResult,
   OrderDTO,
   OrderFailure,
   OrderItemDTO,
@@ -720,4 +723,107 @@ export async function createOrder(guestId: string, body: unknown): Promise<Order
 export async function getOrderForGuest(orderId: string, guestId: string): Promise<OrderDTO | null> {
   const order = await findOrderForGuest(orderId, guestId);
   return order === null ? null : toOrderDTO(order);
+}
+
+// ---------------------------------------------------------------------------
+// Guest revisit lookup (SPEC-ORDER-003 M1 — REQ-ORDER-034 ~ 037, 043)
+// ---------------------------------------------------------------------------
+
+/** The shape `generateOrderNumber()` produces (design.md §1.3), case-insensitive on input. */
+const ORDER_NUMBER_PATTERN = /^ORD-\d{8}-[0-9A-Z]{6}$/;
+
+/** A Korean mobile number, dashes optional (e.g. `010-1234-5678` or `01012345678`). */
+const RECIPIENT_PHONE_PATTERN = /^01[0-9]-?\d{3,4}-?\d{4}$/;
+
+const INVALID_ORDER_NUMBER = "주문 번호 형식이 올바르지 않습니다";
+const INVALID_PHONE = "연락처 형식이 올바르지 않습니다";
+
+/**
+ * The single failure message for every lookup that reaches the repository
+ * and comes back empty — REQ-ORDER-036 requires "no such order" and "wrong
+ * phone for a real order" to be indistinguishable, so exactly one message
+ * covers both (plan.md §2).
+ */
+const LOOKUP_MISMATCH_MESSAGE = "주문 번호 또는 연락처가 일치하지 않습니다";
+
+type LookupValidationResult =
+  | { ok: true; orderNumber: string; recipientPhone: string }
+  | { ok: false; fieldErrors: Record<string, string> };
+
+/**
+ * Format-only validation for the revisit lookup (REQ-ORDER-043).
+ *
+ * This layer decides ONLY whether the input is well-formed enough to query —
+ * it never touches the repository, so a malformed submission cannot leak
+ * whether a matching order exists, and this is the ONLY branch of
+ * lookupOrderByNumberAndPhone() that may return without calling the
+ * repository (AC-ORDER-047).
+ *
+ * The order number is uppercased before the format check and before the
+ * query: generateOrderNumber() always mints uppercase, so normalizing input
+ * case is a genuine correctness fix, not a guess at how the row is stored.
+ * recipientPhone is passed through UNCHANGED beyond trimming — normalizing it
+ * to a different punctuation shape would require the query to match a form
+ * the write path never guarantees it stored (order-creation validate() does
+ * not reformat it), so doing so here would risk querying a shape that never
+ * matches a genuinely-owned order.
+ */
+function validateLookup(input: LookupOrderInput): LookupValidationResult {
+  const fieldErrors: Record<string, string> = {};
+
+  const rawOrderNumber = requiredText(input.orderNumber);
+  let orderNumber: string | null = null;
+  if (rawOrderNumber === null) {
+    fieldErrors.orderNumber = MISSING;
+  } else {
+    orderNumber = rawOrderNumber.toUpperCase();
+    if (!ORDER_NUMBER_PATTERN.test(orderNumber)) {
+      fieldErrors.orderNumber = INVALID_ORDER_NUMBER;
+    }
+  }
+
+  const recipientPhone = requiredText(input.recipientPhone);
+  if (recipientPhone === null) {
+    fieldErrors.recipientPhone = MISSING;
+  } else if (!RECIPIENT_PHONE_PATTERN.test(recipientPhone)) {
+    fieldErrors.recipientPhone = INVALID_PHONE;
+  }
+
+  if (Object.keys(fieldErrors).length > 0) return { ok: false, fieldErrors };
+
+  return { ok: true, orderNumber: orderNumber!, recipientPhone: recipientPhone! };
+}
+
+/**
+ * The guest revisit lookup (REQ-ORDER-034 ~ 037, 043 — plan.md §1/§2 M1).
+ *
+ * "Not found" and "phone mismatch" are indistinguishable BY CONSTRUCTION, not
+ * by a branch in this function: findOrderByNumberAndPhone() bakes both
+ * conditions into one `where`, so a wrong phone for a real order number and
+ * an order number that does not exist both produce the same `null`. This
+ * function never learns which happened and therefore cannot leak it
+ * (REQ-ORDER-036, AC-ORDER-039). Exactly one repository call happens on
+ * every path past validation — there is no early return between the query
+ * and its result — so neither failure shape can short-circuit ahead of the
+ * other (AC-ORDER-040's structural proxy for the response-time channel).
+ */
+export async function lookupOrderByNumberAndPhone(
+  input: LookupOrderInput
+): Promise<LookupOrderResult> {
+  const validated = validateLookup(input);
+  if (!validated.ok) {
+    return {
+      ok: false,
+      status: 400,
+      error: "입력값을 다시 확인해 주세요",
+      fieldErrors: validated.fieldErrors,
+    };
+  }
+
+  const order = await findOrderByNumberAndPhone(validated.orderNumber, validated.recipientPhone);
+  if (order === null) {
+    return { ok: false, status: 404, error: LOOKUP_MISMATCH_MESSAGE, code: "NOT_FOUND" };
+  }
+
+  return { ok: true, data: toOrderDTO(order) };
 }

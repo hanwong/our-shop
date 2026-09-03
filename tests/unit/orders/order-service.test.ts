@@ -29,6 +29,7 @@ vi.mock("@/lib/db", () => db);
 const orderRepo = {
   findOrderByIdempotencyKey: vi.fn(),
   findOrderForGuest: vi.fn(),
+  findOrderByNumberAndPhone: vi.fn(),
   decrementStockIfAvailable: vi.fn(),
   findStockByProductIds: vi.fn(),
   createOrderWithItems: vi.fn(),
@@ -119,6 +120,7 @@ beforeEach(() => {
   );
   orderRepo.findOrderByIdempotencyKey.mockResolvedValue(null);
   orderRepo.findOrderForGuest.mockResolvedValue(null);
+  orderRepo.findOrderByNumberAndPhone.mockResolvedValue(null);
   orderRepo.decrementStockIfAvailable.mockResolvedValue(1);
   orderRepo.findStockByProductIds.mockResolvedValue([]);
   orderRepo.createOrderWithItems.mockResolvedValue(createdOrder());
@@ -958,6 +960,130 @@ describe("SPEC-ORDER-001 M3 — getOrderForGuest (REQ-ORDER-020)", () => {
     // Null, not a thrown error: the caller renders notFound(), so a stranger
     // cannot tell "wrong owner" from "no such order" (design.md §6.3).
     await expect(service.getOrderForGuest("order-1", "G2")).resolves.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SPEC-ORDER-003 M1 — guest revisit lookup (REQ-ORDER-034 ~ 037, 043)
+// ---------------------------------------------------------------------------
+
+describe("SPEC-ORDER-003 M1 — lookupOrderByNumberAndPhone", () => {
+  const VALID_ORDER_NUMBER = "ORD-20260903-0AB123";
+  const VALID_PHONE = "010-1234-5678";
+
+  const foundOrder = {
+    id: "order-1",
+    orderNumber: VALID_ORDER_NUMBER,
+    status: "pending_payment",
+    guestId: "G1",
+    recipientName: SHIPPING.recipientName,
+    recipientPhone: VALID_PHONE,
+    postalCode: SHIPPING.postalCode,
+    address: SHIPPING.address,
+    deliveryMemo: null,
+    itemsSubtotal: 20000,
+    shippingFee: 0,
+    totalAmount: 20000,
+    couponCode: null,
+    discountAmount: 0,
+    createdAt: new Date("2026-09-03T00:00:00.000Z"),
+    items: [],
+  };
+
+  describe("AC-ORDER-037 — both match opens the order (REQ-ORDER-034)", () => {
+    it("returns the order when orderNumber AND recipientPhone both match", async () => {
+      orderRepo.findOrderByNumberAndPhone.mockResolvedValue(foundOrder);
+
+      const result = await service.lookupOrderByNumberAndPhone({
+        orderNumber: VALID_ORDER_NUMBER,
+        recipientPhone: VALID_PHONE,
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data.orderNumber).toBe(VALID_ORDER_NUMBER);
+      expect(orderRepo.findOrderByNumberAndPhone).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("AC-ORDER-038 — order number alone opens nothing (REQ-ORDER-035)", () => {
+    it("returns a failure carrying no order field when the phone does not match", async () => {
+      orderRepo.findOrderByNumberAndPhone.mockResolvedValue(null);
+
+      const result = await service.lookupOrderByNumberAndPhone({
+        orderNumber: VALID_ORDER_NUMBER,
+        recipientPhone: "010-0000-0000",
+      });
+
+      expect(result.ok).toBe(false);
+      // No order field anywhere in the failure body — status/code/error only.
+      const body = JSON.stringify(result);
+      expect(body).not.toMatch(/orderNumber|itemsSubtotal|totalAmount|shipping/);
+    });
+  });
+
+  describe("AC-ORDER-039 — not-found and mismatch are byte-identical (REQ-ORDER-036)", () => {
+    it("returns the SAME status and body for a nonexistent order number and a wrong-phone match", async () => {
+      orderRepo.findOrderByNumberAndPhone.mockResolvedValue(null);
+
+      const notFound = await service.lookupOrderByNumberAndPhone({
+        orderNumber: "ORD-20260903-999999",
+        recipientPhone: VALID_PHONE,
+      });
+      const mismatch = await service.lookupOrderByNumberAndPhone({
+        orderNumber: VALID_ORDER_NUMBER,
+        recipientPhone: "010-0000-0000",
+      });
+
+      expect(notFound).toEqual(mismatch);
+    });
+  });
+
+  describe("AC-ORDER-040 — the failure path never skips the query (REQ-ORDER-036, structural proxy)", () => {
+    it("calls the repository EXACTLY once for both the not-found and the mismatch path", async () => {
+      orderRepo.findOrderByNumberAndPhone.mockResolvedValue(null);
+
+      await service.lookupOrderByNumberAndPhone({
+        orderNumber: "ORD-20260903-999999",
+        recipientPhone: VALID_PHONE,
+      });
+      expect(orderRepo.findOrderByNumberAndPhone).toHaveBeenCalledTimes(1);
+
+      orderRepo.findOrderByNumberAndPhone.mockClear();
+      await service.lookupOrderByNumberAndPhone({
+        orderNumber: VALID_ORDER_NUMBER,
+        recipientPhone: "010-0000-0000",
+      });
+      expect(orderRepo.findOrderByNumberAndPhone).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("AC-ORDER-047 — format validation fails specifically, without querying (REQ-ORDER-043)", () => {
+    it("names both a blank order number and a malformed phone, and never calls the repository", async () => {
+      const result = await service.lookupOrderByNumberAndPhone({
+        orderNumber: "",
+        recipientPhone: "not-a-phone",
+      });
+
+      expect(result).toMatchObject({ ok: false, status: 400 });
+      if (result.ok || result.status !== 400) return;
+      expect(Object.keys(result.fieldErrors)).toEqual(
+        expect.arrayContaining(["orderNumber", "recipientPhone"])
+      );
+      expect(orderRepo.findOrderByNumberAndPhone).not.toHaveBeenCalled();
+    });
+
+    it("passes a well-formed submission through to the repository", async () => {
+      orderRepo.findOrderByNumberAndPhone.mockResolvedValue(foundOrder);
+
+      const result = await service.lookupOrderByNumberAndPhone({
+        orderNumber: VALID_ORDER_NUMBER,
+        recipientPhone: VALID_PHONE,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(orderRepo.findOrderByNumberAndPhone).toHaveBeenCalledTimes(1);
+    });
   });
 });
 
