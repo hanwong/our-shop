@@ -407,7 +407,7 @@ Go 코드를 전혀 건드리지 않는다. C-HRA-008 계열 grep은 이 SPEC의
 
 sync_complete_at: 2026-09-03
 sync_status: audit-ready
-sync_commit_sha: pending-backfill-storefront-002-sync
+sync_commit_sha: 738f20b
 
 ### 문서 동기화
 
