@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 /**
@@ -410,5 +412,61 @@ describe("admin-order-repository — cancelOrderAsAdmin (AC-ADMIN-012/013, condi
         paymentKey: null,
       },
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SPEC-ADMIN-001 M5 — AC-ADMIN-EXCL-CONCURRENCY static shape check
+// ---------------------------------------------------------------------------
+
+/**
+ * Per acceptance.md's "잠재적 §0 제외 후보" note, the live-race-observation
+ * half of concurrent-cancellation safety (two admins cancelling the same
+ * order at once) is excluded from this SPEC's automated DoD — it needs a
+ * live PostgreSQL to actually serialize on. What IS checked here, statically,
+ * is the shape that makes that serialization possible at all: the exact same
+ * static-shape check SPEC-ORDER-002's own AC-013-EXCL-CONCURRENCY note
+ * establishes as its precedent — `cancelOrderAsAdmin()`'s conditional-atomic
+ * update uses `order.updateMany()` with a `status` condition in its `where`
+ * clause (`{ in: [...] }`), never a plain `order.update()` by id alone. A
+ * plain `update()` by id has no source-status guard and would let a second
+ * concurrent caller silently double-apply the cancellation side effects
+ * (stock restore, coupon release, audit log) — the conditional `updateMany`
+ * is what makes the second caller's `count !== 1` branch return
+ * `{ transitioned: false }` instead.
+ */
+describe("AC-ADMIN-EXCL-CONCURRENCY — cancelOrderAsAdmin uses a conditional-atomic update (static shape check)", () => {
+  const SOURCE_PATH = path.resolve(
+    __dirname,
+    "../../../src/features/admin/repositories/admin-order-repository.ts"
+  );
+
+  function readSource(): string {
+    return readFileSync(SOURCE_PATH, "utf8");
+  }
+
+  it("uses tx.order.updateMany(...) — never a plain tx.order.update(...) — to change the order's status to cancelled", () => {
+    const source = readSource();
+
+    // The exact call shape used to change status. A plain `.update(` call
+    // targeting `status:` would bypass the source-status guard entirely.
+    expect(source).toMatch(/tx\.order\.updateMany\(/);
+  });
+
+  it("the updateMany's where clause includes a status condition shaped as { in: [...] } — a source-state guard, not an id-only match", () => {
+    const source = readSource();
+
+    // Isolate the updateMany call body (from the call open-paren through
+    // its own matching close) so the where-clause assertion is scoped to
+    // THIS call, not some other updateMany elsewhere in the file.
+    const callStart = source.indexOf("tx.order.updateMany(");
+    expect(callStart).toBeGreaterThan(-1);
+    const callBody = source.slice(callStart, callStart + 400);
+
+    // The where clause names `status:` with an `{ in: [...] }` (or
+    // equivalent array-membership) condition — a row-level guard on the
+    // CURRENT status, not a bare id lookup.
+    expect(callBody).toMatch(/where:\s*\{[^}]*status:\s*\{\s*in:\s*\[/s);
+    expect(callBody).toMatch(/id:\s*orderId/);
   });
 });

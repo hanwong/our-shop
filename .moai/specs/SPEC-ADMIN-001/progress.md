@@ -385,9 +385,397 @@ export 무변경), `tests/unit/admin/admin-order-repository.test.ts`(M3 파일 �
 `tests/unit/api/admin/order-status-route.test.ts`(신규, 9 tests). AC-ADMIN-010~017
 (AC-ADMIN-014는 a/b 두 하위 관측 포함, 총 9건) 전부 PASS 커버.
 
+### 마일스톤 M5 — 통합·회귀·접근성
+
+이 마일스톤은 새 REQ/AC를 추가하지 않는다 — M1~M4가 이미 18건의 REQ-ADMIN/AC-ADMIN을
+전부 구현했으므로, M5의 산출물은 전체 스위트 무회귀 확인, `src/middleware.ts` 회귀
+가드, 정적 동시성 형태 검사, 접근성 검증, 그리고 아래 §E.3에 기록하는 누적
+Audit-Ready 신호다.
+
+**Task 1 — `src/middleware.ts` 무변경 회귀 가드 (REQ-ADMIN-018)**: 신규
+`tests/unit/admin/middleware-preserve.test.ts`. `readFileSync`로 파일 내용을 직접
+읽어 (1) `export const config = { matcher: [...] }`이 정확히 `["/admin/:path*"]`인지,
+(2) 파일 어디에도 `/staff` 참조가 없는지, (3) 바이트 길이 + SHA-256 콘텐츠 스냅샷이
+스냅샷 값과 일치하는지 3가지를 단정한다. (3)은 (1)/(2)가 못 잡는 임의의 향후 수정까지
+잡아내는 전역 가드다 — git diff 셸아웃이 아니라 파일 콘텐츠 자체를 읽으므로 vitest
+테스트 안에서 git 없이도 항상 재현 가능하다.
+
+**RED** (스냅샷 상수를 의도적으로 틀린 값 `0` / `0…0`으로 둔 상태, 콘텐츠 스냅샷 단정문만):
+```
+$ npx vitest run tests/unit/admin/middleware-preserve.test.ts
+ ❯ tests/unit/admin/middleware-preserve.test.ts (3 tests | 1 failed) 5ms
+   × ... byte-length + SHA-256 content snapshot ... 3ms
+     → expected 2485 to be +0 // Object.is equality
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+```
+
+**GREEN** (스냅샷 상수를 실측값 `2485` /
+`8d82d3c13a3d00131be8e22ff088384f378bc4183d9c772f97e6591153d332e0`로 교체):
+```
+$ npx vitest run tests/unit/admin/middleware-preserve.test.ts
+ ✓ tests/unit/admin/middleware-preserve.test.ts (3 tests) 2ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+```
+
+`src/middleware.ts` 자체는 이 마일스톤에서도 (그리고 SPEC 전체에서) 단 한 줄도
+건드리지 않았다 — 이 테스트는 검증만 한다.
+
+**Task 2 — AC-ADMIN-EXCL-CONCURRENCY 정적 형태 검사**: `tests/unit/admin/admin-order-repository.test.ts`
+말미에 신규 `describe` 블록 2건 추가. `acceptance.md`의 "잠재적 §0 제외 후보" 절이
+명시한 대로, 두 관리자의 동시 취소 레이스에 대한 **실측(살아있는 PostgreSQL 필요)은
+제외**하되, 그 직렬화를 가능하게 하는 **형태**(`updateMany` where 절에 소스 상태
+`{ in: [...] }` 조건 포함, 단순 `update()`가 아님)는 `admin-order-repository.ts`의
+소스 텍스트를 `readFileSync`로 읽어 정적으로 확인한다 — `SPEC-ORDER-002`의
+`AC-013-EXCL-CONCURRENCY`가 확립한 것과 동일한 성격의 정적 형태 검사.
+
+**RED** (첫 번째 신규 테스트의 정규식을 의도적으로 실재하지 않는 플레이스홀더로 둔 상태):
+```
+$ npx vitest run tests/unit/admin/admin-order-repository.test.ts -t "AC-ADMIN-EXCL-CONCURRENCY"
+ ❯ ... uses tx.order.updateMany(...) ...
+   → expected '...(admin-order-repository.ts 전체 소스)...' to match /RED_PLACEHOLDER_DOES_NOT_EXIST_IN_SOURCE/
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed | 18 skipped (20)
+```
+
+**GREEN** (정규식을 실제 검사 — `tx\.order\.updateMany\(` 존재 + 그 호출의 where 절에
+`status:\s*\{\s*in:\s*\[` — 로 교체):
+```
+$ npx vitest run tests/unit/admin/admin-order-repository.test.ts
+ ✓ tests/unit/admin/admin-order-repository.test.ts (20 tests) 13ms
+
+ Test Files  1 passed (1)
+      Tests  20 passed (20)
+```
+
+**Task 3 — 접근성 점검 (M2~M4 렌더 UI 전체)**: 신규 `tests/unit/admin/accessibility.test.tsx`
+(기존 페이지별 테스트 파일을 확장하는 대신 새 전용 파일을 택한 이유: 이 마일스톤의
+작업은 이미 구현된 4개 화면 — 로그인 폼·주문 목록·주문 상세·취소 버튼 — 을 가로지르는
+**점검**이라, 각자 REQ/AC 스코프를 이미 가진 4개 파일에 흩어 넣기보다 점검 범위를
+한 파일에서 보이게 하는 편이 낫다고 판단했다). 점검 결과 — **모든 항목이 이미 충족되어
+있었고, UI 코드 변경은 없었다**:
+
+- 로그인 폼(M2): `<label htmlFor>`로 이메일·비밀번호 두 입력 모두 연결되어 있음을
+  `getByLabelText`로 확인(단순 htmlFor grep보다 강한 검사 — 스크린리더와 동일한
+  연결 해석을 거친다) + 제출 실패 메시지가 `role="alert"`로 렌더됨을 확인.
+- 주문 목록(M3): 모든 `<th>`가 `scope="col"`을 가짐을 확인(DOM 순회로 전수 검사) +
+  `<nav aria-label="상태 필터">`·`<nav aria-label="페이지네이션">` 두 랜드마크가
+  모두 존재함을 확인.
+- 주문 상세(M4): 취소 버튼의 접근 가능한 이름이 그 화면 텍스트("취소")와 일치함을
+  확인.
+- `CancelOrderButton.tsx`(M4): 제출 중 버튼이 `disabled`되고 텍스트가 "취소 처리
+  중…"로 바뀌는, M2 로그인 버튼과 동일한 disabled+텍스트 전환 패턴이 실제로 동작함을
+  확인 + 실패 시 오류 메시지가 `role="alert"`로 렌더됨을 확인.
+
+진짜 접근성 결함은 발견되지 않았다 — 있지도 않은 문제를 지어내지 않았다.
+
+**RED** (레이블/헤더/버튼 이름 단정 3건을 각각 존재하지 않는 값으로 바꾼 상태):
+```
+$ npx vitest run tests/unit/admin/accessibility.test.tsx
+ Test Files  1 failed (1)
+      Tests  3 failed | 4 passed (7)
+```
+
+**GREEN** (실제 값으로 되돌림):
+```
+$ npx vitest run tests/unit/admin/accessibility.test.tsx
+ ✓ tests/unit/admin/accessibility.test.tsx (7 tests) 116ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+```
+
+**Task 4의 커버리지 분석에서 발견한 진짜 결함 하나 — `CancelOrderButton.tsx` 분기
+커버리지 69.23%(임계값 80% 미달)**: 최초 전체 커버리지 실행에서
+`CancelOrderButton.tsx`가 `98/69.23/100/98`(statements/branches/functions/lines)로
+측정되었다 — branches가 프로젝트 전역 임계값 80%에 못 미쳤다. 원인은 기존 어떤
+테스트도 (a) `fetch()` 자체가 reject하는 네트워크 실패 경로(바깥쪽 `catch` 블록,
+63행)와 (b) 실패 응답의 본문이 JSON으로 파싱되지 않는 경로(`.json().catch(() => ({}))`의
+인라인 catch, 60행)를 구동하지 않았기 때문이다. `accessibility.test.tsx`에 신규
+테스트 2건을 추가해 두 경로를 모두 구동했다(UI 코드는 건드리지 않음 — 이미 올바르게
+동작하던 두 fallback 분기에 대한 테스트가 없었을 뿐이다).
+
+**RED** (두 신규 테스트의 기대값을 플레이스홀더로 둔 상태):
+```
+$ npx vitest run tests/unit/admin/accessibility.test.tsx
+ FAIL ... a network failure (fetch() rejects) falls back ...
+   AssertionError: expected '주문을 취소하지 못했습니다. 잠시 후 다시 시도해 주세요' to be 'RED_PLACEHOLDER'
+ FAIL ... a non-ok response whose body fails to parse as JSON ...
+   AssertionError: expected '주문을 취소하지 못했습니다' to be 'RED_PLACEHOLDER_2'
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 7 passed (9)
+```
+
+**GREEN** (실제 기대 메시지로 교체):
+```
+$ npx vitest run tests/unit/admin/accessibility.test.tsx
+ ✓ tests/unit/admin/accessibility.test.tsx (9 tests) 125ms
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+```
+
+**커버리지 전/후 비교(`CancelOrderButton.tsx`)**:
+
+| 시점 | Stmts | Branch | Funcs | Lines | Uncovered |
+|---|---|---|---|---|---|
+| 두 테스트 추가 전 | 98 | **69.23** | 100 | 98 | 63 |
+| 두 테스트 추가 후 | 100 | **87.5** | 100 | 100 | 28,41 |
+
+87.5% ≥ 80% 임계값 — 통과. 잔여 uncovered 28/41행은 (a) `readCsrfToken()`의
+"쿠키 없음" 폴백 분기 중 아직 실측 안 된 한쪽 방향과 (b) `if (submitting) return;`
+가드로, 후자는 버튼의 `disabled` 속성이 UI 클릭으로는 재진입 자체를 막아(jsdom도
+네이티브 동작을 그대로 따른다) 실제 브라우저 조작으로는 도달이 사실상 불가능한
+방어적 코드다 — 별도 소스 변경을 정당화할 만한 결함이 아니라고 판단해 그대로 두었다
+(잔여 위험으로 아래 §E.3에 기록).
+
+**Task 5 — PRESERVE 누적 재확인 (SPEC 전체 이력)**: `git merge-base HEAD origin/main`으로
+확인한 병합 기준(`265b54b72828160adf2dece66a33919e57e9ee76`)과 현재 HEAD 사이,
+plan.md §3 PRESERVE 4개 경로 + `src/app/api/auth/` 전체를 diff했다.
+
+```
+$ git rev-parse --abbrev-ref HEAD
+feat/SPEC-ADMIN-001
+$ git fetch origin main
+$ git merge-base HEAD origin/main
+265b54b72828160adf2dece66a33919e57e9ee76
+$ git diff --stat 265b54b72828160adf2dece66a33919e57e9ee76 -- src/middleware.ts src/features/payments/repositories/payment-repository.ts src/lib/auth/jwt.ts src/lib/auth/session.ts src/lib/auth/cookies.ts src/lib/auth/csrf.ts src/app/api/auth/
+(출력 없음 — 0줄)
+```
+
+AC-ADMIN-018을 SPEC 전체 이력에 대해 재확인 — 빈 diff.
+
+산출물(M5 신규 생성): `tests/unit/admin/middleware-preserve.test.ts`(신규, 3 tests),
+`tests/unit/admin/accessibility.test.tsx`(신규, 9 tests). 산출물(M5 확장):
+`tests/unit/admin/admin-order-repository.test.ts`(M3/M4 파일 확장, 신규 2건 추가 —
+기존 18건 유지, 총 20건). 이 마일스톤에서 M1~M4의 구현 파일(`admin-session.ts`,
+`admin-order-repository.ts`, `admin.ts`, 4개 페이지, `CancelOrderButton.tsx`,
+`status/route.ts`)은 어느 것도 수정하지 않았다 — 전부 테스트 파일 추가/확장뿐이다.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
-_<pending run-phase>_
+run_complete_at: 2026-09-03
+run_status: audit-ready
+
+M1~M5 전체에 대한 누적 Audit-Ready 신호. 이 시점의 tree는 M4까지 커밋된 HEAD
+`10c5cc91a95e4b4ebb4ea62874a7c76b6c87897d`(`10c5cc9`) 위에 M5의 신규/확장 테스트
+파일 3개(커밋 전, working tree)가 얹힌 상태다 — M5는 git 조작이 허용되지 않는
+milestone이므로 커밋은 다음 세션(오케스트레이터 또는 후속 위임)의 몫이다.
+
+### 누적 18건(AC-ADMIN-014 a/b 포함 19행) AC PASS 매트릭스
+
+| AC | 검증 명령 | 핵심 출력(verbatim) | 상태 |
+|---|---|---|---|
+| AC-ADMIN-001 | `npx vitest run tests/unit/admin/admin-session.test.ts` | `✓ tests/unit/admin/admin-session.test.ts (7 tests) 214ms` | PASS |
+| AC-ADMIN-002 | `npx vitest run tests/unit/admin/admin-session.test.ts` | `✓ tests/unit/admin/admin-session.test.ts (7 tests) 214ms` | PASS |
+| AC-ADMIN-003 | `npx vitest run tests/unit/admin/admin-session.test.ts` | `✓ tests/unit/admin/admin-session.test.ts (7 tests) 214ms` | PASS |
+| AC-ADMIN-004 | `npx vitest run tests/unit/app/staff-login-page.test.tsx` | `✓ tests/unit/app/staff-login-page.test.tsx (6 tests) 261ms` — `AC-ADMIN-004 — submits the existing login API unchanged > POSTs /api/auth/login...` | PASS |
+| AC-ADMIN-005 | `npx vitest run tests/unit/app/staff-login-page.test.tsx` | `✓ tests/unit/app/staff-login-page.test.tsx (6 tests) 261ms` | PASS |
+| AC-ADMIN-006 | `npx vitest run tests/unit/app/staff-login-page.test.tsx tests/unit/app/staff-orders-page.test.tsx` | `✓ tests/unit/app/staff-login-page.test.tsx (6 tests) 261ms` + `✓ tests/unit/app/staff-orders-page.test.tsx (10 tests) 206ms`(redirect-gate 2건 포함, M3에서 PARTIAL→완전 PASS로 승격) | PASS |
+| AC-ADMIN-007 | `npx vitest run tests/unit/admin/admin-order-repository.test.ts tests/unit/app/staff-orders-page.test.tsx` | `✓ tests/unit/admin/admin-order-repository.test.ts (20 tests) 20ms` + `✓ tests/unit/app/staff-orders-page.test.tsx (10 tests) 206ms` | PASS |
+| AC-ADMIN-008 | 위와 동일 | 위와 동일 | PASS |
+| AC-ADMIN-009 | 위와 동일 | 위와 동일 | PASS |
+| AC-ADMIN-010 | `npx vitest run tests/unit/app/staff-order-detail-page.test.tsx` | `✓ tests/unit/app/staff-order-detail-page.test.tsx (8 tests) 537ms` | PASS |
+| AC-ADMIN-011 | 위와 동일 | 위와 동일 — "renders no trace of the DB row's paymentKey value" 케이스 포함 | PASS |
+| AC-ADMIN-012 | 위와 동일 | 위와 동일 — pending_payment/paid는 취소 버튼 노출, cancelled는 미노출 + 정적 소스 가드 | PASS |
+| AC-ADMIN-013 | `npx vitest run tests/unit/admin/admin-order-repository.test.ts` | `✓ tests/unit/admin/admin-order-repository.test.ts (20 tests) 20ms` — "AC-ADMIN-013 no side effects on an invalid transition" 케이스 포함 | PASS |
+| AC-ADMIN-014a | 위와 동일 | 위와 동일 — "pending_payment cancel restores stock" 케이스 포함 | PASS |
+| AC-ADMIN-014b | 위와 동일 | 위와 동일 — "paid cancel restores stock + coupon redemption" 케이스 포함 | PASS |
+| AC-ADMIN-015 | 위와 동일 | 위와 동일 — "writes exactly one PaymentAuditLog row" 케이스 포함 | PASS |
+| AC-ADMIN-016 | `npx vitest run tests/unit/api/admin/order-status-route.test.ts` | `✓ tests/unit/api/admin/order-status-route.test.ts (9 tests) 41ms` | PASS |
+| AC-ADMIN-017 | 위와 동일 | 위와 동일 — 세션 재판정(REQ-ADMIN-017) 케이스 포함 | PASS |
+| AC-ADMIN-018 | `git diff --stat 265b54b72828160adf2dece66a33919e57e9ee76 -- src/middleware.ts src/features/payments/repositories/payment-repository.ts src/lib/auth/jwt.ts src/lib/auth/session.ts src/lib/auth/cookies.ts src/lib/auth/csrf.ts src/app/api/auth/` | (출력 없음 — 0줄) | PASS |
+
+19행 전부 PASS. FAIL/INCONCLUSIVE 행 없음.
+
+### Task 4 전체 검증 스위트 — 전체 verbatim 결과
+
+**`npx tsc --noEmit`**:
+```
+$ npx tsc --noEmit
+(표준출력 없음)
+EXIT:0
+```
+
+**`npx eslint .`**:
+```
+$ npx eslint .
+(표준출력 없음)
+EXIT:0
+```
+
+**`npm run build`**:
+```
+> our-shop@0.1.0 build
+> next build
+
+ ⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of /Users/samuel/projects/pnpm-lock.yaml as the root directory.
+ To silence this warning, set `outputFileTracingRoot` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/output#caveats for more information.
+ Detected additional lockfiles: 
+   * /Users/samuel/projects/our-shop/.claude/worktrees/SPEC-ADMIN-001/package-lock.json
+   * /Users/samuel/projects/our-shop/package-lock.json
+
+   ▲ Next.js 15.5.24
+   - Environments: .env
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 3.7s
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/23) ...
+ ✓ Generating static pages (23/23)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                 Size  First Load JS
+┌ ○ /                                      164 B         106 kB
+├ ○ /_not-found                            993 B         103 kB
+├ ƒ /admin/api/orders/[orderId]/status     167 B         102 kB
+├ ƒ /api/auth/google                       167 B         102 kB
+├ ƒ /api/auth/google/callback              167 B         102 kB
+├ ƒ /api/auth/login                        167 B         102 kB
+├ ƒ /api/auth/logout                       167 B         102 kB
+├ ƒ /api/auth/refresh                      167 B         102 kB
+├ ƒ /api/auth/signup                       167 B         102 kB
+├ ƒ /api/cart                              167 B         102 kB
+├ ƒ /api/cart/items                        167 B         102 kB
+├ ƒ /api/cart/items/[itemId]               167 B         102 kB
+├ ƒ /api/discounts/validate                167 B         102 kB
+├ ƒ /api/orders                            167 B         102 kB
+├ ƒ /api/orders/lookup                     167 B         102 kB
+├ ƒ /api/payments/confirm                  167 B         102 kB
+├ ƒ /api/payments/webhook                  167 B         102 kB
+├ ƒ /api/products                          167 B         102 kB
+├ ƒ /api/products/[productId]              167 B         102 kB
+├ ƒ /cart                                1.68 kB         104 kB
+├ ƒ /checkout                            2.95 kB         105 kB
+├ ƒ /checkout/complete/[orderId]         1.08 kB         103 kB
+├ ○ /orders/lookup                        2.1 kB         104 kB
+├ ƒ /orders/lookup/[orderNumber]           167 B         102 kB
+├ ƒ /products/[productId]                6.99 kB         109 kB
+├ ○ /staff/login                         1.06 kB         103 kB
+├ ƒ /staff/orders                          167 B         102 kB
+└ ƒ /staff/orders/[orderId]                908 B         103 kB
++ First Load JS shared by all             102 kB
+
+ƒ Middleware                             39.5 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+EXIT:0
+```
+
+**`npx vitest run --exclude "**/tests/integration/auth/login.test.ts"`** — 전체 87개
+테스트 파일, 관리자 관련 파일만 발췌(전체 87개 파일 결과는 아래 요약 참조):
+```
+ ✓ tests/unit/admin/admin-order-repository.test.ts (20 tests) 20ms
+ ✓ tests/unit/api/admin/order-status-route.test.ts (9 tests) 41ms
+ ✓ tests/unit/admin/admin-session.test.ts (7 tests) 214ms
+ ✓ tests/unit/admin/middleware-preserve.test.ts (3 tests) 4ms
+ ✓ tests/unit/app/staff-order-detail-page.test.tsx (8 tests) 537ms
+ ✓ tests/unit/admin/accessibility.test.tsx (9 tests) 642ms
+ ✓ tests/unit/app/staff-orders-page.test.tsx (10 tests) 206ms
+ ✓ tests/unit/app/staff-login-page.test.tsx (6 tests) 261ms
+
+ Test Files  87 passed (87)
+      Tests  1053 passed (1053)
+   Start at  22:35:29
+   Duration  15.19s (transform 1.75s, setup 0ms, collect 7.65s, tests 38.09s, environment 26.16s, prepare 7.28s)
+EXIT:0
+```
+
+`tests/integration/auth/login.test.ts`(사전 존재 flaky, `AC-AUTH-005`, backlog `t20`)는
+이 실행에서 0건 매치 — 정상적으로 제외되었다. `tests/unit/api/auth/login.test.ts`(별개
+경로, non-flaky)는 정상 포함되어 11건 전부 PASS.
+
+**`npm run test:coverage -- --exclude "**/tests/integration/auth/login.test.ts"`** —
+전역 임계값 + 이 SPEC이 생성/수정한 8개 파일 전체:
+```
+ Test Files  87 passed (87)
+      Tests  1053 passed (1053)
+
+ % Coverage report from v8
+-------------------|---------|----------|---------|---------|-------------------
+File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s
+-------------------|---------|----------|---------|---------|-------------------
+All files          |   98.11 |     93.4 |   99.55 |   98.11 |
+ src               |     100 |      100 |     100 |     100 |
+  middleware.ts    |     100 |      100 |     100 |     100 |
+ ...rderId]/status |     100 |      100 |     100 |     100 |
+  route.ts         |     100 |      100 |     100 |     100 |
+ ...pp/staff/login |     100 |    86.66 |     100 |     100 |
+  page.tsx         |     100 |    86.66 |     100 |     100 | 44,62
+ ...p/staff/orders |   99.17 |    93.33 |     100 |   99.17 |
+  page.tsx         |   99.17 |    93.33 |     100 |   99.17 | 173
+ ...ders/[orderId] |     100 |    92.85 |     100 |     100 |
+  ...derButton.tsx |     100 |     87.5 |     100 |     100 | 28,41
+  page.tsx         |     100 |      100 |     100 |     100 |
+ ...n/repositories |     100 |      100 |     100 |     100 |
+  ...repository.ts |     100 |      100 |     100 |     100 |
+ ...admin/services |     100 |      100 |     100 |     100 |
+  admin-session.ts |     100 |      100 |     100 |     100 |
+ ...es/admin/types |     100 |      100 |     100 |     100 |
+  admin.ts         |     100 |      100 |     100 |     100 |
+-------------------|---------|----------|---------|---------|-------------------
+EXIT:0
+```
+
+**전역 임계값 판정** (`vitest.config.ts` 설정값: lines≥85, functions≥85, branches≥80,
+statements≥85 대비 실측 `All files` 행):
+
+| 지표 | 임계값 | 실측 | 판정 |
+|---|---|---|---|
+| Lines | 85 | 98.11 | PASS |
+| Statements | 85 | 98.11 | PASS |
+| Functions | 85 | 99.55 | PASS |
+| Branches | 80 | 93.4 | PASS |
+
+**8개 SPEC 생성/수정 파일 개별 판정** (동일 임계값을 파일별로 적용):
+
+| 파일 | Stmts | Branch | Funcs | Lines | 판정 |
+|---|---|---|---|---|---|
+| `admin-session.ts` | 100 | 100 | 100 | 100 | PASS |
+| `admin-order-repository.ts` | 100 | 100 | 100 | 100 | PASS |
+| `admin.ts`(types) | 100 | 100 | 100 | 100 | PASS(자명 — 타입 전용 파일) |
+| `staff/login/page.tsx` | 100 | 86.66 | 100 | 100 | PASS |
+| `staff/orders/page.tsx` | 99.17 | 93.33 | 100 | 99.17 | PASS |
+| `staff/orders/[orderId]/page.tsx` | 100 | 100 | 100 | 100 | PASS |
+| `CancelOrderButton.tsx` | 100 | 87.5 | 100 | 100 | PASS(2건 추가 전 69.23 — 위 M5 Task 4 절 참조) |
+| `admin/api/orders/[orderId]/status/route.ts` | 100 | 100 | 100 | 100 | PASS |
+
+8개 전부 PASS. 미달 파일 없음.
+
+### PRESERVE 4경로 + auth API 전체 — SPEC 전체 이력 재확인
+
+```
+$ git merge-base HEAD origin/main
+265b54b72828160adf2dece66a33919e57e9ee76
+$ git diff --stat 265b54b72828160adf2dece66a33919e57e9ee76 -- src/middleware.ts src/features/payments/repositories/payment-repository.ts src/lib/auth/jwt.ts src/lib/auth/session.ts src/lib/auth/cookies.ts src/lib/auth/csrf.ts src/app/api/auth/
+(출력 없음 — 0줄)
+```
+
+AC-ADMIN-018 재확인 — PASS(빈 diff, M1~M5 전체 이력에 걸쳐).
+
+### 알려진 잔여 항목 2건 (문서화됨, 이 SPEC의 자동 DoD 밖)
+
+(a) **사전 존재 flaky `AC-AUTH-005` 테스트**(`tests/integration/auth/login.test.ts`,
+backlog `t20`) — 이 SPEC과 무관, M1~M5 전 마일스톤의 확립된 관례에 따라 모든 검증
+실행에서 제외했다. `AC-ADMIN-*` 어느 것도 이 파일에 의존하지 않는다.
+
+(b) **AC-ADMIN-EXCL-CONCURRENCY**(정적 형태 검사만) — `acceptance.md` 자체의 제외
+절이 명시한 대로, 두 관리자의 동시 취소가 실제 PostgreSQL에서 직렬화되는 것의
+**실측 관측**은 이 SPEC의 자동 DoD에서 제외된다. `cancelOrderAsAdmin()`이
+조건부 원자 `updateMany`(where에 소스 상태 포함) 형태를 쓴다는 것만 정적으로
+확인했다(M5 Task 2) — 실제 두 트랜잭션이 동시에 붙었을 때의 락 경합·직렬화 순서는
+관측하지 않았다. `SPEC-ORDER-002`의 `AC-013-EXCL-CONCURRENCY`와 동일한 성격·동일한
+근거의 제외다.
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
