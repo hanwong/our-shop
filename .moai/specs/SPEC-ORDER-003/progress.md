@@ -257,9 +257,68 @@ AssertionError: expected '{"id":"order-1","orderNumber":"ORD-20…' not to match
 
 **M3에서 결정하지 않은 것**: 없음 — plan.md §3이 M3에 명시적으로 넘긴 두 항목(레이트리밋 배선, 응답 본문 동적 검증) 모두 이 커밋에서 완결했다.
 
+### M4 — 보존 검증 (완료, 오케스트레이터 직접 수행)
+
+**위임 경위**: manager-develop에게 위임했으나, 이 세션의 백그라운드 에이전트 격리 환경이 SPEC-ORDER-003과 무관한 다른 SPEC(SPEC-STOREFRONT-001) 컨텍스트·오래된 HEAD·`node_modules` 부재 상태의 worktree를 배정하는 환경 결함이 있어, 에이전트가 (정당하게) 검증을 거부하고 블로커 보고서를 반환했다. M4는 검증 전용(신규 코드 없음)이고, 오케스트레이터가 이미 M1~M3 각 단계에서 주 체크아웃에 직접 fast-forward 후 typecheck·테스트를 독립 재실행해 온 동일한 방식으로 이 마일스톤의 4개 항목을 직접 재확인했다(관측 명령·결과는 이 세션에서 실제로 실행한 것이며, 위임 시도 이전에 오케스트레이터가 이미 관측했던 값과 일치를 재확인함).
+
+**REQ-ORDER-045 / AC-ORDER-049 — 3개 보존 대상**:
+
+```
+$ git diff --stat 284a492...HEAD -- src/app/checkout/complete/
+(출력 없음 — diff 0줄)
+
+$ findOrderForGuest() 본문에 닿는 diff hunk 0건 (grep으로 확인)
+
+$ git diff --stat 284a492...HEAD -- prisma/schema.prisma
+(출력 없음 — diff 0줄)
+
+$ git diff --stat 284a492...HEAD -- prisma/migrations/
+(출력 없음 — 신규 마이그레이션 없음)
+
+$ createOrder() 본문(order-service.ts:446)에 닿는 diff hunk 0건 (grep으로 확인 — 실제 diff hunk는 import 구역과 725행 이후 순수 추가분뿐)
+```
+
+**전체 빌드**: `npm run build` → exit 0. 신규 라우트 3개(`/orders/lookup`, `/orders/lookup/[orderNumber]`, `/api/orders/lookup`) 정상 등록.
+
+**전체 테스트**: `npm test` → `Test Files 76 passed (76)` / `Tests 945 passed (945)`. 회귀 0건.
+
+**typecheck**: `npx tsc --noEmit` → exit 0.
+
+**AC 누적 커버리지 (13건 전부)**:
+
+| AC | 검증 단계 | 판정 |
+|---|---|---|
+| AC-ORDER-037 | M1 | PASS |
+| AC-ORDER-038 | M1 | PASS |
+| AC-ORDER-039 | M1 | PASS |
+| AC-ORDER-040 | M1 | PASS |
+| AC-ORDER-041 | M3 | PASS |
+| AC-ORDER-042 | M2 | PASS |
+| AC-ORDER-043 | M2(정적)+M3(동적) | PASS |
+| AC-ORDER-044 | M2 | PASS |
+| AC-ORDER-045 | M2 | PASS |
+| AC-ORDER-046 | M2 | PASS |
+| AC-ORDER-047 | M1(서비스)+M2(폼) | PASS |
+| AC-ORDER-048 | M2 | PASS |
+| AC-ORDER-049 | M4 | PASS (위 4항목) |
+
+13건 전부 최소 1개 마일스톤에서 PASS 기록을 갖고 있다.
+
+**M4가 새로 발견한 문제 — acceptance.md §2 엣지 케이스와 M1 실제 구현의 불일치**: acceptance.md §2가 "연락처 표기가 다름(`010-1234-5678` vs `01012345678`) → ... 정규화 규칙은 M1에서 정하고 테스트로 고정한다"라고 명시하지만, M1의 실제 §E.2 기록은 정반대로 "연락처 표기 정규화는 이번 M1에 포함하지 않았다"라고 스스로 밝히고 있다. 오케스트레이터가 코드로 직접 확인한 결과:
+
+- 조회 측(`RECIPIENT_PHONE_PATTERN`, order-service.ts:737)은 하이픈이 있어도 없어도 통과하는 느슨한 정규식이다.
+- 그러나 주문 생성 측(`REQUIRED_SHIPPING_FIELDS`, order-service.ts:129-133)은 `recipientPhone`이 **비어있지 않다는 것만** 검사하며 형식을 전혀 강제하지 않는다. 체크아웃 폼(`CheckoutForm.tsx:31`)도 자유 텍스트 입력이라 클라이언트 측 마스킹이 없다.
+- `findOrderByNumberAndPhone()`은 저장된 값과 입력값을 **정확히 문자열 비교**하는 단일 `where` 절이다.
+
+**결과적으로**: 체크아웃 때 공백·점 등 비표준 표기로 연락처를 입력한 실제 고객은, 나중에 같은(또는 다른) 표기로 조회를 시도해도 자신의 실재하는 정당한 주문을 찾지 못할 수 있다 — 형식 검증에서 거부되거나(비표준 표기가 `RECIPIENT_PHONE_PATTERN`과도 안 맞으면), 문자열 불일치로 "대조 실패"와 구별 안 되게 조용히 실패한다. 이는 acceptance.md가 명시적으로 요구했던 엣지 케이스 처리가 실제로는 구현되지 않은 것이며, plan-audit이 통과한 계획과 최종 산출물 사이의 실질적 괴리다.
+
+**왜 M4에서 즉시 고치지 않았는지**: 근본 수정(정규화를 쓰기·읽기 양쪽에 일관되게 적용, 또는 최소한 쓰기 시점 정규화)은 주문 생성 트랜잭션(`order-service.ts`의 `createOrder()`/`REQUIRED_SHIPPING_FIELDS`)을 건드려야 하는데, 이는 이 SPEC의 PRESERVE 목록과 REQ-ORDER-045가 명시적으로 금지하는 대상이다. 읽기 쪽만 느슨하게 만드는 것은 M1이 이미 검토하고 기각한 방향과 같다(저장된 표기와 다른 표기로 조회하면 정당한 주문도 못 찾는 위험). 이 괴리를 이 SPEC 안에서 안전하게 닫을 방법이 없어 사용자 결정을 요청한다 — 상세는 이 진행 기록이 아니라 오케스트레이터의 사용자 응답에서 다룬다.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
-_&lt;pending run-phase&gt;_
+**4개 마일스톤(M1~M4) 모두 기계적으로 완료**: 코드·테스트·빌드·타입체크 전부 그린, PRESERVE 3항목 diff 0줄, 13개 AC 전부 최소 1곳에서 PASS 기록 보유.
+
+**그러나 무조건적 "sync 준비 완료"는 아니다.** M4가 위에서 기록한 대로, acceptance.md §2의 연락처 표기 정규화 엣지 케이스가 M1에서 다뤄지지 않은 채 남아 있다 — 코드는 모두 통과하지만, **승인된 계획 문서가 명시한 처리 하나가 실제로 구현되지 않은 상태**다. sync-phase(문서화·PR)로 넘어가기 전에 이 격차를 다음 중 하나로 닫아야 한다: (a) 알려진 잔여 한계로 명시적으로 받아들이고 acceptance.md §2를 사실에 맞게 수정 + 후속 백로그 카드 등록, 또는 (b) 이 SPEC 범위를 넓혀 정규화를 구현. 사용자 결정 대기 중.
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
