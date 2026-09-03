@@ -8,6 +8,7 @@ import {
   decrementStockIfAvailable,
   findOrderByIdempotencyKey,
   findOrderByNumberAndPhone,
+  findOrderByNumberForGuest,
   findOrderForGuest,
   findStockByProductIds,
   type OrderWithItems,
@@ -826,4 +827,26 @@ export async function lookupOrderByNumberAndPhone(
   }
 
   return { ok: true, data: toOrderDTO(order) };
+}
+
+/**
+ * The order matching BOTH the order number and the presenting guest's own
+ * identity — the cookie-bypass revisit lookup (SPEC-ORDER-003 M2 —
+ * REQ-ORDER-044, AC-ORDER-048).
+ *
+ * No format validation here: unlike lookupOrderByNumberAndPhone() above, this
+ * path carries no user-typed form input to validate — the order number comes
+ * from the URL segment and the guest identity from the cookie. A malformed or
+ * nonexistent order number simply matches nothing and returns null, which the
+ * caller renders as notFound() — the same non-disclosure discipline
+ * getOrderForGuest() follows. The order number IS uppercased before the
+ * query, matching lookupOrderByNumberAndPhone()'s case normalization
+ * (generateOrderNumber() always mints uppercase).
+ */
+export async function getOrderByNumberForGuest(
+  orderNumber: string,
+  guestId: string
+): Promise<OrderDTO | null> {
+  const order = await findOrderByNumberForGuest(orderNumber.toUpperCase(), guestId);
+  return order === null ? null : toOrderDTO(order);
 }

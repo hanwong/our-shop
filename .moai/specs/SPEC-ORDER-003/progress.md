@@ -106,6 +106,87 @@ $ npx vitest run tests/unit/orders/order-service.test.ts
 
 **Justification**: Tier M, 단일 모듈(`src/features/orders`) 내 코딩 중심 작업이며 M1(조회 권한 규칙)이 M2(화면) 이하 모든 마일스톤의 전제 조건이라 병렬화 이득이 없다. manager-develop 1개를 마일스톤마다 순차로 위임하는 `serial` 모드가 적합하다.
 
+### M2 — 조회 화면과 진입 경로 (완료, TDD)
+
+**범위**: 조회 입력 화면(`/orders/lookup`), 쿠키 귀속 결과 화면(`/orders/lookup/[orderNumber]`), 조회 API 라우트(`/api/orders/lookup`), 공유 결과 표시 컴포넌트(`OrderLookupResultView`), 입력 폼 컴포넌트(`OrderLookupForm`), 그리고 AC-ORDER-048을 위한 저장소·서비스 확장 함수(`findOrderByNumberForGuest`/`getOrderByNumberForGuest`). M3(레이트리밋·노출 금지 항목의 동적 검증)·M4(회귀 확인)는 이 커밋 범위 밖.
+
+**설계 결정 — 라우트 구성**: SPEC에 라우트 경로가 명시되지 않아(Section B #1) 직접 정했다.
+- 입력 화면: `/orders/lookup` (서버 컴포넌트 셸 + 클라이언트 폼).
+- 대조값 기반 결과: **별도 URL로 이동하지 않고** 폼 컴포넌트 내부 상태 전환으로 인라인 렌더링한다. 이는 `recipientPhone` 값이 URL 쿼리 문자열·브라우저 히스토리·리퍼러 헤더에 남는 것을 막기 위한 결정이다.
+- 쿠키 귀속(REQ-ORDER-044) 결과: **별도 URL** `/orders/lookup/[orderNumber]` — 연락처 없이 쿠키만으로 여는 경로이므로 URL로 직접 도달 가능해야 의미가 있다.
+- 두 경로 모두 같은 표시 컴포넌트(`OrderLookupResultView`)를 공유해 두 진입점이 서로 다른 것을 보여줄 위험을 구조적으로 없앴다.
+
+**AC-ORDER-048 설계**: `findOrderForGuest()`(주문 ID + guestId)와 같은 판별을 `orderNumber` + `guestId`로 바꾼 새 함수 `findOrderByNumberForGuest()`를 `order-repository.ts`에 추가했다 — 단일 `findFirst` 호출의 `where`에 두 조건을 모두 담아, M1이 세운 "가져온 뒤 비교 금지" 규율을 그대로 따른다.
+
+**RED (구현 전 실패, 커밋 전 로컬 관측 — 저장소 레이어)**:
+
+```
+$ npx vitest run tests/unit/orders/order-repository.test.ts
+ × SPEC-ORDER-003 M2 — findOrderByNumberForGuest (...) > bakes BOTH orderNumber and guestId into ONE findFirst where clause
+   → repo.findOrderByNumberForGuest is not a function
+ × ... joins the items so the cookie-bypass path can render the order snapshot
+   → repo.findOrderByNumberForGuest is not a function
+ × ... runs on the transaction client when given one
+   → repo.findOrderByNumberForGuest is not a function
+ Test Files  1 failed (1) / Tests  3 failed | 19 passed (22)
+```
+
+**RED (AC-ORDER-048 쿠키 우회 페이지 테스트 — 구현 전 관측)**:
+
+```
+$ npx vitest run tests/unit/app/order-lookup-by-number-page.test.tsx
+ RUN  v2.1.9 ...
+ ❯ tests/unit/app/order-lookup-by-number-page.test.tsx (0 test)
+ ⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  tests/unit/app/order-lookup-by-number-page.test.tsx [ tests/unit/app/order-lookup-by-number-page.test.tsx ]
+Error: Failed to resolve import "@/app/orders/lookup/[orderNumber]/page" from "tests/unit/app/order-lookup-by-number-page.test.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: .../tests/unit/app/order-lookup-by-number-page.test.tsx:33:58
+  17 |  const { notFound } = await import("next/navigation");
+  18 |  const { cookies } = await import("next/headers");
+  19 |  const { default: OrderLookupByNumberPage } = await import("@/app/orders/lookup/[orderNumber]/page");
+     |                                                            ^
+ Test Files  1 failed (1) / Tests  no tests
+```
+
+(다른 신규 파일들 — API 라우트, `OrderLookupResultView`, `OrderLookupForm`, `/orders/lookup` 페이지 — 도 동일하게 "모듈을 찾을 수 없음" RED를 먼저 관측한 뒤 구현했다. 위 두 건은 대표로 기록한다.)
+
+**GREEN (구현 후, 전량)**: `npx vitest run tests/unit/orders/order-repository.test.ts tests/unit/orders/order-service.test.ts tests/unit/api/orders/lookup-route.test.ts tests/unit/components/order-lookup-result-view.test.tsx tests/unit/components/order-lookup-form.test.tsx tests/unit/app/order-lookup-page.test.tsx tests/unit/app/order-lookup-by-number-page.test.tsx` → `Test Files 7 passed (7)` / `Tests 135 passed (135)`.
+
+**E1 — AC PASS/FAIL 매트릭스**
+
+| AC | 상태 | 검증 명령 | 관측 결과 |
+|---|---|---|---|
+| AC-ORDER-042 | PASS | `npx vitest run tests/unit/components/order-lookup-result-view.test.tsx -t "AC-ORDER-042"` | `✓ SPEC-ORDER-003 M2 — the full snapshot renders (AC-ORDER-042) > shows the order number, order date, items, totals, and shipping address` |
+| AC-ORDER-043 | PASS | `npx vitest run tests/unit/components/order-lookup-result-view.test.tsx -t "AC-ORDER-043"` | `✓ SPEC-ORDER-003 M2 — sensitive fields never appear (REQ-ORDER-039, AC-ORDER-043) > has no code path referencing paymentKey, idempotencyKey, guestId, or an internal id field` |
+| AC-ORDER-044 | PASS | `npx vitest run tests/unit/components/order-lookup-result-view.test.tsx -t "AC-ORDER-044\|forbidden"` | `✓ ...renders a status notice with none of the forbidden fulfillment phrases for status=pending_payment/paid/cancelled` (3건) `✓ ...shows three DIFFERENT status notices across the three stored values` |
+| AC-ORDER-045 | PASS | `npx vitest run tests/unit/components/order-lookup-result-view.test.tsx -t "AC-ORDER-045"` | `✓ SPEC-ORDER-003 M2 — an unpaid order says so plainly, with no payment action (REQ-ORDER-041, AC-ORDER-045) > shows an unpaid notice and no completed-payment wording` `✓ ...renders no <PayButton> and no payment-failed retry banner — this screen is read-only` |
+| AC-ORDER-046 | PASS | `npx vitest run tests/unit/app/order-lookup-page.test.tsx -t "AC-ORDER-046"` | `✓ SPEC-ORDER-003 M2 — the lookup input screen opens with no auth (AC-ORDER-046) > renders an order number input and a recipient phone input with nothing injected` |
+| AC-ORDER-047 | PASS | `npx vitest run tests/unit/components/order-lookup-form.test.tsx -t "AC-ORDER-047"` | `✓ SPEC-ORDER-003 M2 — a format failure shows per-field errors (AC-ORDER-047) > names both fields and calls the lookup endpoint exactly once` |
+| AC-ORDER-048 | PASS | `npx vitest run tests/unit/app/order-lookup-by-number-page.test.tsx -t "AC-ORDER-048"` | `✓ SPEC-ORDER-003 M2 — a matching guest cookie opens the order, no phone needed (AC-ORDER-048) > renders the order snapshot when the presenting cookie owns it` `✓ ...never calls the service with a recipient phone` `✓ SPEC-ORDER-003 M2 — a DIFFERENT guest's cookie is refused, not shown (AC-ORDER-048) > 404s when the presenting cookie belongs to a different guest` |
+
+전체 M2 신규 테스트 배치 실행: `npx vitest run tests/unit/orders/order-repository.test.ts tests/unit/orders/order-service.test.ts tests/unit/api/orders/lookup-route.test.ts tests/unit/components/order-lookup-result-view.test.tsx tests/unit/components/order-lookup-form.test.tsx tests/unit/app/order-lookup-page.test.tsx tests/unit/app/order-lookup-by-number-page.test.tsx` → `Test Files 7 passed (7)` / `Tests 135 passed (135)`.
+
+**E2 — 전체 빌드**: `npm run build` → exit 0. 신규 라우트 3개가 정상 등록됨: `○ /orders/lookup` (정적), `ƒ /orders/lookup/[orderNumber]` (동적), `ƒ /api/orders/lookup` (동적).
+
+**E3 — 전체 테스트**: `npm test` → `Test Files 76 passed (76)` / `Tests 942 passed (942)` (M1 baseline 910건 + M2 신규 32건 = 942건, 회귀 0건). 첫 실행에서 `tests/integration/auth/login.test.ts`의 응답시간 비교 테스트(AC-AUTH-005, SPEC-ORDER-003과 무관한 SPEC-AUTH 도메인의 실측 타이밍 테스트)가 1건 실패했으나 재실행 시 통과 — 머신 부하에 따라 흔들리는 사전 존재 플레이키 테스트로 확인했다(§ 잔여 위험에 기록).
+
+**E4 — typecheck·lint**: `npm run typecheck` → exit 0, 신규 오류 0건. `npm run lint` → exit 0, 신규 경고 0건.
+
+**E5 — PRESERVE 확인**: `git diff --stat -- src/app/checkout/complete/` → 출력 없음(무변경). `git diff --stat -- prisma/schema.prisma` → 출력 없음(무변경, 신규 마이그레이션도 없음). `order-repository.ts`의 `findOrderForGuest()`/`findOrderByNumberAndPhone()`는 `git diff`상 변경 줄 0줄(새 함수 `findOrderByNumberForGuest()`가 그 뒤에 순수 추가됨만 확인).
+
+**E6 — 커밋/푸시**: 이 항목은 이 커밋 자신을 가리키므로 커밋 SHA는 `git log -1`로 사후 확인. 커밋 메시지: `feat(SPEC-ORDER-003): M2 게스트 재방문 조회 화면과 쿠키 우회 진입`. `git push` 결과는 본 진행 기록 갱신 시점에 §E.3에 반영한다.
+
+**E7 — 블로커**: 없음. 단, 작업 시작 시 worktree 격리 환경이 `feat/SPEC-ORDER-003` 브랜치(주 체크아웃에 이미 체크아웃됨)를 직접 공유할 수 없어, 이 worktree에서 `wt-order003-m2` 로컬 브랜치를 `origin/feat/SPEC-ORDER-003`(M1 포함, HEAD `0c122c5`)에서 새로 만들어 작업했다. 커밋은 `origin/feat/SPEC-ORDER-003`로 직접 푸시하며, 주 체크아웃의 로컬 `feat/SPEC-ORDER-003` 브랜치는 이 세션이 아닌 후속 동기화(메모리 `feedback_post-merge-local-sync.md` 절차)로 갱신되어야 한다.
+
+**E8 — RED 실패 출력**: AC-ORDER-048 쿠키 우회 테스트의 구현 전 실패 출력은 위 "RED (AC-ORDER-048 쿠키 우회 페이지 테스트)" 블록에 verbatim으로 기록했다.
+
+**핵심 설계 확인**: `findOrderByNumberForGuest()`도 M1의 `findOrderByNumberAndPhone()`과 같은 원칙을 따른다 — `where: { orderNumber, guestId }`를 단일 `findFirst` 호출에 담아 "가져온 뒤 비교" 금지를 지킨다. 서비스 계층(`getOrderByNumberForGuest()`)은 조회 전 주문 번호를 대문자로 정규화한다(`generateOrderNumber()`가 항상 대문자를 생성하므로 M1과 동일하게 안전한 정규화다).
+
+**M2에서 결정하지 않은 것 (M3로 명시적으로 넘김)**: `paymentKey`/`idempotencyKey`/`guestId`/내부 `id`의 노출 금지는 `OrderDTO` 타입이 애초에 그 필드들을 갖지 않는다는 구조적 사실과 컴포넌트 소스에 대한 정적 스캔(grep)으로 M2에서 검증했다. 그러나 API 응답 본문에 대한 동적(런타임 JSON 직렬화) 검증과 반복 실패 제한(레이트리밋, REQ-ORDER-037)은 plan.md §3이 M3으로 명시한 대로 이 커밋에 포함하지 않았다.
+
+**잔여 위험**: `tests/integration/auth/login.test.ts`의 AC-AUTH-005 응답시간 비교 테스트가 머신 부하에 따라 간헐적으로 실패하는 사전 존재 플레이키 테스트임을 관측했다(이 SPEC과 무관, 재실행 시 통과 확인). `tests/integration/discounts/coupon-model.test.ts`도 의도된 실패를 검증하는 과정에서 `prisma:error` 로그를 출력하지만 테스트 자체는 항상 통과한다(오탐 아님).
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 _&lt;pending run-phase&gt;_

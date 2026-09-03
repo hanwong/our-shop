@@ -136,6 +136,27 @@ export async function findOrderByNumberAndPhone(
   });
 }
 
+/**
+ * The order matching BOTH the order number and the presenting guest's own
+ * identity (SPEC-ORDER-003 M2 — REQ-ORDER-044, plan.md §3 M2).
+ *
+ * This is the COOKIE-BYPASS path: a request whose guest cookie already owns
+ * the order opens it without presenting the contrast phone value at all
+ * (AC-ORDER-048). Same discipline as findOrderForGuest() and
+ * findOrderByNumberAndPhone() above — ownership is part of the WHERE, never
+ * "fetch by order number then compare guestId in application code".
+ */
+export async function findOrderByNumberForGuest(
+  orderNumber: string,
+  guestId: string,
+  client: OrderClient = prisma
+): Promise<OrderWithItems | null> {
+  return client.order.findFirst({
+    where: { orderNumber, guestId },
+    include: ORDER_INCLUDE,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Writes — transaction client REQUIRED, no singleton default
 // ---------------------------------------------------------------------------

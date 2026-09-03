@@ -30,6 +30,7 @@ const orderRepo = {
   findOrderByIdempotencyKey: vi.fn(),
   findOrderForGuest: vi.fn(),
   findOrderByNumberAndPhone: vi.fn(),
+  findOrderByNumberForGuest: vi.fn(),
   decrementStockIfAvailable: vi.fn(),
   findStockByProductIds: vi.fn(),
   createOrderWithItems: vi.fn(),
@@ -121,6 +122,7 @@ beforeEach(() => {
   orderRepo.findOrderByIdempotencyKey.mockResolvedValue(null);
   orderRepo.findOrderForGuest.mockResolvedValue(null);
   orderRepo.findOrderByNumberAndPhone.mockResolvedValue(null);
+  orderRepo.findOrderByNumberForGuest.mockResolvedValue(null);
   orderRepo.decrementStockIfAvailable.mockResolvedValue(1);
   orderRepo.findStockByProductIds.mockResolvedValue([]);
   orderRepo.createOrderWithItems.mockResolvedValue(createdOrder());
@@ -960,6 +962,65 @@ describe("SPEC-ORDER-001 M3 — getOrderForGuest (REQ-ORDER-020)", () => {
     // Null, not a thrown error: the caller renders notFound(), so a stranger
     // cannot tell "wrong owner" from "no such order" (design.md §6.3).
     await expect(service.getOrderForGuest("order-1", "G2")).resolves.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SPEC-ORDER-003 M2 — cookie-bypass revisit lookup (REQ-ORDER-044, AC-ORDER-048)
+// ---------------------------------------------------------------------------
+
+describe("SPEC-ORDER-003 M2 — getOrderByNumberForGuest (REQ-ORDER-044, AC-ORDER-048)", () => {
+  const foundOrder = {
+    id: "order-1",
+    orderNumber: "ORD-20260903-0AB123",
+    status: "pending_payment",
+    guestId: "G1",
+    recipientName: SHIPPING.recipientName,
+    recipientPhone: SHIPPING.recipientPhone,
+    postalCode: SHIPPING.postalCode,
+    address: SHIPPING.address,
+    deliveryMemo: null,
+    itemsSubtotal: 20000,
+    shippingFee: 0,
+    totalAmount: 20000,
+    couponCode: null,
+    discountAmount: 0,
+    createdAt: new Date("2026-09-03T00:00:00.000Z"),
+    items: [],
+  };
+
+  it("returns the order when the presenting guest cookie owns it, no phone needed", async () => {
+    orderRepo.findOrderByNumberForGuest.mockResolvedValue(foundOrder);
+
+    const order = await service.getOrderByNumberForGuest("ORD-20260903-0AB123", "G1");
+
+    expect(order?.orderNumber).toBe("ORD-20260903-0AB123");
+    expect(orderRepo.findOrderByNumberForGuest).toHaveBeenCalledWith(
+      "ORD-20260903-0AB123",
+      "G1"
+    );
+  });
+
+  it("returns null when the presenting guest does not own this order", async () => {
+    orderRepo.findOrderByNumberForGuest.mockResolvedValue(null);
+
+    // Null, not a thrown error — the same non-disclosure discipline
+    // getOrderForGuest() follows, so a different guest's cookie cannot tell
+    // "wrong owner" from "no such order" (AC-ORDER-048's second clause).
+    await expect(
+      service.getOrderByNumberForGuest("ORD-20260903-0AB123", "G2")
+    ).resolves.toBeNull();
+  });
+
+  it("normalizes the order number's case before querying, matching M1's discipline", async () => {
+    orderRepo.findOrderByNumberForGuest.mockResolvedValue(foundOrder);
+
+    await service.getOrderByNumberForGuest("ord-20260903-0ab123", "G1");
+
+    expect(orderRepo.findOrderByNumberForGuest).toHaveBeenCalledWith(
+      "ORD-20260903-0AB123",
+      "G1"
+    );
   });
 });
 
