@@ -44,3 +44,61 @@ export interface PaginatedAdminOrders {
   totalCount: number;
   totalPages: number;
 }
+
+/**
+ * SPEC-ADMIN-001 M4 — admin order detail + status-change types.
+ *
+ * `AdminOrderDetailDTO` mirrors `OrderDTO` (src/features/orders/types/order.ts)
+ * in shape — a `shipping` sub-object plus an `items` array plus the amount
+ * breakdown — but is a SEPARATE type, not a reuse of `OrderDTO`/`ShippingInfo`:
+ * this SPEC's admin module deliberately does not depend on the orders
+ * feature's types (mirroring admin-order-repository.ts, which runs its own
+ * Prisma queries rather than importing order-repository.ts). Deliberately
+ * carries NO `paymentKey` field (AC-ADMIN-011) — matching the query-level
+ * omission already structural in `findOrderByIdForAdmin`'s Prisma `select`.
+ */
+
+/** One item line of the admin order detail view. */
+export interface AdminOrderItemDTO {
+  productId: string;
+  productName: string;
+  unitPrice: number;
+  quantity: number;
+  lineTotal: number;
+}
+
+/** The shipping snapshot shown on the admin order detail view. */
+export interface AdminShippingInfo {
+  recipientName: string;
+  recipientPhone: string;
+  postalCode: string;
+  address: string;
+  deliveryMemo: string | null;
+}
+
+/** The admin order detail view (REQ-ADMIN-010). No paymentKey — AC-ADMIN-011. */
+export interface AdminOrderDetailDTO {
+  id: string;
+  orderNumber: string;
+  status: "pending_payment" | "paid" | "cancelled";
+  shipping: AdminShippingInfo;
+  items: AdminOrderItemDTO[];
+  itemsSubtotal: number;
+  shippingFee: number;
+  totalAmount: number;
+}
+
+/**
+ * The only body `PATCH /admin/api/orders/[orderId]/status` accepts
+ * (REQ-ADMIN-012/013) — a plain `{ status: "cancelled" }`. Any other value,
+ * including `"paid"`, is a malformed-request rejection at the API boundary,
+ * never a recognized transition target.
+ */
+export interface CancelOrderRequestBody {
+  status: "cancelled";
+}
+
+/** The status-change route's JSON response shape. */
+export type AdminOrderStatusChangeResult =
+  | { ok: true }
+  | { ok: false; status: 400 | 401 | 403 | 404 | 409; error: string };

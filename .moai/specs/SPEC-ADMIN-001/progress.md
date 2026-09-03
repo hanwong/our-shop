@@ -290,6 +290,101 @@ $ npx vitest run tests/unit/admin/admin-order-repository.test.ts tests/unit/app/
 `tests/unit/app/staff-orders-page.test.tsx`(신규, 10 tests — redirect-gate 2건 포함).
 AC-ADMIN-006(PARTIAL→완전 PASS로 승격)/007/008/009 커버.
 
+### 마일스톤 M4 — 관리자 주문 상세 + 상태 변경
+
+**RED** (`admin-order-repository.test.ts` 확장분 — `findOrderByIdForAdmin`/`cancelOrderAsAdmin`
+부재로 신규 12건 FAIL, 기존 M3 6건은 영향받지 않고 그대로 PASS):
+```
+$ npx vitest run tests/unit/admin/admin-order-repository.test.ts
+ ❯ tests/unit/admin/admin-order-repository.test.ts (18 tests | 12 failed) 12ms
+   × ... findOrderByIdForAdmin (AC-ADMIN-010, detail fields) > ...
+     → findOrderByIdForAdmin is not a function
+   × ... cancelOrderAsAdmin (AC-ADMIN-012/013, conditional transition) > ...
+     → cancelOrderAsAdmin is not a function
+   (동일 사유로 신규 12건 전부 FAIL — 두 export 모두 부재)
+
+ Test Files  1 failed (1)
+      Tests  12 failed | 6 passed (18)
+```
+
+**RED** (`order-status-route.test.ts`, 신규 — 라우트 파일 부재로 9건 전부 FAIL):
+```
+$ npx vitest run tests/unit/api/admin/order-status-route.test.ts
+Error: Cannot find module '@/app/admin/api/orders/[orderId]/status/route' imported from
+  '.../tests/unit/api/admin/order-status-route.test.ts'.
+
+ Test Files  1 failed (1)
+      Tests  9 failed (9)
+```
+
+**RED** (`staff-order-detail-page.test.tsx`, 신규 — 페이지 파일 부재로 스위트 자체가 실패):
+```
+$ npx vitest run tests/unit/app/staff-order-detail-page.test.tsx
+Error: Failed to resolve import "@/app/staff/orders/[orderId]/page" from
+  "tests/unit/app/staff-order-detail-page.test.tsx". Does the file exist?
+ Test Files  1 failed (1)
+      Tests  no tests
+```
+
+**GREEN** (동일 세 명령, 구현 후):
+```
+$ npx vitest run tests/unit/admin/admin-order-repository.test.ts tests/unit/app/staff-order-detail-page.test.tsx tests/unit/api/admin/order-status-route.test.ts
+ ✓ tests/unit/admin/admin-order-repository.test.ts (18 tests) 18ms
+ ✓ tests/unit/api/admin/order-status-route.test.ts (9 tests) 28ms
+ ✓ tests/unit/app/staff-order-detail-page.test.tsx (8 tests) 93ms
+
+ Test Files  3 passed (3)
+      Tests  35 passed (35)
+```
+
+**설계 대비 실측 보정 1 — `cancelOrderAsAdmin`의 사전 상태 읽기**: design.md §4 의사코드는
+`updateMany` 직전에 "이전 상태를 읽어둔다"는 주석만 남기고 실제 읽기 호출을 코드로 보이지
+않았다. 구현은 `tx.order.findUnique({ where: { id: orderId }, select: { status: true } })`를
+`updateMany` **이전**에 한 번 실행해 `previousStatus`용 스냅샷을 확보한다. 주문이 아예
+존재하지 않는 경우(`findUnique`가 `null`) `updateMany`의 `count`도 자연히 0이 되므로,
+`updated.count !== 1 || current === null` 한 조건으로 "이미 취소됨"과 "주문 부재"를 모두
+동일하게 `{ transitioned: false }`로 귀결시켰다 — design.md가 명시하지 않은 타입 안전성
+보강(성공 경로에서만 `current.status`를 읽으므로, null 분기가 그 경로에 도달하는 일은
+구조적으로 없다).
+
+**설계 대비 실측 보정 2 — `admin.ts`의 상세 DTO는 `OrderDTO`를 재사용하지 않고 독립 타입으로
+재기술**: `AdminOrderDetailDTO`/`AdminShippingInfo`/`AdminOrderItemDTO`는
+`src/features/orders/types/order.ts`의 `OrderDTO`/`ShippingInfo`/`OrderItemDTO`와 구조가
+거의 동일하지만, admin 모듈이 orders 피처 타입에 의존하지 않는다는 기존 관례(리포지토리
+계층이 이미 `order-repository.ts`를 import하지 않고 자체 Prisma 쿼리를 도는 것과 동일한
+경계)를 그대로 따라 별도 타입으로 재기술했다.
+
+**AC-ADMIN-011 검증 방식 — 쿼리 레벨 부재 + 렌더 레벨 부재의 이중 증명**: `findOrderByIdForAdmin`의
+Prisma `select` 객체 자체에 `paymentKey` 키가 존재하지 않음을
+`Object.prototype.hasOwnProperty.call(select, "paymentKey") === false`로 직접 관측하고
+(리포지토리 테스트), 이어서 `paid` 상태이며 실제 `paymentKey` 값(`toss_pk_...` 형태)을 가진
+DB 픽스처를 렌더링한 뒤 그 값이 `container.textContent`/`container.innerHTML` 어디에도
+나타나지 않음을 관측했다(페이지 테스트) — "DB 행에 실재하는 값의 render-레벨 부재"라는
+task 지시(양성-존재/음성-부재 조합)를 그대로 충족한다.
+
+**AC-ADMIN-012 정적 회귀 가드에서 발견한 자기모순 수정**: `page.tsx`의 최초 doc comment가
+"NEVER renders ... '결제완료로 변경' control"이라는 설명 문구 자체에 금지 문자열을 그대로
+포함시켜, 같은 파일을 대상으로 하는 정적 소스 가드 테스트(`/결제\s*완료\s*(로|으로)?\s*변경/`)를
+자기 자신이 트리거했다. 설명 의도는 그대로 두고 그 한국어 인용구만 영어 서술("only
+SPEC-PAYMENT-001's confirm/webhook path may ever transition an order to the paid state")로
+교체해 해소했다 — 코드에 그런 조작이 없다는 사실 자체는 애초에 변경되지 않았다.
+
+**AC-ADMIN-010 테스트에서 발견한 픽스처 중복값 이슈**: 최초 테스트 픽스처가 수량 1개 상품이라
+`unitPrice`와 `lineTotal`이 둘 다 "39,000원"으로 동일해 `screen.getByText(/39,000원/)`가
+"여러 요소가 매치됨" 오류를 냈다(구현 결함이 아니라 테스트 단정문 자체의 모호성). `{ selector:
+"dd" }`를 추가해 금액 내역 `<dl>` 안의 `<dd>`만 대상으로 좁혀 해소했다.
+
+산출물: `src/app/staff/orders/[orderId]/page.tsx`(신규),
+`src/app/staff/orders/[orderId]/CancelOrderButton.tsx`(신규),
+`src/app/admin/api/orders/[orderId]/status/route.ts`(신규),
+`src/features/admin/repositories/admin-order-repository.ts`(M3 파일 확장 — `findOrderByIdForAdmin`/
+`cancelOrderAsAdmin` 추가, 기존 `listOrdersForAdmin`은 무변경),
+`src/features/admin/types/admin.ts`(M3 파일 확장 — `AdminOrderDetailDTO` 등 추가, 기존
+export 무변경), `tests/unit/admin/admin-order-repository.test.ts`(M3 파일 확장, 신규
+18건 — 기존 6건 유지), `tests/unit/app/staff-order-detail-page.test.tsx`(신규, 8 tests),
+`tests/unit/api/admin/order-status-route.test.ts`(신규, 9 tests). AC-ADMIN-010~017
+(AC-ADMIN-014는 a/b 두 하위 관측 포함, 총 9건) 전부 PASS 커버.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 _<pending run-phase>_
