@@ -63,6 +63,27 @@ DISCOUNT-001: status: completed
 
 **run-phase 진입을 막는 항목은 아직 판정되지 않았다.** plan-audit 게이트와 Implementation Kickoff Approval이 이 SPEC의 다음 단계다.
 
+## §G Design-phase Audit-Ready Signal
+
+design_complete_at: 2026-09-03
+design_status: audit-ready
+
+manager-design이 `plan → design → run` 경로(plan.md §G)의 design phase를 수행했다. DesignSync
+MCP 서버가 `.mcp.json`에 등록돼 있지 않아(확인: `cat .mcp.json`으로 `context7`/`moai`/`playwright`
+3개 서버만 존재함을 관측) D2(코드→Claude Design 동기화)·D3(캔버스 스크린 생성)는 실행하지 않았다 —
+manager-design.md § Tool Availability의 graceful-degradation 경로를 따른 것이며 블로커가 아니다.
+
+산출물: `.moai/specs/SPEC-STOREFRONT-002/design.md` — `CartView` 품목 줄 레이아웃(모바일/데스크톱
+`md:` 분기점), 수량 스테퍼 시각 형태, `EmptyCart`·`AddToCartButton` 레이아웃, 체크아웃 6개 파일의
+Tailwind 클래스 정리안(구체적 발견 2건: PayButton.tsx의 `text-red-700`→`text-red-600`,
+`py-3`→`py-2`)을 담는다. 전부 `src/app/products`·`src/components/product`·`src/components/checkout`
+기존 파일을 직접 읽어 실측한 값의 재사용이며, 새 색상 팔레트·spacing 스케일을 도입하지 않았다(design.md
+§1의 실측 표 참고).
+
+**run-phase가 준수할 §E 경계 재확인**: design.md §6이 제안하는 두 항목 모두 `className` 문자열 리터럴
+내부 토큰 교체이며, plan.md §E의 "non-className diff 0줄" 규칙과 acceptance.md AC-STOREFRONT-029를
+위반하지 않는다.
+
 ## §E.2 Run-phase Evidence
 
 _&lt;pending run-phase&gt;_
