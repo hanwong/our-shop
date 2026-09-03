@@ -2,7 +2,7 @@
 id: SPEC-ADMIN-002
 title: "관리자 상품 등록/수정 백오피스"
 version: "0.1.0"
-status: draft
+status: in-progress
 created: 2026-09-04
 updated: 2026-09-04
 author: snake
@@ -62,7 +62,7 @@ related_specs: [SPEC-CART-001, SPEC-ORDER-001, SPEC-ORDER-002, SPEC-DISCOUNT-001
 
 ### 확장하는 계약 (EXTEND — 기존 요구사항은 바꾸지 않음)
 
-**이 표는 파일 단위로 센다.** 완료된 SPEC이 소유한 파일 중 이 SPEC이 변경하는 것 **전부(4개 파일)**이며, `plan.md` §3 EXTEND 표와 같은 항목·같은 단위다. REQ-ADMIN-041의 예외 조항과 AC-ADMIN-041의 검증 대상이 모두 이 표 하나를 가리킨다 — 두 곳이 서로 다른 경계를 말하지 않도록 단일 출처로 둔다.
+**이 표는 파일 단위로 센다.** 완료된 SPEC이 소유한 파일 중 이 SPEC이 변경하는 것 **전부(5개 파일)**이며, `plan.md` §3 EXTEND 표와 같은 항목·같은 단위다. REQ-ADMIN-041의 예외 조항과 AC-ADMIN-041의 검증 대상이 모두 이 표 하나를 가리킨다 — 두 곳이 서로 다른 경계를 말하지 않도록 단일 출처로 둔다.
 
 | 파일 | 소유 SPEC | 확장 내용 |
 |---|---|---|
@@ -70,6 +70,7 @@ related_specs: [SPEC-CART-001, SPEC-ORDER-001, SPEC-ORDER-002, SPEC-DISCOUNT-001
 | `src/features/catalog/repositories/product-repository.ts` | `SPEC-CATALOG-001` / `SPEC-CATALOG-002` | `findProductsPage`의 `where`에 `isActive: true` 조건 **1개 추가**(REQ-ADMIN-034), `findProductById`를 같은 조건을 건 `findFirst`로 치환(REQ-ADMIN-035). **시그니처 무변경**, 정렬·검색·카테고리 필터·페이지네이션 산술·projection 무변경(REQ-ADMIN-036) |
 | `src/features/admin/types/admin.ts` | `SPEC-ADMIN-001` | 상품 쪽 DTO·입력 타입 **추가**(design.md §3). 기존 주문 타입과 `DEFAULT_PAGE`/`DEFAULT_PAGE_SIZE`/`MAX_PAGE_SIZE` 상수 무변경 |
 | `tests/unit/catalog/product-repository.test.ts` | `SPEC-CATALOG-001` / `SPEC-CATALOG-002` | 기댓값 **9건 갱신** + `findFirst` 모킹 추가(design.md §3의 위치별 표). 요구사항 변경이 아니라 기댓값 갱신이며, `SPEC-CATALOG-001/002`의 spec.md·acceptance.md 본문은 건드리지 않는다 |
+| `tests/unit/catalog/query-surface.test.ts` | `SPEC-CATALOG-001` | `Product` 픽스처의 명시 타입 주석에 `isActive: boolean`, 리터럴에 `isActive: true`, `Object.keys().sort()` 기대값에 `"isActive"` — **한 줄씩 3곳 추가**(REQ-ADMIN-019 파생). `satisfies Product` 타입 가드를 통과시키기 위한 최소 갱신이다. 검증 의도(생성된 `Product` 타입이 필수 필드를 전부 갖췄는지)는 불변이고 필드 목록만 9개→10개로 늘어난다 |
 
 선례: `SPEC-ADMIN-001`이 `PaymentEventSource`(SPEC-PAYMENT-001 소유 enum)에 값 하나를 순수 추가하되 기존 두 값의 의미·사용처는 바꾸지 않은 것과 **같은 방향**(소유 SPEC의 계약에 최소 추가)의 확장이다. 다만 성격이 완전히 같지는 않다 — enum 값 추가는 기존 소비자에게 영향이 없어 깨뜨린 테스트가 0건이었던 반면, 이번 확장은 기존 함수의 반환 집합을 좁히므로 기댓값 갱신 9건을 동반한다. 활성 상품에 대한 기존 동작은 문자 그대로 그대로이고 **비활성이라는 새 상태의 취급만** 정의한다는 점은 같다. 이 확장이 왜 불가피한지(서비스 레이어 사후 필터는 `totalCount`를 어긋나게 한다)와 그 비용(`tests/unit/catalog/product-repository.test.ts`의 기댓값 **9건** 갱신)은 research.md §5.2에 기록했다.
 
@@ -118,7 +119,7 @@ Tier L — 요구사항 상한 25개 이내(현재 23개). `SPEC-ADMIN-001`의 R
 - **REQ-ADMIN-038** (Unwanted, shall not): 관리자 상품 쓰기 API는 페이지 진입 시점에 판정된 관리자 여부를 재사용해서는 안 되며, 생성·수정·판매 중단·복구를 포함한 모든 쓰기 요청마다 관리자 세션을 다시 판정해야 한다.
 - **REQ-ADMIN-039** (Ubiquitous): 관리자 상품 쓰기 API는 `SPEC-ADMIN-001`의 상태 변경 API와 동일한 CSRF 검증을 어떤 데이터베이스 접근보다도 먼저 수행해야 하며, CSRF 검증 실패 응답은 REQ-ADMIN-037의 관리자 판정 실패 응답과 상태 코드·본문 모양에서 구별되지 않아야 한다.
 - **REQ-ADMIN-040** (Ubiquitous): 관리자 상품 화면은 기존 RBAC 미들웨어 매처와 겹치지 않는 `/staff` 하위 경로에, 관리자 상품 쓰기 API는 `/admin/api` 하위 경로에 두어 `SPEC-ADMIN-001`이 확립한 경로 관례를 따라야 한다.
-- **REQ-ADMIN-041** (Unwanted, shall not): 이 SPEC은 `src/middleware.ts`, `SPEC-AUTH-001`의 토큰 발급·회전·로그아웃 로직, `SPEC-ADMIN-001`의 주문 관련 파일, `SPEC-CATALOG-001`·`SPEC-CATALOG-002`·`SPEC-PAYMENT-001`·`SPEC-DISCOUNT-001`·`SPEC-ORDER-001`·`SPEC-CART-001`이 소유한 구현 파일과 테스트 파일을 변경해서는 안 된다 — 유일한 예외는 §1 "확장하는 계약" 표에 열거한 **4개 파일**이다.
+- **REQ-ADMIN-041** (Unwanted, shall not): 이 SPEC은 `src/middleware.ts`, `SPEC-AUTH-001`의 토큰 발급·회전·로그아웃 로직, `SPEC-ADMIN-001`의 주문 관련 파일, `SPEC-CATALOG-001`·`SPEC-CATALOG-002`·`SPEC-PAYMENT-001`·`SPEC-DISCOUNT-001`·`SPEC-ORDER-001`·`SPEC-CART-001`이 소유한 구현 파일과 테스트 파일을 변경해서는 안 된다 — 유일한 예외는 §1 "확장하는 계약" 표에 열거한 **5개 파일**이다.
 
 ---
 

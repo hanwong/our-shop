@@ -18,6 +18,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 const findMany = vi.fn();
 const count = vi.fn();
 const findUnique = vi.fn();
+const findFirst = vi.fn();
 const categoryFindUnique = vi.fn();
 
 vi.mock("@/lib/db", () => ({
@@ -26,6 +27,11 @@ vi.mock("@/lib/db", () => ({
       findMany: (...args: unknown[]) => findMany(...args),
       count: (...args: unknown[]) => count(...args),
       findUnique: (...args: unknown[]) => findUnique(...args),
+      // SPEC-ADMIN-002 REQ-ADMIN-035 — findProductById moved from findUnique
+      // to findFirst (findUnique cannot take a non-unique `isActive` condition
+      // in its where). Without this mock the delegate is `undefined` and the
+      // call dies with a TypeError before any assertion runs.
+      findFirst: (...args: unknown[]) => findFirst(...args),
     },
     category: {
       findUnique: (...args: unknown[]) => categoryFindUnique(...args),
@@ -37,6 +43,7 @@ beforeEach(() => {
   findMany.mockReset().mockResolvedValue([]);
   count.mockReset().mockResolvedValue(0);
   findUnique.mockReset().mockResolvedValue(null);
+  findFirst.mockReset().mockResolvedValue(null);
   categoryFindUnique.mockReset().mockResolvedValue(null);
 });
 
@@ -108,16 +115,21 @@ describe("findProductsPage — category filter (REQ-CATALOG-010)", () => {
     const { findProductsPage } = await import("@/features/catalog/repositories/product-repository");
     await findProductsPage({ page: 1, pageSize: 20, sort: "newest", categoryId: "cat-tops" });
 
-    expect(findMany.mock.calls[0]![0].where).toEqual({ categoryId: "cat-tops" });
-    expect(count.mock.calls[0]![0].where).toEqual({ categoryId: "cat-tops" });
+    // SPEC-ADMIN-002 REQ-ADMIN-034 — the customer-facing list is now
+    // unconditionally scoped to sellable products; the category filter itself
+    // is unchanged.
+    expect(findMany.mock.calls[0]![0].where).toEqual({ isActive: true, categoryId: "cat-tops" });
+    expect(count.mock.calls[0]![0].where).toEqual({ isActive: true, categoryId: "cat-tops" });
   });
 
   it("applies no where filter when no categoryId is supplied", async () => {
     const { findProductsPage } = await import("@/features/catalog/repositories/product-repository");
     await findProductsPage({ page: 1, pageSize: 20, sort: "newest" });
 
-    expect(findMany.mock.calls[0]![0].where).toEqual({});
-    expect(count.mock.calls[0]![0].where).toEqual({});
+    // SPEC-ADMIN-002 REQ-ADMIN-034 — "no filter" now means "no CALLER-supplied
+    // filter"; the isActive scope is not a caller option.
+    expect(findMany.mock.calls[0]![0].where).toEqual({ isActive: true });
+    expect(count.mock.calls[0]![0].where).toEqual({ isActive: true });
   });
 });
 
@@ -129,7 +141,9 @@ describe("findProductsPage — keyword search (SPEC-CATALOG-002 REQ-CATALOG-018)
     const where = findMany.mock.calls[0]![0].where;
     // `contains` + insensitive mode is what compiles to ILIKE '%denim%'
     // (plan.md §2.2). REQ-CATALOG-019 keeps description out of the filter.
-    expect(where).toEqual({ name: { contains: "denim", mode: "insensitive" } });
+    // SPEC-ADMIN-002 REQ-ADMIN-034 — isActive joins the clause; the name
+    // filter's shape is unchanged, and description stays out of it.
+    expect(where).toEqual({ isActive: true, name: { contains: "denim", mode: "insensitive" } });
     expect(where.description).toBeUndefined();
     expect(where.OR).toBeUndefined();
   });
@@ -146,7 +160,9 @@ describe("findProductsPage — keyword search (SPEC-CATALOG-002 REQ-CATALOG-018)
 
     // Sibling keys on a Prisma where object are ANDed, so a product must match
     // BOTH to be returned — "Denim Jeans" in bottoms must not survive this.
+    // SPEC-ADMIN-002 REQ-ADMIN-034 — three ANDed siblings now, not two.
     expect(findMany.mock.calls[0]![0].where).toEqual({
+      isActive: true,
       categoryId: "cat-tops",
       name: { contains: "denim", mode: "insensitive" },
     });
@@ -165,7 +181,10 @@ describe("findProductsPage — keyword search (SPEC-CATALOG-002 REQ-CATALOG-018)
     const { findProductsPage } = await import("@/features/catalog/repositories/product-repository");
     await findProductsPage({ page: 1, pageSize: 20, sort: "newest" });
 
-    expect(findMany.mock.calls[0]![0].where).toEqual({});
+    // SPEC-ADMIN-002 REQ-ADMIN-034 — the intent this test guards is unchanged:
+    // NO search condition is attached when `search` is absent. The clause is no
+    // longer literally `{}` because isActive is always present.
+    expect(findMany.mock.calls[0]![0].where).toEqual({ isActive: true });
   });
 
   it("still paginates and sorts normally alongside a search filter", async () => {
@@ -183,7 +202,10 @@ describe("findProductsPage — keyword search (SPEC-CATALOG-002 REQ-CATALOG-018)
     const { findProductsPage } = await import("@/features/catalog/repositories/product-repository");
     await findProductsPage({ page: 1, pageSize: 20, sort: "newest", search: "50%_off'" });
 
+    // SPEC-ADMIN-002 REQ-ADMIN-034 — isActive added; the term is still passed
+    // through verbatim as a bound parameter.
     expect(findMany.mock.calls[0]![0].where).toEqual({
+      isActive: true,
       name: { contains: "50%_off'", mode: "insensitive" },
     });
   });
@@ -194,8 +216,10 @@ describe("findProductById (REQ-CATALOG-013/014)", () => {
     const { findProductById } = await import("@/features/catalog/repositories/product-repository");
     await findProductById("prod_abc");
 
-    const args = findUnique.mock.calls[0]![0];
-    expect(args.where).toEqual({ id: "prod_abc" });
+    // SPEC-ADMIN-002 REQ-ADMIN-035 — findFirst, not findUnique; the id lookup
+    // now carries the isActive scope alongside it. The projection is unchanged.
+    const args = findFirst.mock.calls[0]![0];
+    expect(args.where).toEqual({ id: "prod_abc", isActive: true });
     expect(args.select).toMatchObject({
       id: true,
       name: true,
@@ -213,14 +237,82 @@ describe("findProductById (REQ-CATALOG-013/014)", () => {
     const { findProductById } = await import("@/features/catalog/repositories/product-repository");
     await findProductById("prod_abc");
 
-    const select = findUnique.mock.calls[0]![0].select;
+    // SPEC-ADMIN-002 REQ-ADMIN-035 — mock target moved to findFirst; the
+    // DETAIL_SELECT projection this asserts on is unchanged.
+    const select = findFirst.mock.calls[0]![0].select;
     expect(select.reviews).toBeUndefined();
     expect(select.relatedProducts).toBeUndefined();
   });
 
   it("returns null for an id Prisma cannot find", async () => {
     const { findProductById } = await import("@/features/catalog/repositories/product-repository");
+    // SPEC-ADMIN-002 REQ-ADMIN-035 — findFirst is the mock that resolves null
+    // now (beforeEach); the expectation itself is unchanged.
     await expect(findProductById("prod_nonexistent")).resolves.toBeNull();
+  });
+});
+
+/**
+ * SPEC-ADMIN-002 M1 — the customer-facing soft-delete scope (REQ-ADMIN-034/035,
+ * AC-ADMIN-034/035/036).
+ *
+ * These are NOT expectation refreshes of SPEC-CATALOG-001's tests above — they
+ * are this SPEC's own specification tests for the new behaviour: a
+ * suspended product must disappear from the customer list and read as
+ * "not found" on detail, and the scope must never become a caller-selectable
+ * option.
+ */
+describe("SPEC-ADMIN-002 — customer-facing queries are scoped to sellable products", () => {
+  it("[AC-ADMIN-034] scopes the list to isActive products with NO opt-out available to callers", async () => {
+    const { findProductsPage } = await import("@/features/catalog/repositories/product-repository");
+    await findProductsPage({ page: 1, pageSize: 20, sort: "newest" });
+
+    // Unconditional: there is no argument a caller can pass to see suspended
+    // products through this function, so a future call site cannot forget it.
+    expect(findMany.mock.calls[0]![0].where.isActive).toBe(true);
+  });
+
+  it("[AC-ADMIN-034] counts the SAME sellable population the rows are drawn from", async () => {
+    const { findProductsPage } = await import("@/features/catalog/repositories/product-repository");
+    await findProductsPage({ page: 1, pageSize: 20, sort: "newest", categoryId: "cat-tops", search: "denim" });
+
+    // If the row query and the count query scoped differently, totalPages would
+    // point at pages that cannot be fetched.
+    expect(count.mock.calls[0]![0].where).toEqual(findMany.mock.calls[0]![0].where);
+    expect(count.mock.calls[0]![0].where.isActive).toBe(true);
+  });
+
+  it("[AC-ADMIN-035] reads a suspended product as not-found rather than returning its detail", async () => {
+    // findFirst with `isActive: true` matches no row for a suspended product,
+    // so Prisma resolves null — the same not-found result REQ-CATALOG-014
+    // already defines for an unknown id.
+    findFirst.mockResolvedValue(null);
+    const { findProductById } = await import("@/features/catalog/repositories/product-repository");
+
+    await expect(findProductById("prod_suspended")).resolves.toBeNull();
+    expect(findFirst.mock.calls[0]![0].where).toEqual({ id: "prod_suspended", isActive: true });
+  });
+
+  it("[AC-ADMIN-036] never exposes isActive in the customer-facing projections", async () => {
+    const { findProductsPage, findProductById } = await import(
+      "@/features/catalog/repositories/product-repository"
+    );
+    await findProductsPage({ page: 1, pageSize: 20, sort: "newest" });
+    await findProductById("prod_abc");
+
+    // Structural, not disciplinary: the value is absent from the select, so
+    // toListItem/toDetail have no way to read it even by accident.
+    expect(findMany.mock.calls[0]![0].select.isActive).toBeUndefined();
+    expect(findFirst.mock.calls[0]![0].select.isActive).toBeUndefined();
+  });
+
+  it("[AC-ADMIN-036] leaves sort, pagination arithmetic and the detail projection untouched", async () => {
+    const { findProductsPage } = await import("@/features/catalog/repositories/product-repository");
+    await findProductsPage({ page: 3, pageSize: 20, sort: "price_asc", search: "denim" });
+
+    const args = findMany.mock.calls[0]![0];
+    expect(args).toMatchObject({ skip: 40, take: 20 });
+    expect(args.orderBy).toEqual([{ price: "asc" }, { id: "asc" }]);
   });
 });
 

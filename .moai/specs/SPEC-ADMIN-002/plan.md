@@ -113,8 +113,9 @@ model Product {
 | `src/features/catalog/repositories/product-repository.ts` | `findProductsPage`의 `where`에 `isActive: true` 1줄, `findProductById`를 `findFirst({ where: { id, isActive: true } })`로 치환 | SPEC-CATALOG-001 |
 | `src/features/admin/types/admin.ts` | 상품 쪽 DTO/입력 타입 추가(기존 주문 타입 무변경) | SPEC-ADMIN-001 |
 | `tests/unit/catalog/product-repository.test.ts` | 기댓값 9건 갱신 + `findFirst` 모킹 추가 (design.md §3의 위치별 표) | SPEC-CATALOG-001/002 |
+| `tests/unit/catalog/query-surface.test.ts` | `AC-CATALOG-001` 블록의 `Product` 픽스처 3곳: 명시 타입 주석(`:116~124`)에 `isActive: boolean`, 리터럴(`:126~134`)에 `isActive: true`, `Object.keys().sort()` 기대값(`:137~147`)에 `"isActive"`(정렬 위치는 `images`와 `name` 사이). `:135`의 `satisfies Product`가 이 3곳을 함께 요구한다 | SPEC-CATALOG-001 |
 
-이 4개 항목은 spec.md §1 "확장하는 계약" 표와 **같은 파일 목록·같은 단위**다(REQ-ADMIN-041의 예외 조항과 AC-ADMIN-041의 검증 대상이 이 하나의 경계를 가리킨다). 둘 중 한쪽만 고치면 두 문서가 다른 경계를 말하게 되므로 항상 함께 갱신한다.
+이 5개 항목은 spec.md §1 "확장하는 계약" 표와 **같은 파일 목록·같은 단위**다(REQ-ADMIN-041의 예외 조항과 AC-ADMIN-041의 검증 대상이 이 하나의 경계를 가리킨다). 둘 중 한쪽만 고치면 두 문서가 다른 경계를 말하게 되므로 항상 함께 갱신한다.
 
 ### PRESERVE (절대 수정하지 않음 — REQ-ADMIN-041)
 

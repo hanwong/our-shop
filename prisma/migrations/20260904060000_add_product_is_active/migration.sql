@@ -1,0 +1,31 @@
+-- SPEC-ADMIN-002 M1 — Product.isActive (REQ-ADMIN-019 / AC-ADMIN-019).
+--
+-- Additive only: one column on one existing table. No table, column,
+-- constraint, index or foreign key belonging to SPEC-CATALOG-001 (Category /
+-- Product), SPEC-CART-001 (CartItem) or SPEC-ORDER-001 (OrderItem) is altered
+-- or dropped. In particular the CartItem.product ON DELETE CASCADE and
+-- OrderItem.product ON DELETE RESTRICT directions are untouched (REQ-ADMIN-020)
+-- — this SPEC soft-deletes, so no DELETE path exists for either to react to.
+--
+-- WHY NOT NULL DEFAULT true: AC-ADMIN-019 requires every row that predates this
+-- migration to stay sellable and no other column's value to change. A NOT NULL
+-- column with a DEFAULT makes PostgreSQL apply that default to existing rows as
+-- part of the ALTER itself, so no backfill statement is needed and no row is
+-- ever observed in a NULL/unknown sellability state.
+--
+-- WHY NO INDEX: isActive has cardinality 2 and, in normal operation, is `true`
+-- for the large majority of rows — a standalone B-tree index on it is too
+-- unselective for the planner to prefer over a scan. The form that WOULD help
+-- is a partial index on the existing sort keys (WHERE "isActive" = true), which
+-- means rewriting all three of SPEC-CATALOG-001's sort indexes and is that
+-- SPEC's decision to make, not this one's (design.md §7 records the revisit
+-- conditions).
+--
+-- Authored by hand rather than by `prisma migrate dev` because no PostgreSQL
+-- instance (and therefore no shadow database) is reachable in this sandbox —
+-- the same constraint SPEC-CATALOG-001's 20260828015400_add_catalog_models and
+-- SPEC-CATALOG-002's 20260828120000_add_product_name_trgm_index migrations
+-- recorded. See progress.md §E.2 for the unapplied-migration gap.
+
+-- AlterTable
+ALTER TABLE "Product" ADD COLUMN "isActive" BOOLEAN NOT NULL DEFAULT true;

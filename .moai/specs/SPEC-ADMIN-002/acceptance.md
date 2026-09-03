@@ -158,7 +158,7 @@ REQ-ADMIN-019 ~ 041의 23개 요구사항에 대응하는 **24개 AC**(REQ-ADMIN
 
 - **Given** 이 SPEC의 전체 변경분에서
 - **When** PRESERVE 목록(plan.md §3)의 파일들에 대해 diff를 확인하고, 완료된 SPEC이 소유한 파일 중 변경된 것을 전부 열거하면
-- **Then** PRESERVE 목록의 모든 파일에서 diff가 0줄이고, 완료된 SPEC 소유 파일 중 변경된 것이 **spec.md §1 "확장하는 계약" 표의 4개 파일**(`prisma/schema.prisma`, `src/features/catalog/repositories/product-repository.ts`, `src/features/admin/types/admin.ts`, `tests/unit/catalog/product-repository.test.ts`) 뿐이며, 그 4개가 plan.md §3 EXTEND 표의 4개 항목과 정확히 일치한다(REQ-ADMIN-041의 예외 조항이 가리키는 것과 같은 경계·같은 단위).
+- **Then** PRESERVE 목록의 모든 파일에서 diff가 0줄이고, 완료된 SPEC 소유 파일 중 변경된 것이 **spec.md §1 "확장하는 계약" 표의 5개 파일**(`prisma/schema.prisma`, `src/features/catalog/repositories/product-repository.ts`, `src/features/admin/types/admin.ts`, `tests/unit/catalog/product-repository.test.ts`, `tests/unit/catalog/query-surface.test.ts`) 뿐이며, 그 5개가 plan.md §3 EXTEND 표의 5개 항목과 정확히 일치한다(REQ-ADMIN-041의 예외 조항이 가리키는 것과 같은 경계·같은 단위).
 
 ---
 
