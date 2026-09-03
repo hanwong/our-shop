@@ -1,6 +1,6 @@
 ---
 id: SPEC-ADMIN-001
-status: draft
+status: completed
 updated: 2026-09-03
 tier: L
 ---
@@ -779,4 +779,31 @@ backlog `t20`) — 이 SPEC과 무관, M1~M5 전 마일스톤의 확립된 관�
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+sync_complete_at: 2026-09-03
+sync_commit_sha: pending-backfill-SPEC-ADMIN-001
+sync_status: audit-ready
+b12_self_test_a: PASS  # grep -c 'SPEC-ADMIN-001' CHANGELOG.md → 3 (own new section headers, first emission — no parallel-session duplicate)
+b12_self_test_b: PASS  # grep -oE 'AC-([A-Z0-9]+-)*[0-9]+' acceptance.md | sort -u | wc -l → 19 (matches CHANGELOG's "18건, AC-ADMIN-014 a/b 포함 총 19행")
+b12_self_test_c: PASS  # ls -d on all 6 SPEC-owned dirs/files named in CHANGELOG — all resolved
+changelog_entry_position: top of [Unreleased], before the SPEC-STOREFRONT-002 section
+frontmatter_status_transitions:
+  spec.md: "draft → completed"
+  progress.md: "draft → completed"
+  plan.md: "(no frontmatter — this project's plan.md/acceptance.md/design.md/research.md carry no status field; only spec.md + progress.md do)"
+  acceptance.md: "(no frontmatter — same as plan.md)"
+canary_compliance_check:
+  applicable: false  # this SPEC defines no forward-looking policy that its own sync tests
+```
+
+**sync-phase 완료 (2026-09-03).**
+
+**Pre-Sync Gate + Deployment Readiness**: working tree clean(이 커밋이 만드는 변경 — CHANGELOG.md/README.md/spec.md/progress.md 4개 외 무변경, `git status --short` 실측), `npx tsc --noEmit` exit 0, `npx eslint .` exit 0. run-phase §E.3에서 이미 관측한 전체 스위트 1053/1053 통과·커버리지(98.11/93.4/99.55/98.11, 8개 SPEC 소유 파일 전부 PASS)를 sync-phase 진입 시점 기준으로 재확인했다(코드 변경 없음 — 문서·프론트매터만 수정하는 커밋이므로 재실행이 결과를 바꿀 이유가 없다).
+
+**이 SPEC은 마이그레이션을 포함한다** (직전 SPEC-ORDER-003·SPEC-STOREFRONT-002와 다른 지점): `prisma/migrations/20260903110422_admin_action_event_source/migration.sql` — `ALTER TYPE "PaymentEventSource" ADD VALUE 'ADMIN_ACTION'` 한 문장. **순수 추가(pure additive)** — 기존 두 값(`CONFIRM_API`/`WEBHOOK`), 컬럼, 인덱스 어느 것도 변경하지 않는다. enum 값 추가는 down-migration이 필요한 종류의 변경이 아니다(값을 제거하는 down-migration 자체가 PostgreSQL에서 지원되지 않으며, 데이터 손실 위험도 없다 — 추가된 값을 사용하는 행이 아직 없는 상태에서 롤백이 필요하면 단순히 그 값을 미사용 상태로 두면 된다). `npx prisma migrate dev` 적용 결과는 §E.2 M1 기록에 exit 0로 남아 있다. **신규 필수 환경변수는 없다** — 이 SPEC이 소비하는 `DATABASE_URL`/`JWT_ACCESS_SECRET` 등은 모두 `SPEC-AUTH-001`이 이미 정의한 기존 변수다.
+
+**Breaking change 없음** — `src/middleware.ts`는 SPEC 전체 이력에서 diff 0줄(AC-ADMIN-018, §E.3에서 재확인), `payment-repository.ts`/`jwt.ts`/`session.ts`/`cookies.ts`/`csrf.ts`/`src/app/api/auth/` 전체도 동일하게 무변경.
+
+**문서 동기화**: CHANGELOG.md에 "추가 — SPEC-ADMIN-001" 절(기능 목록 + 관리자 세션 판정 설계 결정 한 단락 + 신규 마이그레이션 고지) + "plan-audit 이력" 절 + "알려진 한계" 절 추가. README.md에 최상단 SPEC 목록 항목 1줄, "관리자 백오피스 — 주문 목록·상태 변경 (SPEC-ADMIN-001)" 절(경로 표, 관리자 세션 판정 설계 결정 설명, 신규 마이그레이션 고지, 알려진 한계), Project documentation 목록에 SPEC-ADMIN-001 항목 추가. spec.md·progress.md 프론트매터 `status: draft` → `completed`로 전이(이 커밋). plan.md·acceptance.md·design.md·research.md는 이 프로젝트 관례상 frontmatter가 없어(spec.md·progress.md만 12필드 스키마 적용) 전이 대상이 아니다.
+
+**sync-phase를 막는 항목 없음.** MX 태그 검증(사이클컷 세션 안에서 이미 수행 — 신규 export 함수 전부 프로덕션 코드 기준 fan-in < 3, `resolveAdminSession()`/`cancelOrderAsAdmin()` 등 신규 함수에 대한 별도 `@MX` 주석 필요 없음, 위험 패턴 없음)를 포함한 3단계 종결(plan→run→sync)이 이 커밋으로 완료된다. 다음 세션(오케스트레이터)이 `sync_commit_sha`의 `pending-backfill-*` 자리표시자를 실제 커밋 SHA로 백필한다.

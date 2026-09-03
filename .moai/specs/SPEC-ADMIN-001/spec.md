@@ -2,7 +2,7 @@
 id: SPEC-ADMIN-001
 title: "관리자 주문 목록·상태 변경 백오피스"
 version: "0.1.0"
-status: draft
+status: completed
 created: 2026-09-03
 updated: 2026-09-03
 author: snake
