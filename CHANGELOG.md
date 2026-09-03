@@ -4,6 +4,22 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+### 추가 — SPEC-STOREFRONT-002: 장바구니 화면·상품 담기 UI 및 체크아웃 화면 스타일 정리
+
+**게스트 전용.** 이 저장소에 없던 두 화면 표면(`/cart`, 상품 상세의 담기 컨트롤)을 새로 만들고, 이미 완성되어 있던 `/checkout` 화면 6개 파일의 Tailwind 클래스 표기만 정리했다 — 체크아웃 기능(폼·쿠폰·결제)은 재구현하지 않았다.
+
+- `src/app/cart/page.tsx`(신규) — 게스트 카트를 서버에서 조회해 초기 렌더에 브라우저 데이터 요청 없이 채워 넣는 서버 컴포넌트. `src/components/cart/CartView.tsx`(신규)가 품목·소계 표시, 수량 스테퍼(`PATCH /api/cart/items/:itemId`)·삭제(`DELETE`) 상호작용, `/checkout` 진입 링크를 담당하고, `src/components/cart/EmptyCart.tsx`(신규)가 빈 카트·쿠키 부재 안내를 대신한다.
+- `src/components/product/AddToCartButton.tsx`(신규) — 상품 상세에 수량 입력(기본값 1)과 담기 버튼을 추가한다. 성공 시 확인 문구 + `/cart` 링크를 보여주고(내비게이션 없음), 재고 초과 등 거부 시 사유를 그 자리에서 표시하며, 재고 0이면 버튼이 비활성화되어 `POST /api/cart/items`를 아예 호출하지 않는다. `src/components/product/ProductDetailView.tsx`에 `import` 1줄 + `<AddToCartButton />` 1줄만 삽입했다(조립 지점은 design.md가 plan.md의 `page.tsx` 조립안보다 더 얕게 재확정했다 — `src/app/products/[productId]/page.tsx`는 무변경).
+- `src/components/checkout/PayButton.tsx` — Tailwind 클래스 토큰 2건만 치환(`px-4 py-3` → `py-2`, `text-red-700` → `text-red-600`). 나머지 체크아웃 5개 파일(`page.tsx`/`CheckoutForm.tsx`/`OrderSummary.tsx`/`CheckoutInteractive.tsx`/`CheckoutUnavailable.tsx`)은 전혀 손대지 않았다 — 체크아웃 테스트 스위트 87건 전량 무회귀 통과가 그 증거다.
+- 접근성: 수량 증가/감소·삭제 버튼에 상품명을 포함한 `aria-label`, 카트 이미지 전량에 상품명을 포함한 `alt`, 수량 숫자에 `tabular-nums`.
+- 스키마·백엔드 변경 없음 — SPEC-CART-001의 카트 API 4종을 그대로 소비하고, 회원 신원(액세스 토큰 클라이언트 저장소 부재)이라는 SPEC-ORDER-001과 동일한 구조적 제약에 따라 이 화면들도 게스트 전용으로 범위를 좁혔다.
+
+### 알려진 한계 — SPEC-STOREFRONT-002
+
+- **`tests/integration/auth/login.test.ts`의 AC-AUTH-005는 알려진 플레이크다.** 전체 스위트 동시 실행 시 부하로 인해 타이밍 허용치를 초과할 수 있다(칸반 백로그 카드 `t20`, 이 SPEC과 무관). 격리 실행에서는 통과함을 이번 세션에서도 재확인했다.
+- **`EmptyCart`의 "상품 목록으로 이동" 링크는 `/products` 대신 `/`를 가리킨다.** 이 저장소에는 상품 목록 라우트(`/products`)가 아직 없다는 사실을 착수 전 조사로 확인했고, REQ-STOREFRONT-017이 정확한 href 값을 고정하지 않으므로 실제로 존재하는 유일한 진입점(`/`)으로 보정했다(design.md §0이 이런 재동기화를 명시적으로 허용).
+- **브라우저 E2E 자동화는 이 범위 밖이다.** SPEC-STOREFRONT-001과 동일하게 jsdom + Testing Library 컴포넌트 테스트까지만 자동 검증한다.
+
 ### Added — SPEC-AUTH-001: Email/password and Google OAuth authentication
 
 - `POST /api/auth/signup` — email/password registration with server-side validation, bcrypt cost-12 hashing (SHA-256 pre-hashed to defeat the 72-byte truncation limit), duplicate-email rejection.

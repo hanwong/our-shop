@@ -10,6 +10,12 @@ import type { ProductDetail } from "@/features/catalog/types/product";
  *
  * Split out of the page precisely so it can be tested as a plain
  * props-in/JSX-out component (plan.md §F / §K R2).
+ *
+ * SPEC-STOREFRONT-002 M4 adds the "AC-STOREFRONT-024..027 assembly" block
+ * below: AddToCartButton is now embedded here (design.md §5's precise
+ * insertion point — after the stock paragraph, before the description),
+ * NOT at the page.tsx level. This still leaves ProductDetailView a plain
+ * component testable with props alone.
  */
 
 // next/image is replaced with a plain <img>. Assertions stay at the role/alt
@@ -93,5 +99,24 @@ describe("ProductDetailView — AC-STOREFRONT-009", () => {
     // Reviews, related products, and stock history are out of scope
     // (spec.md §3) and are not merely unpopulated — they are absent.
     expect(text).not.toMatch(/리뷰|관련 상품|재고 변동/);
+  });
+});
+
+describe("ProductDetailView — SPEC-STOREFRONT-002 M4 assembly (AC-STOREFRONT-024)", () => {
+  it("embeds the add-to-cart control, passing this product's id and current stock", () => {
+    render(<ProductDetailView product={makeProduct({ id: "p-42", stock: 7 })} />);
+
+    const input = screen.getByLabelText("수량") as HTMLInputElement;
+    expect(input.value).toBe("1");
+    expect(screen.getByRole("button", { name: /장바구니에 담기/ })).not.toHaveProperty(
+      "disabled",
+      true
+    );
+  });
+
+  it("disables the add-to-cart button when this product is sold out", () => {
+    render(<ProductDetailView product={makeProduct({ stock: 0 })} />);
+
+    expect(screen.getByRole("button", { name: /장바구니에 담기/ })).toHaveProperty("disabled", true);
   });
 });

@@ -51,12 +51,12 @@ export function PayButton({ orderId, amount, orderName }: PayButtonProps) {
         type="button"
         onClick={handleClick}
         disabled={isSubmitting}
-        className="w-full rounded-md bg-neutral-900 px-4 py-3 text-sm font-medium text-white disabled:opacity-60"
+        className="w-full rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
       >
         {isSubmitting ? "결제창을 여는 중..." : "결제하기"}
       </button>
       {error ? (
-        <p role="alert" className="mt-2 text-sm text-red-700">
+        <p role="alert" className="mt-2 text-sm text-red-600">
           {error}
         </p>
       ) : null}

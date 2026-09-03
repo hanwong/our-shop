@@ -9,6 +9,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
  * (no confirm/webhook logic in a client file). design.md §6 — PayButton is
  * pure UI: it triggers the SDK's payment window and holds no authorization
  * or amount-validation logic of its own (plan.md §3 M4).
+ *
+ * SPEC-STOREFRONT-002 M5 adds the "style cleanup" block below
+ * (REQ-STOREFRONT-028/029, design.md §6 findings C1/C2): both are
+ * className-literal-only token swaps, verified here by exact string.
  */
 
 const requestPayment = vi.fn().mockResolvedValue(undefined);
@@ -53,5 +57,45 @@ describe("PayButton — no domain logic in the client file (plan.md §3 M4, AC-P
     expect(source).toMatch(/^"use client";/);
     expect(source).not.toMatch(/confirmPayment|processWebhook/);
     expect(source).not.toMatch(/PG_SECRET_KEY|PG_WEBHOOK_SECRET/);
+  });
+});
+
+describe("PayButton — SPEC-STOREFRONT-002 M5 style cleanup (REQ-STOREFRONT-028/029)", () => {
+  it("uses the checkout-wide error color text-red-600 rather than text-red-700", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("src/components/checkout/PayButton.tsx", "utf8");
+
+    expect(source).not.toMatch(/text-red-700/);
+    expect(source).toMatch(/text-red-600/);
+  });
+
+  it("uses the checkout-wide button vertical padding py-2 rather than py-3", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("src/components/checkout/PayButton.tsx", "utf8");
+
+    expect(source).not.toMatch(/px-4 py-3/);
+    expect(source).toMatch(/px-4 py-2/);
+  });
+
+  it("renders the error text in the checkout-wide red-600 class", async () => {
+    render(<PayButton orderId="order-1" amount={100} orderName="x" />);
+    const { loadTossPaymentClient } = await import("@/lib/payment/toss-client");
+    vi.mocked(loadTossPaymentClient).mockRejectedValueOnce(new Error("boom"));
+
+    fireEvent.click(screen.getByRole("button"));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeDefined());
+    expect(screen.getByRole("alert").className).toContain("text-red-600");
+    expect(screen.getByRole("alert").className).not.toContain("text-red-700");
+  });
+
+  it("changes no line other than the two className token swaps (structural check)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("src/components/checkout/PayButton.tsx", "utf8");
+
+    // Logic, state, and imports are unchanged — only className literals moved.
+    expect(source).toMatch(/const \[isSubmitting, setIsSubmitting\] = useState\(false\);/);
+    expect(source).toMatch(/const \[error, setError\] = useState<string \| null>\(null\);/);
+    expect(source).toMatch(/await loadTossPaymentClient\(\);/);
   });
 });

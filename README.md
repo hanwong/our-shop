@@ -141,6 +141,22 @@ Key security properties (see `.moai/specs/SPEC-AUTH-001/` for the full spec/acce
 
 **알려진 한계**(자세한 내용은 `.moai/specs/SPEC-STOREFRONT-001/progress.md` 참고): `npm run build`가 실패한다 — 원인은 이 SPEC이 아니라 `src/middleware.ts` → `src/lib/auth/jwt.ts` → `node:crypto` 경로의 기존 결함이며(Edge 런타임이 `node:crypto`를 번들하지 못함), 이 SPEC의 산출물을 전부 제거해도 동일하게 실패함을 확인했다. 칸반 백로그의 별도 카드로 분리해 추적한다. 폭 375px 뷰포트의 가로 스크롤 여부는 **아직 확인하지 않았다** — 브라우저 E2E 하네스가 없어 자동 판정이 불가능한 수동 확인 항목이며, 통과했다는 뜻이 아니라 아직 아무도 보지 않았다는 뜻이다. 빌드 게이트는 CI에 없어(`.github/workflows/ci.yml`에 `npm run build` 단계 없음) Tailwind 툴체인 회귀는 손으로 돌려야 잡힌다.
 
+## 장바구니 화면·담기 UI (SPEC-STOREFRONT-002)
+
+**게스트 전용.** 이 저장소에 없던 두 화면 표면(`/cart`, 상품 상세의 담기 컨트롤)을 새로 만들고, 이미 완성되어 있던 `/checkout` 화면 6개 파일의 Tailwind 클래스 표기만 정리했다.
+
+| 경로 | 파일 | 설명 |
+|---|---|---|
+| `/cart` | `src/app/cart/page.tsx` | 게스트 카트를 서버에서 조회해 초기 렌더에 채워 넣는 서버 컴포넌트. 브라우저 측 추가 데이터 요청 없음 |
+
+화면 컴포넌트는 `src/components/cart/`에 있다 — `CartView`(품목·소계 표시, 수량 스테퍼로 `PATCH /api/cart/items/:itemId` 호출, 삭제로 `DELETE` 호출, `/checkout` 진입 링크)와 `EmptyCart`(빈 카트·게스트 쿠키 부재 안내). 상품 상세에는 `src/components/product/AddToCartButton.tsx`가 추가되어 수량 입력(기본값 1)과 담기 버튼을 제공한다 — 성공 시 확인 문구 + `/cart` 링크(내비게이션 없음), 거부 시 사유 표시, 재고 0이면 버튼 비활성화(`POST /api/cart/items` 호출 자체가 발생하지 않음). `ProductDetailView.tsx`에는 `import` 1줄 + `<AddToCartButton />` 1줄만 삽입했다.
+
+체크아웃 화면(`/checkout`)은 `PayButton.tsx`의 Tailwind 클래스 토큰 2건(`px-4 py-3` → `py-2`, `text-red-700` → `text-red-600`)만 바뀌었다 — 폼 제출·쿠폰 적용·결제 버튼 클릭·오류 표시 로직은 한 글자도 건드리지 않았다(나머지 체크아웃 5개 파일은 무변경). 카트 API는 SPEC-CART-001의 4종을 그대로 소비하며, 스키마·백엔드 변경은 없다. 회원 신원(액세스 토큰의 클라이언트 저장소가 아직 없다는 SPEC-ORDER-001과 동일한 구조적 제약)에 따라 이 화면들도 게스트 전용이다.
+
+접근성: 수량 증가/감소·삭제 버튼에 상품명을 포함한 `aria-label`, 카트 이미지 전량에 상품명을 포함한 `alt`, 수량 숫자에 `tabular-nums`.
+
+**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-STOREFRONT-002/progress.md` 참고): `tests/integration/auth/login.test.ts`의 AC-AUTH-005는 알려진 플레이크다(칸반 백로그 카드 `t20`, 이 SPEC과 무관 — 격리 실행에서는 통과함을 재확인했다). `EmptyCart`의 "상품 목록으로 이동" 링크는 이 저장소에 아직 없는 `/products` 대신 `/`를 가리킨다(REQ-STOREFRONT-017이 정확한 href를 고정하지 않으므로 실제 진입점으로 보정). 브라우저 E2E 자동화는 범위 밖이다(jsdom + Testing Library까지만).
+
 ## 주문/체크아웃 (SPEC-ORDER-001)
 
 **게스트 전용이다.** 회원 체크아웃은 의도적으로 범위 밖이며, 이유는 편의가 아니라 구조적 충돌이다 — 서버 렌더 페이지는 회원을 식별할 수 없다. 게스트 쿠키는 최상위 내비게이션에 자동으로 실려 오지만, 회원의 액세스 토큰은 클라이언트 메모리에만 있어 그 요청에 붙을 수 없다. `Order` 테이블에 `userId` 컬럼이 아예 없는 것이 이 경계를 문서가 아니라 스키마로 강제한다.
