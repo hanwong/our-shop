@@ -15,7 +15,7 @@ import { ProductForm } from "@/app/staff/products/ProductForm";
  * fetch to race or spoof.
  *
  * The session check here gates the SCREEN. It is not what protects the write:
- * `POST /admin/api/products` re-verifies the session itself on every request
+ * `POST /staff/api/products` re-verifies the session itself on every request
  * (REQ-ADMIN-038), because this page's check says nothing about the state of
  * the session at submit time.
  */

@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
  * SPEC-ADMIN-001 M4 — the order-detail "취소" (cancel) action
  * (REQ-ADMIN-012~016).
  *
- * fetch()es PATCH /admin/api/orders/[orderId]/status with
+ * fetch()es PATCH /staff/api/orders/[orderId]/status with
  * { status: "cancelled" }. Deliberately NO optimistic update (design.md §3
  * — "낙관적 업데이트 없음"): on success this calls router.refresh() so the
  * Server Component re-reads the order's ACTUAL current state from the
@@ -43,7 +43,7 @@ export function CancelOrderButton({ orderId }: { orderId: string }) {
     setError(null);
 
     try {
-      const response = await fetch(`/admin/api/orders/${orderId}/status`, {
+      const response = await fetch(`/staff/api/orders/${orderId}/status`, {
         method: "PATCH",
         headers: {
           "content-type": "application/json",

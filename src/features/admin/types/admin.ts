@@ -89,7 +89,7 @@ export interface AdminOrderDetailDTO {
 }
 
 /**
- * The only body `PATCH /admin/api/orders/[orderId]/status` accepts
+ * The only body `PATCH /staff/api/orders/[orderId]/status` accepts
  * (REQ-ADMIN-012/013) — a plain `{ status: "cancelled" }`. Any other value,
  * including `"paid"`, is a malformed-request rejection at the API boundary,
  * never a recognized transition target.
@@ -176,7 +176,7 @@ export interface ProductInput {
 /** Which submitted fields were rejected, and why (REQ-ADMIN-030). */
 export type ProductInputErrors = Partial<Record<keyof ProductInput, string>>;
 
-/** The only body `PATCH /admin/api/products/[productId]/active` accepts. */
+/** The only body `PATCH /staff/api/products/[productId]/active` accepts. */
 export interface SetProductActiveBody {
   isActive: boolean;
 }

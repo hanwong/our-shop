@@ -92,7 +92,7 @@ export function ProductForm({ mode, categories, product }: ProductFormProps) {
       images,
     };
 
-    const url = mode === "create" ? "/admin/api/products" : `/admin/api/products/${product!.id}`;
+    const url = mode === "create" ? "/staff/api/products" : `/staff/api/products/${product!.id}`;
 
     try {
       const response = await fetch(url, {
@@ -134,7 +134,7 @@ export function ProductForm({ mode, categories, product }: ProductFormProps) {
     setFormError(null);
 
     try {
-      const response = await fetch(`/admin/api/products/${product.id}/active`, {
+      const response = await fetch(`/staff/api/products/${product.id}/active`, {
         method: "PATCH",
         headers: {
           "content-type": "application/json",

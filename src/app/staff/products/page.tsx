@@ -18,7 +18,7 @@ import {
  * SPEC-ADMIN-002 M3 — `/staff/products` (REQ-ADMIN-021/022/023/037/040).
  *
  * A Server Component that calls the repository DIRECTLY — no `fetch`, no
- * intermediate `GET /admin/api/products`. That route is deliberately not built
+ * intermediate `GET /staff/api/products`. That route is deliberately not built
  * (design.md §2): wrapping an in-process function call in an HTTP round trip
  * would buy nothing and would leave an auth/pagination/serialization surface to
  * maintain with no consumer.

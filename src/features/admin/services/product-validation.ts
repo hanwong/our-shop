@@ -3,8 +3,8 @@ import type { ProductInput, ProductInputErrors } from "@/features/admin/types/ad
 /**
  * SPEC-ADMIN-002 M2 — product input validation (REQ-ADMIN-026/027/029/030).
  *
- * ONE parser, shared by `POST /admin/api/products` and
- * `PATCH /admin/api/products/[productId]`. Writing the rules once is the point:
+ * ONE parser, shared by `POST /staff/api/products` and
+ * `PATCH /staff/api/products/[productId]`. Writing the rules once is the point:
  * two copies would drift, and the two routes would start disagreeing about the
  * same submission (design.md §4).
  *
