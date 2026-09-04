@@ -2,7 +2,7 @@
 id: SPEC-STOREFRONT-003
 title: "홈 화면 상품 목록 그리드 (첫 페이지, 정렬·필터 없음)"
 version: "0.1.0"
-status: draft
+status: in-progress
 created: 2026-09-04
 updated: 2026-09-04
 author: snake

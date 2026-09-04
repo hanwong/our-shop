@@ -1,6 +1,6 @@
 ---
 id: SPEC-STOREFRONT-003
-status: draft
+status: in-progress
 updated: 2026-09-04
 tier: M
 ---
@@ -54,11 +54,57 @@ CATALOG-001: status: completed
 
 ## §E.2 Run-phase Evidence
 
-_<pending run-phase>_
+TDD로 M1~M5 전부 구현 완료. `design-notes.md`를 그대로 구현 청사진으로 따랐다.
+
+**신규/수정 파일**: `src/components/product/ProductCard.tsx`(신규), `src/components/product/ProductGrid.tsx`(신규), `src/app/page.tsx`(전체 교체), `tests/unit/app/shell.test.tsx`(`HomePage stub` describe 블록만 교체, `RootLayout` 블록은 무수정), `tests/unit/app/home-page.test.tsx`(신규), `tests/unit/components/product-card.test.tsx`(신규), `tests/unit/components/product-grid.test.tsx`(신규).
+
+**AC PASS/FAIL 매트릭스** (AC-STOREFRONT-031~041, 11건 전부 PASS):
+
+```
+$ npx vitest run tests/unit/components/product-card.test.tsx tests/unit/components/product-grid.test.tsx tests/unit/app/home-page.test.tsx tests/unit/app/shell.test.tsx
+ ✓ tests/unit/components/product-grid.test.tsx (4 tests)
+ ✓ tests/unit/components/product-card.test.tsx (9 tests)
+ ✓ tests/unit/app/shell.test.tsx (4 tests)
+ ✓ tests/unit/app/home-page.test.tsx (8 tests)
+ Test Files  4 passed (4) / Tests  25 passed (25)
+```
+
+- AC-031/032 — `home-page.test.tsx`: 서버 렌더 + `listProducts` 직접 호출, `/api/products` 재호출 없음 — PASS
+- AC-033/034/035/041 — `product-card.test.tsx`: 카드 표시(이미지/이름/가격/링크), 링크 대상, D1 보강(`next/image` import 소스 스캔) — PASS
+- AC-036 — `home-page.test.tsx`: `totalCount===0` 빈 상태 문구 — PASS
+- AC-037 — `product-card.test.tsx`: 이미지 없음 placeholder(`product-card-placeholder`, "이미지 준비 중"), throw 없음 — PASS
+- AC-038 — `home-page.test.tsx` 정적 소스 스캔: 페이지네이션/정렬/필터/검색 UI 부재 — PASS
+- AC-039 — `home-page.test.tsx` 정적 소스 스캔: `fetch(`/`useEffect` 0건, `"use client"` 없음 — PASS
+- AC-040(카드 필드 제한) — `product-card.test.tsx`: 설명/재고/카테고리 텍스트 미노출 — PASS
+- AC-STOREFRONT-039(다중 카드) — `product-grid.test.tsx`: 카드 3개, 서로 다른 링크, 순서 보존 — PASS
+- AC-040(a11y) — `product-card.test.tsx`+`home-page.test.tsx`: alt에 상품명 포함, Tab 포커스 도달 — PASS
+- AC-041(순수 표시 계층) — `product-grid.test.tsx`+`product-card.test.tsx`: 서비스 모킹 없이 props-in/DOM-out — PASS
+
+**독립 재검증**(오케스트레이터가 직접 재실행, `.claude/worktrees/t34`에서):
+```
+$ npx tsc --noEmit          → exit 0, 출력 없음
+$ npm run lint              → exit 0, 신규 이슈 0건
+$ npx vitest run --coverage tests/unit/components/product-card.test.tsx tests/unit/components/product-grid.test.tsx tests/unit/app/home-page.test.tsx tests/unit/app/shell.test.tsx --coverage.include='src/components/product/ProductCard.tsx' --coverage.include='src/components/product/ProductGrid.tsx' --coverage.include='src/app/page.tsx'
+  ProductCard.tsx / ProductGrid.tsx / page.tsx  → 100% stmts/branch/funcs/lines
+$ npm test (전체 스위트)
+  Test Files  1 failed | 101 passed (102) / Tests  1 failed | 1416 passed (1417)
+  유일한 실패: tests/integration/auth/login.test.ts AC-AUTH-005 (백로그 t20, 이 SPEC과 무관한 기존 플레이크)
+```
+
+**subagent 경계 grep**: `grep -rn 'AskUserQuestion' src/components/product src/app/page.tsx` → 매치 0건.
+
+**환경 이슈 기록**: 이 SPEC의 run-phase manager-develop 위임 도중, 세션이 워크트리(`t34`)에 있는 상태에서 `Agent()`로 서브에이전트를 띄우면 그 서브에이전트가 자신만의 별도 워크트리(`agent-<id>`)에 격리되어 `t34`에 git 명령을 실행할 수 없는 현상을 확인함(파일 Write/비-git Bash는 가능). 최종적으로 구현은 별도 격리 워크트리(`agent-ab813abb7e874dcee`, base `a3a47de`)에서 이뤄졌고, `page.tsx`/`shell.test.tsx`가 두 워크트리 base 사이에 무변경임을 확인한 뒤 오케스트레이터가 파일을 `t34`로 직접 복사·재검증·커밋함. Claude Code에 버그 리포트 제출함(세션 내부, 사용자 승인 대기).
 
 ## §E.3 Run-phase Audit-Ready Signal
 
-_<pending run-phase>_
+run_status: audit-ready
+
+- M1~M5 전부 완료, AC-STOREFRONT-031~041 11건 전부 PASS
+- `npx tsc --noEmit` exit 0 / `npm run lint` exit 0 신규 이슈 0건 / 신규 파일 3종 커버리지 100%
+- 전체 스위트 1416/1417 통과, 유일한 실패는 이 SPEC과 무관한 기존 플레이크(t20)
+- PRESERVE 준수: `src/features/catalog/**`, `EmptyCart.tsx`, `next.config.ts` 무변경, `shell.test.tsx`의 `RootLayout` describe 블록 무변경(정확히 `HomePage stub` 블록만 교체)
+- plan.md §J 안티패턴(공유 유틸 추출, 방어적 props, 담기 버튼, `ProductGallery` 재사용, 헤더/내비 추가) 전부 미범함
+- sync-phase 진입을 막는 항목 없음
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
