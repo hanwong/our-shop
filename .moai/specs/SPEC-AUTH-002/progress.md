@@ -1,6 +1,6 @@
 ---
 id: SPEC-AUTH-002
-status: draft
+status: in-progress
 updated: 2026-09-04
 tier: M
 ---
@@ -87,11 +87,67 @@ Must-pass 7항목 전부 PASS (MP-4/MP-7은 해당 조건상 자연스러운 N/A
 
 ## §E.2 Run-phase Evidence
 
-_<pending run-phase>_
+TDD로 M1~M5 전부 구현 완료. design-notes.md의 결정(`staff/login` 시각 관례 재사용, 상호 이동
+링크 추가)을 그대로 따랐다.
+
+**신규 파일**: `src/lib/auth/session-resolver.ts`(M1), `src/app/login/page.tsx`(M2),
+`src/app/signup/page.tsx`(M3), 테스트 4종(`tests/unit/auth/session-resolver.test.ts`,
+`tests/unit/app/login-page.test.tsx`, `tests/unit/app/signup-page.test.tsx`,
+`tests/unit/auth/auth-boundary-static.test.ts`). 기존 파일 수정 0건(PRESERVE 완전 준수).
+
+**AC PASS 매트릭스** (AC-AUTH-025~036, 12건 전부 PASS):
+
+```
+$ npx vitest run tests/unit/auth/session-resolver.test.ts tests/unit/app/login-page.test.tsx tests/unit/app/signup-page.test.tsx tests/unit/auth/auth-boundary-static.test.ts
+ ✓ tests/unit/auth/auth-boundary-static.test.ts (3 tests)
+ ✓ tests/unit/auth/session-resolver.test.ts (7 tests)
+ ✓ tests/unit/app/login-page.test.tsx (5 tests)
+ ✓ tests/unit/app/signup-page.test.tsx (6 tests)
+ Test Files  4 passed (4) / Tests  21 passed (21)
+```
+
+- AC-AUTH-025~028 — `login-page.test.tsx`: 표준 요청 바디, 성공 시 `/` 이동, 실패 시 서버
+  메시지 표시(파싱 불가 폴백 포함), redirect/next 파라미터 정적 부재 — PASS
+- AC-AUTH-029~031 — `signup-page.test.tsx`: 표준 요청 바디, 201 시 자동 로그인 없이 `/login`
+  이동, 실패 메시지 3종(a/b/c) 정확히 표시 — PASS
+- AC-AUTH-032~034 — `session-resolver.test.ts`: customer/admin 둘 다 해석(REQ-033), 읽기
+  전용(findFirst 1회, create/update/updateMany 0회), 4가지 실패 경로 전부 동일 null — PASS
+- AC-AUTH-035 — `git diff --stat main...HEAD -- src/features/admin/services/admin-session.ts
+  src/middleware.ts` → 출력 없음(무변경 확인) + `admin-session.test.ts` 재실행 7/7 PASS(무회귀)
+- AC-AUTH-036 — `auth-boundary-static.test.ts`: 3개 파일 모두 `createContext`/`useContext`/
+  `useAuth`/`localStorage`/`sessionStorage` 매치 0건 — PASS
+
+**독립 재검증**(오케스트레이터가 t13에서 직접 재실행):
+```
+$ npx tsc --noEmit          → exit 0
+$ npm run lint              → exit 0, 신규 이슈 0건
+$ npx vitest run --coverage (신규 파일 3종 대상)
+  session-resolver.ts        → 100% stmts/branch/funcs/lines
+  login/page.tsx              → 100% stmts/lines, 85.71% branch
+  signup/page.tsx             → 100% stmts/lines, 86.66% branch
+  (전부 ≥85%/≥80% 임계값 충족)
+$ npm test (전체 스위트)     → Test Files 106 passed / Tests 1438 passed, 0 failed
+```
+
+**subagent 경계 grep**: `grep -rn 'AskUserQuestion' src/app/login src/app/signup
+src/lib/auth/session-resolver.ts` → 매치 0건.
+
+**환경 참고**: t34/t20 카드에서 확인된 것과 동일하게, 이 SPEC의 plan-phase 산출물도 커밋되지
+않은 상태로 발견되어 오케스트레이터가 plan-phase 커밋을 대신 남겼다(§E.1과 동일 상황).
 
 ## §E.3 Run-phase Audit-Ready Signal
 
-_<pending run-phase>_
+run_status: audit-ready
+
+- M1~M5 전부 완료, AC-AUTH-025~036 12건 전부 PASS
+- `npx tsc --noEmit` exit 0 / `npm run lint` exit 0 신규 이슈 0건 / 신규 파일 3종 커버리지
+  100% lines·stmts, ≥85% branch
+- 전체 스위트 1438/1438 통과(회귀 0건)
+- PRESERVE 준수: `src/features/admin/services/admin-session.ts`, `src/middleware.ts` 무변경
+  확인(git diff --stat), `admin-session.test.ts` 무회귀
+- plan.md §I 안티패턴(공유 유틸 추출, 방어적 역할 분기, `resolveAdminSession` 리팩터, 헤더/
+  내비 추가) 전부 미범함
+- sync-phase 진입을 막는 항목 없음
 
 ## §E.4 Sync-phase Audit-Ready Signal
 

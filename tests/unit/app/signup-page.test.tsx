@@ -110,4 +110,21 @@ describe("AC-AUTH-031 -- 회원가입 실패 시 정확한 서버 오류 메시�
     expect(alert.textContent).toBe("Email already registered");
     expect(push).not.toHaveBeenCalled();
   });
+
+  it("응답 바디를 파싱할 수 없으면 일반 안내 메시지로 대체한다 (staff/login 선례)", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => {
+        throw new Error("not json");
+      },
+    } as unknown as Response);
+    fill(/이메일/, "new@example.com");
+    fill(/비밀번호/, "correct horse battery staple");
+    submit();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBeTruthy();
+    expect(push).not.toHaveBeenCalled();
+  });
 });

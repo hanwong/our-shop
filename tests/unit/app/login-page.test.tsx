@@ -88,6 +88,23 @@ describe("AC-AUTH-027 — 로그인 실패 시 서버 오류 메시지 표시, �
     expect(alert.textContent).toBe("Invalid email or password");
     expect(push).not.toHaveBeenCalled();
   });
+
+  it("응답 바디를 파싱할 수 없으면 일반 안내 메시지로 대체한다 (staff/login 선례)", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => {
+        throw new Error("not json");
+      },
+    } as unknown as Response);
+    fill(/이메일/, "customer@example.com");
+    fill(/비밀번호/, "wrong");
+    submit();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBeTruthy();
+    expect(push).not.toHaveBeenCalled();
+  });
 });
 
 describe("AC-AUTH-028 — redirect/next 쿼리 파라미터 처리 부재 (정적 검사)", () => {
