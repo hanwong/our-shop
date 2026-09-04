@@ -27,7 +27,7 @@ import { beforeAll, describe, expect, it } from "vitest";
  * here as a test failure rather than as a collection error.
  */
 
-const ADMIN_URL = "http://localhost/admin/api/anything";
+const ADMIN_URL = "http://localhost/admin/write/anything";
 
 let middleware: (request: NextRequest) => Promise<Response>;
 

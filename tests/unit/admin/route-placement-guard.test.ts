@@ -270,7 +270,7 @@ describe("[AC-ADMIN-049] the matcher is read, never copied, and never fails open
 describe("[AC-ADMIN-048/049] :param* is zero-or-more, so the prefix itself matches", () => {
   const regex = matcherToRegExp("/admin/:path*");
 
-  it.each(["/admin", "/admin/route", "/admin/api/products", "/admin/a/b/c"])(
+  it.each(["/admin", "/admin/route", "/admin/anything/deep", "/admin/a/b/c"])(
     "%s is inside the matcher",
     (pathname) => {
       expect(regex.test(pathname)).toBe(true);

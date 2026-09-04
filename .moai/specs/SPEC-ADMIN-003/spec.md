@@ -2,7 +2,7 @@
 id: SPEC-ADMIN-003
 title: "관리자 쓰기 API 경로 이전과 미들웨어 통과 검증 계층"
 version: "0.1.2"
-status: draft
+status: in-progress
 created: 2026-09-04
 updated: 2026-09-04
 author: snake
