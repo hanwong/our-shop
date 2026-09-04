@@ -1,7 +1,10 @@
+import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 
 import { ProductDetailView } from "@/components/product/ProductDetailView";
 import { getProductDetail } from "@/features/catalog/services/product-service";
+import { getProductReviewSummary } from "@/features/reviews/services/review-service";
+import { resolveSession } from "@/lib/auth/session-resolver";
 
 /**
  * SPEC-STOREFRONT-001 M3 — `/products/{productId}` (REQ-STOREFRONT-003/004/005).
@@ -16,8 +19,15 @@ import { getProductDetail } from "@/features/catalog/services/product-service";
  * JSON boundary. Sharing the service instead means the page and the API can
  * never disagree about what a 404 is.
  *
- * Anonymous by design (REQ-STOREFRONT-005): no session lookup, no redirect,
- * and `/products` is deliberately absent from the middleware matcher.
+ * The product itself stays anonymous by design (REQ-STOREFRONT-005): the
+ * catalog lookup above needs no session, and `/products` remains absent from
+ * the middleware matcher. SPEC-REVIEW-001 M3 adds a SEPARATE `resolveSession()`
+ * read — used only to decide the review section's write-vs-login-prompt
+ * branch (REQ-REVIEW-008) — so this page still never redirects and never
+ * gates the product data itself on being logged in. The review summary is
+ * read directly through `getProductReviewSummary()`, the same
+ * direct-service-call pattern as `getProductDetail()` above (spec.md §1
+ * "읽기는 직접 호출").
  */
 export default async function ProductDetailPage({
   params,
@@ -35,5 +45,16 @@ export default async function ProductDetailPage({
     notFound();
   }
 
-  return <ProductDetailView product={result.data} />;
+  const [session, reviewSummary] = await Promise.all([
+    resolveSession(await cookies()),
+    getProductReviewSummary(productId),
+  ]);
+
+  return (
+    <ProductDetailView
+      product={result.data}
+      isLoggedIn={session !== null}
+      reviewSummary={reviewSummary}
+    />
+  );
 }

@@ -4,6 +4,28 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+### 추가 — SPEC-REVIEW-001: 상품 리뷰 작성 및 평점/후기 표시
+
+**`SPEC-STOREFRONT-001`이 예고만 해두고 미뤄뒀던 리뷰 기능이 들어왔다.** 그 SPEC의 `ProductDetailView.tsx`는 처음부터 "리뷰는 별도 SPEC의 몫"이라고 못 박아 두었고(REQ-STOREFRONT-009, spec.md §3 Out of Scope), 회귀 테스트에도 "리뷰" 부재를 명시적으로 단언해 두었다. 이 SPEC(백로그 카드 `t36`)이 그 자리를 정확히 채운다 — 로그인한 고객(또는 admin 계정)이 상품마다 별점(1-5)과 텍스트 후기를 하나씩 남기고, 상품 상세 페이지가 평균 평점·리뷰 개수·리뷰 목록을 표시하며, 미로그인 방문자에게는 `/login`으로 연결되는 안내 문구를 보여준다. `SPEC-AUTH-002`가 미리 만들어 둔 역할 무관 `resolveSession()`이 이 SPEC의 첫 소비자다.
+
+- `prisma/schema.prisma` + 마이그레이션(`20260904145033_add_review_model`) — 신규 `Review` 모델. `@@unique([userId, productId])`가 "계정당 상품당 리뷰 1개" 불변식의 1차 방어선이고, 서비스 레이어의 `P2002` catch가 레이스 상황의 2차 방어선이다(동시 두 요청이 사전 조회를 모두 통과해도 DB 제약이 최종 판정한다).
+- `src/features/reviews/{types,repositories,services}/` — `review-repository.ts`(신규, 61줄, 순수 Prisma 조회/생성), `review-service.ts`(신규, 147줄, 검증·중복 판정·P2002 매핑), `review.ts`(신규, 44줄, 와이어 DTO). rating은 정수 1~5, body는 trim 후 비어있지 않고 최대 2000자 — 둘 다 서비스 레이어에서만 검증한다(이 스키마의 기존 관례대로 DB 제약이 아니다). 평균 평점은 `getProductReviewSummary()`에서 소수 1자리로 반올림해 반환한다.
+- `src/app/api/reviews/route.ts`(신규, 47줄) — `POST`만 존재한다. `GET`을 만들지 않은 것은 실수가 아니라 설계다: 상품 상세 페이지는 `getProductReviewSummary()`를 직접 호출해 읽으므로 리뷰 목록을 HTTP로 되부를 이유가 없다(`SPEC-STOREFRONT-001`이 세운 "직접 서비스 호출" 관례 유지). 세션은 요청마다 새로 확인하고(캐시 없음), 역할에 따른 추가 게이트나 구매 여부 검증은 없다 — customer와 admin이 완전히 동일한 경로로 작성한다.
+- `src/components/product/ProductDetailView.tsx`(수정) — 설명 문단 다음에 리뷰 섹션을 추가했다. 로그인 여부에 따라 `ReviewForm` 또는 로그인 유도 링크를 분기 렌더링하고, 리뷰 본문은 항상 일반 JSX 텍스트 자식(`{review.body}`)으로만 렌더링한다 — `dangerouslySetInnerHTML`을 쓰지 않으므로 React의 기본 이스케이프가 별도 sanitize 없이 저장형 XSS를 막는다. 신규 두 prop(`isLoggedIn`, `reviewSummary`)은 전부 기본값을 가지므로 기존 호출부(`<ProductDetailView product={...} />`)는 그대로 동작한다.
+- `src/components/product/ReviewForm.tsx`(신규, 113줄, `"use client"`) — `AddToCartButton.tsx`와 동일한 관용구의 별도 클라이언트 아일랜드. 성공 시 로컬 상태를 낙관적으로 갱신하는 대신 `router.refresh()`로 서버가 다시 읽은 실제 리뷰 목록을 반영한다(별도 클라이언트 목록 상태를 만들지 않는다 — Enforce Simplicity).
+- `src/app/products/[productId]/page.tsx`(수정) — `resolveSession()`과 `getProductReviewSummary()` 호출을 추가했다. 상품 데이터 자체는 여전히 세션과 무관하게(`REQ-STOREFRONT-005` 유지) 조회되며, 세션은 오직 리뷰 섹션의 쓰기-폼/로그인-유도 분기에만 쓰인다 — 리다이렉트도, 페이지 전체 게이트도 없다.
+- `tests/unit/components/product-detail-view.test.tsx`(수정) — `AC-STOREFRONT-009` 정규식에서 "리뷰" 토큰만 제거하고 `/관련 상품|재고 변동/`로 좁혔다. "관련 상품"·"재고 변동 이력" 부재 단언은 그대로 유지된다 — 이 SPEC 범위 밖이기 때문이다. "리뷰" 부재 단언 삭제는 회귀가 아니라 `REQ-REVIEW-007/008/009`가 `REQ-STOREFRONT-009`를 의도적으로 승계한 예정된 결과다.
+- 신규 테스트 6개 파일 — `review-service.test.ts`(18건), `route.test.ts`(8건), `review-form.test.tsx`(4건), `product-detail-page.test.tsx`(신규 8건 추가), `review-repository.test.ts`(신규, 실제 PostgreSQL 대상 통합 테스트 4건 — `@@unique` 제약의 실제 `P2002` 발생과 `aggregate`/`listByProduct`의 실제 정렬을 관측), `product-detail-view.test.tsx`(회귀 조정, 위 참고).
+
+인수 기준 16건(`AC-REVIEW-001~016`) 전부 PASS. 전체 스위트 110개 파일 1478건 통과(회귀 0건), `npx tsc --noEmit`·`npm run lint`·`npm run build` 전부 exit 0. 커버리지는 전역 기준(85%/80%)을 상회하며(97.02%/93.47%/98.97%/97.02%) 이 SPEC이 추가한 개별 파일도 전부 기준을 충족한다(`review-repository.ts` 100%, `review-service.ts` 100%/96.96%, `route.ts` 100%/90%, `ReviewForm.tsx` 100%/84.61%). `git diff --stat`로 `page.tsx`/`ProductGrid`/`ProductCard`/`AddToCartButton`/`ProductGallery`/`admin-session.ts`/주문 API가 한 글자도 바뀌지 않았음을 확인했다 — 홈 화면 상품 그리드에는 평점 배지나 리뷰 개수가 여전히 없다(`AC-REVIEW-012`, `REQ-REVIEW-010`).
+
+### 알려진 한계 — SPEC-REVIEW-001
+
+- **수정·삭제·모더레이션이 없다.** 작성한 리뷰는 되돌릴 방법이 없다(`REQ-REVIEW-011`, 의도적 범위 밖). `route.ts`는 `POST`만 export하며 관리자 백오피스에도 리뷰 관련 UI가 전혀 없다(`AC-REVIEW-015`로 기계적으로 확인).
+- **동시성 검증은 순차 재현으로 대체했다.** `review-repository.test.ts`는 첫 `create()` 성공 후 두 번째 `create()`가 `P2002`로 거부됨을 실제 PostgreSQL에서 확인했지만, `Promise.all` 기반의 진짜 동시 도착 시나리오(`SPEC-ORDER-002`류)는 작성하지 않았다. DB 제약이 최종 방어선이므로 유일성 자체는 순서와 무관하게 보장되지만, "정확히 동시" 관측 증거는 남기지 않았다.
+- **plan-audit의 선택 관찰 2건은 착수하지 않았다.** HISTORY 섹션 갱신(D9)과 body 길이 상한의 별도 formal AC(D10)는 지시대로 optional로 남겨 두었다.
+- **CI 환경에서의 신규 통합 테스트 실행 여부는 미확인이다.** `review-repository.test.ts`는 로컬 실제 PostgreSQL(`our-shop-demo-pg`)에 대해서만 실행을 확인했다 — 이 저장소의 다른 `*.postgres.test.ts`/`coupon-model.test.ts`와 동일한 기존 리스크 패턴이다.
+
 ### 추가 — SPEC-AUTH-002: 고객용 로그인·회원가입 화면과 역할 무관 세션 조회 헬퍼
 
 **`SPEC-AUTH-001`이 만든 인증 API에 드디어 고객이 직접 쓸 수 있는 화면이 붙었다.** 그동안 이 저장소의 유일한 로그인 화면은 `/staff/login`(`SPEC-ADMIN-001`)이었고 회원가입 화면은 아예 없었다 — `POST /api/auth/login`과 `POST /api/auth/signup`은 완성되어 있었으나 브라우저에서 그것을 부르는 방법이 없었다. 이 SPEC(백로그 카드 `t13`)이 `/login`·`/signup` 두 화면을 만들어 그 틈을 닫는다. **API·스키마·미들웨어 변경은 0건이다** — 기존 엔드포인트를 기존 요청 모양 그대로 소비하며, 기존 파일을 한 줄도 수정하지 않고 신규 파일만 추가했다.

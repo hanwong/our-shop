@@ -1,6 +1,8 @@
 import { ProductGallery } from "@/components/product/ProductGallery";
 import { AddToCartButton } from "@/components/product/AddToCartButton";
+import { ReviewForm } from "@/components/product/ReviewForm";
 import type { ProductDetail } from "@/features/catalog/types/product";
+import type { ReviewSummary } from "@/features/reviews/types/review";
 
 /**
  * SPEC-STOREFRONT-001 M3 — the product detail presentation
@@ -21,6 +23,15 @@ import type { ProductDetail } from "@/features/catalog/types/product";
  * "island" — the same pattern ProductGallery already established — so this
  * component stays a server component; only the button's own subtree crosses
  * the client boundary (plan.md §I R4).
+ *
+ * SPEC-REVIEW-001 M3 — a review section is appended after the description
+ * (REQ-REVIEW-007/008/009), intentionally superseding REQ-STOREFRONT-009's
+ * former "no reviews" assertion for the review section specifically (spec.md
+ * §1). `reviewSummary`'s `body` is rendered as a plain JSX text child
+ * (`{review.body}`) — never `dangerouslySetInnerHTML` — so React's default
+ * escaping is what prevents stored XSS here, with no separate sanitize step
+ * (plan.md M3). Both new props default so every existing caller that renders
+ * `<ProductDetailView product={...} />` alone keeps working unchanged.
  */
 
 /**
@@ -34,7 +45,19 @@ function formatWon(price: number): string {
   return `${new Intl.NumberFormat("ko-KR").format(price)}원`;
 }
 
-export function ProductDetailView({ product }: { product: ProductDetail }) {
+/** The pre-any-reviews shape (AC-REVIEW-008) — the default for existing callers. */
+const EMPTY_REVIEW_SUMMARY: ReviewSummary = { aggregate: { averageRating: null, count: 0 }, reviews: [] };
+
+export function ProductDetailView({
+  product,
+  isLoggedIn = false,
+  reviewSummary = EMPTY_REVIEW_SUMMARY,
+}: {
+  product: ProductDetail;
+  /** Whether the requesting visitor has a resolved session (REQ-REVIEW-008). */
+  isLoggedIn?: boolean;
+  reviewSummary?: ReviewSummary;
+}) {
   const soldOut = product.stock === 0;
 
   return (
@@ -64,6 +87,42 @@ export function ProductDetailView({ product }: { product: ProductDetail }) {
       <p className="mt-6 whitespace-pre-line leading-relaxed text-neutral-800">
         {product.description}
       </p>
+
+      {/* SPEC-REVIEW-001 M3 — average/count (REQ-REVIEW-007), the
+          login-gated write branch (REQ-REVIEW-008), and the review list
+          (REQ-REVIEW-009), in that order. */}
+      <section className="mt-8 border-t border-neutral-200 pt-6">
+        <h2 className="text-lg font-semibold text-neutral-900">리뷰</h2>
+        <p className="mt-1 text-sm text-neutral-600">
+          {reviewSummary.aggregate.averageRating !== null
+            ? `평균 평점 ${reviewSummary.aggregate.averageRating.toFixed(1)} · 리뷰 ${reviewSummary.aggregate.count}개`
+            : `리뷰 ${reviewSummary.aggregate.count}개`}
+        </p>
+
+        {isLoggedIn ? (
+          <ReviewForm productId={product.id} />
+        ) : (
+          <p className="mt-4 text-sm text-neutral-700">
+            <a href="/login" className="underline">
+              로그인하고 리뷰 남기기
+            </a>
+          </p>
+        )}
+
+        {reviewSummary.reviews.length > 0 ? (
+          <ul className="mt-6 space-y-4">
+            {reviewSummary.reviews.map((review) => (
+              <li key={review.id} className="border-b border-neutral-100 pb-4">
+                <p className="text-sm font-medium text-neutral-900">{review.rating}점</p>
+                <p className="mt-1 whitespace-pre-line text-sm text-neutral-800">{review.body}</p>
+                <p className="mt-1 text-xs text-neutral-500">
+                  {new Date(review.createdAt).toLocaleDateString("ko-KR")}
+                </p>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </section>
     </article>
   );
 }

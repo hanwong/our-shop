@@ -96,9 +96,12 @@ describe("ProductDetailView — AC-STOREFRONT-009", () => {
     expect(text).not.toContain(product.category.id);
     expect(text).not.toContain(product.createdAt);
     expect(text).not.toContain(product.updatedAt);
-    // Reviews, related products, and stock history are out of scope
-    // (spec.md §3) and are not merely unpopulated — they are absent.
-    expect(text).not.toMatch(/리뷰|관련 상품|재고 변동/);
+    // Related products and stock history remain out of scope (spec.md §3) and
+    // are not merely unpopulated — they are absent. The "리뷰" (reviews) token
+    // is deliberately DROPPED from this assertion — SPEC-REVIEW-001's
+    // REQ-REVIEW-007/008/009 intentionally supersede REQ-STOREFRONT-009 for the
+    // review section specifically (spec.md §1); this is not a regression.
+    expect(text).not.toMatch(/관련 상품|재고 변동/);
   });
 });
 
