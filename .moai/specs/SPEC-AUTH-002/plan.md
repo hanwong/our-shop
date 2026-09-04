@@ -1,6 +1,6 @@
 ---
 id: SPEC-AUTH-002
-status: draft
+status: completed
 updated: 2026-09-04
 tier: M
 ---

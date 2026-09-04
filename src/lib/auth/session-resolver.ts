@@ -37,6 +37,12 @@ export interface Session {
   role: "customer" | "admin";
 }
 
+// @MX:NOTE: [AUTO] No caller exists in this repository yet — SPEC-AUTH-002
+// requires only that this function exist and behave correctly; the first
+// consumer arrives in a follow-up SPEC. Zero fan_in here is deliberate, not
+// dead code. Deliberately NOT delegating to / shared with resolveAdminSession
+// (src/features/admin/services/admin-session.ts): refactoring that admin
+// security boundary is explicitly out of scope (spec.md §3).
 /**
  * Resolves the requesting user's session from the existing refresh-token
  * cookie, for either role. Performs NO writes: it never issues a new

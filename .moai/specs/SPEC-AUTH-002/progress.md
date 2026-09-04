@@ -1,6 +1,6 @@
 ---
 id: SPEC-AUTH-002
-status: in-progress
+status: completed
 updated: 2026-09-04
 tier: M
 ---
@@ -151,4 +151,32 @@ run_status: audit-ready
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+sync_status: audit-ready
+sync_complete_at: 2026-09-04
+sync_commit_sha: pending-backfill-sync
+b12_self_test_a: "grep -c 'SPEC-AUTH-002' CHANGELOG.md → 0 (중복 없음, 발행 진행)"
+b12_self_test_b: "AC 12건 — acceptance.md(SSOT) 직접 검사. grep 원시 결과는 13건이나 AC-AUTH-001은 3행 산문의 범위 표기('AC-AUTH-001~024')에서 온 것이고, 실제 AC는 AC-AUTH-025~036 12건. CHANGELOG 인용 12건과 일치"
+b12_self_test_c: "CHANGELOG·README가 인용한 모든 경로를 git show --stat / ls로 실재 확인 — 신규 7개(src 3 + tests 4) 전부 존재"
+changelog_entry_position: "[Unreleased] 최상단 — '### 추가 — SPEC-AUTH-002' (기존 t20 수정 항목 바로 위)"
+frontmatter_status_transitions:
+  spec.md: "in-progress → completed"
+  plan.md: "draft → completed"
+  acceptance.md: "N/A — 이 파일은 프론트매터 블록이 없음(본문이 h1으로 시작)"
+  progress.md: "in-progress → completed"
+canary_compliance_check: "N/A — 이 SPEC은 전방 정책을 정의하지 않음"
+```
+
+**동기화 산출물.**
+
+- `CHANGELOG.md` — `[Unreleased]` 최상단에 `### 추가 — SPEC-AUTH-002` 절과 `### 알려진 한계 — SPEC-AUTH-002` 절 추가. 신규 파일 3종의 **소스를 직접 Read한 뒤** 작성했다(plan.md 서술 재사용 아님) — 인용한 리터럴(쿠키명 `refresh_token`, `router.push("/")`/`router.push("/login")`, 오류 문구 3종, `findFirst` 단일 호출)은 전부 소스에서 확인한 값이다.
+- `README.md` — (1) 상단 구현 목록에 `SPEC-AUTH-002` 항목 1줄 추가(`SPEC-ADMIN-002` 바로 위), (2) `## 고객용 로그인·회원가입 화면 (SPEC-AUTH-002)` 절 신설(`SPEC-STOREFRONT-003` 절과 `SPEC-ORDER-001` 절 사이). 기존 SPEC 절들의 서술 관례(경로 표, 결정의 근거, **알려진 한계** 문단)를 그대로 따랐다.
+- docs-site 동기화 — 해당 없음. 이 저장소에 `docs/`·`docs-site/` 디렉터리가 존재하지 않음(`ls` 확인).
+
+**MX 태그 검증.** 신규 소스 3종을 mx-tag-protocol 기준으로 점검했다.
+
+- `src/lib/auth/session-resolver.ts` — `@MX:NOTE` 1건 **추가**. 근거: `resolveSession`이 이 SPEC 안에 소비자가 없어 fan_in 0인데, 그것이 죽은 코드가 아니라 의도된 선제 구축이라는 사실이 소스만 읽어서는 드러나지 않는다(plan-audit D3이 같은 지점을 지적). `resolveAdminSession`과 공유하지 않는 이유도 함께 고정했다. `code_comments: en` 설정에 따라 영문, 에이전트 생성이므로 `[AUTO]` 접두.
+- `src/app/login/page.tsx` · `src/app/signup/page.tsx` — 태그 추가 **없음**. 두 파일 모두 라우트 기본 내보내기(fan_in 0)라 `@MX:ANCHOR` 임계값(fan_in ≥ 3) 미달, 순환복잡도 15 미만·분기 8개 미만·전역 상태 변경 없음·goroutine 상당 구조 없음이라 `@MX:WARN` 사유 없음, 공개 함수 미테스트 없음(각각 전용 테스트 파일 보유)이라 `@MX:TODO` 사유 없음. 기존 JSDoc 헤더가 이미 REQ 추적·설계 근거를 담고 있어 `@MX:NOTE` 중복 사유도 없다.
+- 제거·갱신 대상 태그 없음(이 SPEC이 만든 파일 이전에 태그가 존재하지 않았고, 기존 파일 수정 0건).
+
+**sync-audit 진입을 막는 항목 없음.**

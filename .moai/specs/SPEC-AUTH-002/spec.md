@@ -2,7 +2,7 @@
 id: SPEC-AUTH-002
 title: "고객용 로그인·회원가입 화면 및 범용 세션 조회 헬퍼"
 version: "0.1.0"
-status: in-progress
+status: completed
 created: 2026-09-04
 updated: 2026-09-04
 author: snake
