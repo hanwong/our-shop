@@ -189,7 +189,7 @@ evidence_dir: .moai/state/verify/run-t28/
 spec_id: SPEC-ADMIN-003
 card: t28
 sync_complete_at: 2026-09-04
-sync_commit_sha: <PENDING-BACKFILL>
+sync_commit_sha: 2d663e1c78b718f4059ffd132f294c731f040dbc
 sync_status: complete
 b12_self_test_a: pass    # grep -c 'SPEC-ADMIN-003' CHANGELOG.md -> 0 (중복 없음)
 b12_self_test_b: pass    # acceptance.md AC 표제 16건 == CHANGELOG 기재 16건
