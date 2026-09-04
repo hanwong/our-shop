@@ -15,10 +15,20 @@ import type { NextConfig } from "next";
  *
  * Do not add hosts speculatively: the allow-list is an input-validation
  * boundary, and a guessed entry widens it for no delivered capability.
+ *
+ * `example.com` was added after a direct DB query confirmed 6 of 10 seeded
+ * Product.images rows use `https://example.com/*.jpg` (no other host besides
+ * picsum.photos appears). Note: example.com is IANA's reserved example
+ * domain and serves no real image bytes, so next/image will stop throwing
+ * but those product images will still render broken until real image
+ * hosting replaces the seed data.
  */
 const nextConfig: NextConfig = {
   images: {
-    remotePatterns: [{ protocol: "https", hostname: "picsum.photos" }],
+    remotePatterns: [
+      { protocol: "https", hostname: "picsum.photos" },
+      { protocol: "https", hostname: "example.com" },
+    ],
   },
 };
 
