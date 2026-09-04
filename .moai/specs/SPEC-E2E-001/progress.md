@@ -73,3 +73,20 @@ _<pending run-phase>_
 ## §E.4 Sync-phase Audit-Ready Signal
 
 _<pending sync-phase>_
+
+## §F Phase 4 Mode Selection
+
+**Input parameters**: tier=M, scope≈6 milestones/~10 files (playwright.config.ts, package.json, e2e/support/*, e2e/*.spec.ts, e2e/README.md), domain count=1 (E2E/Playwright — single cross-cutting concern touching both browser and server-side mocking), file language mix=TypeScript, concurrency benefit=LOW (coding-heavy, milestones have sequential dependency — M2 depends on M1's spike proof), Agent Teams prereqs=not requested.
+
+| Mode | Selected? | Rationale |
+|---|---|---|
+| `direct` | No | Non-trivial: new test harness + mocking infrastructure across 6 milestones |
+| `serial` | **YES** | Coding-heavy, sequential milestone dependency (M1 spike gates M2+); Anthropic's coding-task parallelism caveat applies |
+| `fanout` | No | Not multi-domain research; single cross-cutting E2E concern |
+| `sweep` | No | Not mechanical/uniform; M1 spike is a genuine unknown requiring judgment, not a bulk transform |
+
+**Decision: serial**
+
+**Justification**: This is coding-heavy implementation work with a hard sequential dependency — M2-M6 all build on M1's proof that the undici interceptor reaches the Next.js route-handler execution context. Per Anthropic's coding-task parallelism caveat, coding work has fewer truly parallelizable units than research; `serial` (single manager-develop spawn per milestone) is the correct default here.
+
+**Implementation Kickoff Approval**: user approved 2026-09-05 via AskUserQuestion (option: "지금 시작 (권장)"); progression mode = autonomous ("자동 진행 (권장)").
