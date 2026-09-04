@@ -15,11 +15,24 @@
  */
 import { test as base, expect } from "@playwright/test";
 
+import { installTossPaymentStub, type TossPaymentStub } from "./toss-stub-fixture";
+
 export interface TossHostGuardFixtures {
   tossHostHits: string[];
 }
 
-export const test = base.extend<TossHostGuardFixtures>({
+/**
+ * SPEC-E2E-001 M2 — the browser-side Toss SDK stub (plan.md §D), installed
+ * per-test on `page`. Depends on `page` only, so it composes with
+ * `tossHostHits` without ordering concerns — Playwright resolves the
+ * page-level CDN-script route ahead of the context-level watch route
+ * regardless of fixture setup order.
+ */
+export interface TossPaymentStubFixtures {
+  tossPaymentStub: TossPaymentStub;
+}
+
+export const test = base.extend<TossHostGuardFixtures & TossPaymentStubFixtures>({
   tossHostHits: async ({ context }, use) => {
     const hits: string[] = [];
     await context.route("**://*.tosspayments.com/**", async (route) => {
@@ -27,6 +40,11 @@ export const test = base.extend<TossHostGuardFixtures>({
       await route.abort();
     });
     await use(hits);
+  },
+
+  tossPaymentStub: async ({ page }, use) => {
+    const stub = await installTossPaymentStub(page);
+    await use(stub);
   },
 });
 
