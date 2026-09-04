@@ -227,3 +227,57 @@ describe("isActive is not part of the product input surface (design.md §1)", ()
     expect(result.data).not.toHaveProperty("isActive");
   });
 });
+
+/**
+ * CodeRabbit review, PR #18 — `parseWholeNumber` bounded no upper end, so a
+ * value above PostgreSQL's `Int` ceiling passed validation, reached Prisma, and
+ * surfaced as an uncaught server error instead of the field-level rejection
+ * these routes are built to return. A 500 reachable from ordinary form input.
+ *
+ * `Number.isSafeInteger` does not help here: 2147483648 is a perfectly safe
+ * JavaScript integer. It is the COLUMN that cannot hold it. Both boundary sides
+ * are pinned, so a later "just widen the check" edit cannot quietly drift.
+ */
+const INT32_MAX = 2147483647;
+
+describe("[CodeRabbit PR#18] price and stock are bounded by the Int column, not just by JS", () => {
+  it("accepts price at the signed 32-bit maximum", async () => {
+    const result = await parse({ ...VALID, price: INT32_MAX });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.price).toBe(INT32_MAX);
+  });
+
+  it("rejects price one above the maximum, as a field error rather than a crash", async () => {
+    const result = await parse({ ...VALID, price: INT32_MAX + 1 });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.price).toBeDefined();
+  });
+
+  it("accepts stock at the signed 32-bit maximum", async () => {
+    const result = await parse({ ...VALID, stock: INT32_MAX });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.stock).toBe(INT32_MAX);
+  });
+
+  it("rejects stock one above the maximum, as a field error rather than a crash", async () => {
+    const result = await parse({ ...VALID, stock: INT32_MAX + 1 });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.stock).toBeDefined();
+  });
+
+  it("reports both fields at once when both overflow", async () => {
+    const result = await parse({ ...VALID, price: INT32_MAX + 1, stock: INT32_MAX + 1 });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(Object.keys(result.errors).sort()).toEqual(["price", "stock"]);
+  });
+});

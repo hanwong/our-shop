@@ -38,7 +38,14 @@ function parseText(value: unknown): string | null {
 }
 
 /**
- * A whole number at or above `min`.
+ * The largest value a PostgreSQL `Int` column can hold. Product.price and
+ * Product.stock are both `Int`, so this is the real ceiling on a submission —
+ * not `Number.MAX_SAFE_INTEGER`, which is far above what the column accepts.
+ */
+const INT32_MAX = 2147483647;
+
+/**
+ * A whole number within `[min, INT32_MAX]`.
  *
  * `Number.isSafeInteger` rejects the three shapes a numeric form field can
  * arrive in badly — a decimal, a NaN, and an Infinity — in one test, and it
@@ -46,10 +53,17 @@ function parseText(value: unknown): string | null {
  * "39000" is a client that did not send what it claimed, not a value to
  * coerce. Product.price and Product.stock are both `Int` columns, so a
  * non-integer could not be stored faithfully anyway.
+ *
+ * The upper bound is the same column constraint read from the other end.
+ * `Number.isSafeInteger(2147483648)` is true — it is a perfectly ordinary
+ * JavaScript integer — but the column cannot hold it, so without this check the
+ * value passed validation, reached Prisma, and came back as an uncaught server
+ * error: a 500 reachable from ordinary form input. Bounding it here turns that
+ * into the same field-level rejection every other bad value already gets.
  */
 function parseWholeNumber(value: unknown, min: number): number | null {
   if (typeof value !== "number" || !Number.isSafeInteger(value)) return null;
-  return value >= min ? value : null;
+  return value >= min && value <= INT32_MAX ? value : null;
 }
 
 /**

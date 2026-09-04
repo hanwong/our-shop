@@ -184,6 +184,11 @@ describe("[AC-ADMIN-030] an invalid submission writes nothing and says what to f
     ["price 0", { ...VALID_BODY, price: 0 }, "price"],
     ["negative price", { ...VALID_BODY, price: -1 }, "price"],
     ["fractional price", { ...VALID_BODY, price: 1.5 }, "price"],
+    // CodeRabbit PR#18: above the Int column ceiling. Unbounded, these reached
+    // Prisma and became a 500; they must be a 400 naming the field like any
+    // other bad input.
+    ["price above the Int ceiling", { ...VALID_BODY, price: 2147483648 }, "price"],
+    ["stock above the Int ceiling", { ...VALID_BODY, stock: 2147483648 }, "stock"],
     ["negative stock", { ...VALID_BODY, stock: -1 }, "stock"],
     ["blank name", { ...VALID_BODY, name: "   " }, "name"],
     ["blank description", { ...VALID_BODY, description: "" }, "description"],
