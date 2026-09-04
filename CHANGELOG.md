@@ -21,7 +21,7 @@ All notable changes to this project are documented here. Format loosely follows 
 
 인수 기준 16건(AC-ADMIN-042~055, `AC-ADMIN-046`·`AC-ADMIN-053`은 각각 a/b 두 하위 항목으로 분할 — 요구사항 14건에 대응) 전부 PASS. `npx tsc --noEmit` 통과, `grep -rn 'admin/api' src/ tests/` 0건.
 
-**pre-commit 게이트 우회 공개 (`SKIP_MOAI_PRECOMMIT=1`).** 이 SPEC의 모든 커밋(run-phase + 이번 sync 커밋)은 `SKIP_MOAI_PRECOMMIT=1` 우회로 이루어졌다. `SPEC-ADMIN-002`와 **동일한 이유이고 동일한 원인**이다 — 저장소 전역 `moai gate`가 전체 스위트 green을 요구하는데, 백로그 카드 `t20`의 타이밍 플레이크(`tests/integration/auth/login.test.ts`의 `AC-AUTH-005`, `SPEC-AUTH-001` 소유)가 해소되기 전까지 이 저장소의 **어떤 커밋도** 우회 없이는 게이트를 통과하지 못한다. **이 SPEC이 만든 실패는 0건이다** — 전체 스위트 1372건 중 실패 1건은 위 플레이크뿐이며, 격리 실행하면 `diff=0.07ms`(허용 `53.77ms`)로 통과한다. 게이트를 약화시키거나 남의 SPEC 소유 테스트를 이 SPEC의 봉투 밖에서 손대는 두 대안은 의도적으로 기각하고 **우회 + 명시적 공개**를 택했다.
+**pre-commit 게이트 우회 공개 (`SKIP_MOAI_PRECOMMIT=1`).** 이 SPEC의 모든 커밋(run-phase + 이번 sync 커밋)은 `SKIP_MOAI_PRECOMMIT=1` 우회로 이루어졌다. `SPEC-ADMIN-002`와 **동일한 이유이고 동일한 원인**이다 — 저장소 전역 `moai gate`가 전체 스위트 green을 요구하는데, 백로그 카드 `t20`의 타이밍 플레이크(`tests/integration/auth/login.test.ts`의 `AC-AUTH-005`, `SPEC-AUTH-001` 소유)가 해소되기 전까지 이 저장소의 **어떤 커밋도** 우회 없이는 게이트를 통과하지 못한다. **이 SPEC이 만든 실패는 0건이다** — 전체 스위트 1382건 중 실패 1건은 위 플레이크뿐이며(sync-audit F1 수정으로 회귀 테스트 9건이 추가되어 착수 시점 1373건에서 늘었다), 격리 실행하면 통과한다. 게이트를 약화시키거나 남의 SPEC 소유 테스트를 이 SPEC의 봉투 밖에서 손대는 두 대안은 의도적으로 기각하고 **우회 + 명시적 공개**를 택했다.
 
 ### 알려진 한계 — SPEC-ADMIN-003
 

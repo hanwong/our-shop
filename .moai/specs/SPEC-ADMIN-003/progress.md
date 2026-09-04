@@ -136,7 +136,7 @@ needs_clarification: 0   # iteration 1의 1건은 사용자 결정으로 해소�
 |---|---|---|
 | `src/middleware.ts` 바이트 무변경 | PASS | numstat 0줄 + SHA-256 스냅샷 단언 통과 |
 | `middleware-preserve.test.ts` 수정 없이 통과 | PASS | 파일 diff 0줄, 3 tests 통과 |
-| 신규 실패 0건 | PASS | 전체 스위트 1 failed / 1372 passed. 유일한 실패가 baseline 과 **동일한** `t20` flake (같은 파일·같은 테스트·같은 단언). 단독 실행 시 통과 — `median diff=0.18ms tolerance=54.05ms`, exit 0 |
+| 신규 실패 0건 | PASS | 전체 스위트 1 failed / 1372 passed (run-phase 종료 시점. sync-audit F1 수정 후 1 failed / **1381 passed**). 유일한 실패가 baseline 과 **동일한** `t20` flake (같은 파일·같은 테스트·같은 단언). 단독 실행 시 통과 — `median diff=0.18ms tolerance=54.05ms`, exit 0 |
 | lint 무회귀 | PASS | `npm run lint` exit 0 |
 
 ## §E.3 Run-phase Audit-Ready Signal
@@ -145,7 +145,7 @@ needs_clarification: 0   # iteration 1의 1건은 사용자 결정으로 해소�
 spec_id: SPEC-ADMIN-003
 card: t28
 run_complete_at: 2026-09-04
-run_commit_sha: pending-backfill-run   # M1~M8 8개 커밋. tip 은 이 파일을 담은 M8 커밋
+run_commit_sha: 8872221   # M1~M8 8개 커밋의 tip(M8). 자기 SHA 를 담을 수 없어 후속 커밋에서 백필
 run_status: audit-ready
 ac_pass_count: 16
 ac_fail_count: 0
@@ -157,7 +157,7 @@ cross_platform_build:
   lint: pass                           # npm run lint exit 0
 test_suite:
   baseline: "1 failed / 1321 passed (95 files)"
-  post_run: "1 failed / 1372 passed (99 files)"
+  post_run: "1 failed / 1372 passed (99 files)"   # sync-audit F1 수정 후: 1 failed / 1381 passed
   new_failures: 0
   known_flake: "tests/integration/auth/login.test.ts AC-AUTH-005 (backlog card t20) — passes in isolation, exit 0"
 total_run_phase_files: 22              # 구현·테스트 15 + 이웃 SPEC 7
@@ -190,7 +190,16 @@ spec_id: SPEC-ADMIN-003
 card: t28
 sync_complete_at: 2026-09-04
 sync_commit_sha: 2d663e1c78b718f4059ffd132f294c731f040dbc
-sync_status: complete
+sync_status: complete   # 단, 아래 sync-audit 이력 참조 — 1차 FAIL 후 2차에서 PASS
+
+**sync-audit 이력** (이 절이 없으면 "sync 가 한 번에 통과했다"로 읽힌다 — 그 오독을 막기 위한 기록):
+
+| iteration | 판정 | 내용 |
+|---|---|---|
+| 1 (2026-09-04) | **FAIL** — 가중 85.5 (Functionality 83 / Security 92 / Craft 82 / Consistency 86). must-pass 인 Functionality 가 85 미달로 방화벽 발동. 보고서 `.moai/reports/sync-audit/SPEC-ADMIN-003-2026-09-04.md` | 본래 임무(SPEC-ADMIN-002 F1 해소)는 실서버·프로덕션 빌드 양쪽에서 실계정 로그인 + 생성 201 / 수정 200 / 중단 200 + Postgres 되읽기로 **실증 확인**. blocking 2건: **F1**(High — A층 배치 가드가 정규식형·캐치올 매처 앞에서 fail-open. SPEC 이 `progress.md` §26 에 우회 형태로 문자 그대로 적어 둔 `["/((?!_next\|api).*)"]` 를 넣으면 가드가 0/4 를 잡고 clean 보고), **F2**(Medium — CHANGELOG 가 존재하지 않는 엔드포인트 4개를 "신규"로 광고) |
+| 2 (2026-09-04) | **PASS** — 가중 90.15 (Functionality **92** / Security 92 / Craft **88** / Consistency 85). blocking 0건. 보고서 `-iter2.md` | F1 → 커밋 `449f7a8`(가드가 변환 불가 형태를 거부하도록 fail-closed 화, 회귀 테스트 9건 추가). F2 → 커밋 `2c23af6`(엔드포인트 4곳 정정, 정당한 `/admin/api` 언급 3곳은 보존). 감사자가 Next.js 내장 `path-to-regexp` 를 정답지로 삼아 실제 라우트 20개에 대조한 결과 **silent fail-open 0건**. 과잉 거부도 없음(정상 매처·AC-048 프로브 3종 정상). 구현 담당이 자진 신고한 `/a.c` 구멍은 **오판**으로 판명 — path-to-regexp 도 점을 이스케이프하므로 현 처리가 정확(감사자 F12) |
+
+**미해소 optional 지적** (판정을 막지 않음): F3 C층 가드 `@MX:NOTE` 주장 부정확 · F4 `middleware-traversal.test.ts:96-111` 항진명제 · F5 SPEC-ADMIN-002 F2 이월분 백로그 카드 미등재 · F6 가드의 catch 방향 회귀 테스트 부재 + 게이트 상시 우회 · F10 `toPathname` 이 `@slot`·`(.)` 세그먼트 미정규화 · F11 `extractMatcherStrict` 가 파일 내 첫 `matcher:` 매치를 취함
 b12_self_test_a: pass    # grep -c 'SPEC-ADMIN-003' CHANGELOG.md -> 0 (중복 없음)
 b12_self_test_b: pass    # acceptance.md AC 표제 16건 == CHANGELOG 기재 16건
 b12_self_test_c: pass    # 기재된 모든 파일 경로를 실제 트리에서 확인
