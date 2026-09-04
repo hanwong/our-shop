@@ -87,34 +87,56 @@ iter2에서 PASS(0.94)를 받은 뒤, 점수에 반영되지 않는 소견 2건�
 
 M1 종료 조건과 별개로, `e2e/e2e-stub.env`를 임시로 제거한 뒤 `npm run test:e2e`를 실행해 `NEXT_PUBLIC_PG_CLIENT_KEY, PG_SECRET_KEY`를 정확히 이름으로 지목하는 조기 실패 메시지를 확인했다(§E 자체 검증 섹션의 명령/출력 참조). 파일을 원복한 뒤 스위트가 다시 GREEN임을 재확인했다.
 
+### M2 — Toss 스텁 SDK와 결제 경로 (완료)
+
+**작업 위치**: 오케스트레이터가 이 세션을 `.claude/worktrees/agent-a3091a9042ca9c1c6`로 격리 배치했다 (t14가 아닌 별도 워크트리, HEAD가 `WT-checkout-e2e-tests`와 불일치 — 위임 프롬프트 §A.0의 예상된 격리 시나리오). `git checkout -b m2-toss-stub 6d6af29...`로 t14의 M1 머지 커밋에서 분기해 작업했다. 최종 통합(머지)은 오케스트레이터가 t14 워크트리에서 수행한다.
+
+**cycle_type=tdd — RED-GREEN 실행 기록**: `e2e/m2-toss-stub.spec.ts` 두 시나리오를 먼저 작성한 뒤, 구현(스텁 스크립트 + 픽스처)을 스크래치패드로 임시 격리하고 `fixtures.ts`를 HEAD 상태로 되돌려 실행 — `Test has unknown parameter "tossPaymentStub"` RED를 확보했다(§E8 참조). 이후 구현을 원복해 재실행하자 두 시나리오 모두 첫 실행에서 바로 GREEN — 별도 수정 없이 통과했다.
+
+**설계**: plan.md §D의 스텁 스크립트를 `e2e/support/toss-sdk-stub.js`로 신설하고, `page.route()`로 CDN 스크립트 URL(`https://js.tosspayments.com/v2/standard`)을 가로채 이 스텁 본문으로 응답하는 `e2e/support/toss-stub-fixture.ts`(`installTossPaymentStub`)를 신설했다. `e2e/support/fixtures.ts`에 `tossPaymentStub` 픽스처를 추가해 `tossHostHits`와 나란히 노출한다(기존 M1 픽스처는 손대지 않음 — 확장만).
+
+**successUrl/failUrl 검증 메커니즘**: `PayButton.tsx`가 만드는 `successUrl`은 서버 라우트(`/api/payments/confirm`)이므로, 클릭 이후 브라우저가 실제로 리다이렉트를 따라가 최종 URL이 바뀐다. 이 최종 URL만 보면 스텁이 실어 보낸 질의 파라미터(`paymentKey`/`orderId`/`amount`)가 사라진다. 따라서 `page.waitForRequest()`로 브라우저가 실제로 낸 첫 GET 요청 자체를 가로채 그 URL의 질의 파라미터를 단언했다 — plan.md §F M2 종료 조건("스텁이 PayButton이 만든 successUrl로 실제 내비게이션을 일으킨다")이 요구하는 관측 가능한 증거다. 실패 모드(`failUrl`)는 클라이언트 측 `window.location.assign()`이라 리다이렉트가 없으므로 `page.toHaveURL()`로 충분했다.
+
+**페이지 라우트 대 컨텍스트 라우트 우선순위 확인**: `tossPaymentStub`과 `tossHostHits`를 같은 테스트에서 함께 사용해, 스텁이 성공적으로 CDN 스크립트를 대체하면서도 `tossHostHits`가 0건으로 유지됨을 실행으로 확인했다 — Playwright가 페이지 레벨 라우트를 컨텍스트 레벨 감시 라우트보다 먼저 적용한다는 `toss-stub-fixture.ts` 주석의 근거를 문서상 가정이 아니라 관측으로 뒷받침한다.
+
+**Toss 호스트 무접촉 재확인 (프로덕션 소스 불변)**: `git diff --stat 6d6af29... -- src/lib/payment/toss-server.ts`가 빈 출력 — M1에서 확정된 0줄 diff가 M2에서도 유지됨을 재확인했다(§E4).
+
+## §E.2b M2 AC/REQ PASS 매트릭스
+
+| # | 항목 | 판정 | 근거 |
+|---|---|---|---|
+| REQ-E2E-006 | 브라우저가 Toss SDK 스크립트를 요청하면 스텁이 `window.TossPayments`를 정의해 응답한다 | PASS | `toss-stub-fixture.ts`의 `page.route()`가 `toss-sdk-stub.js` 본문으로 200 응답, 두 시나리오 모두 `loadTossPaymentClient()` → `requestPayment()` 호출 체인이 실제로 실행됨(내비게이션 관측이 그 증거) |
+| REQ-E2E-007 (성공) | 성공 모드에서 `requestPayment` 호출 시 스텁이 `successUrl`로 내비게이션하며 `paymentKey`/`orderId`/`amount`를 싣는다 | PASS | AC-E2E-005a 테스트 — `page.waitForRequest()`로 캡처한 실제 GET 요청의 `url.pathname === "/api/payments/confirm"`, `orderId`/`amount` 파라미터가 주문 픽스처 값과 정확히 일치 |
+| REQ-E2E-007 (실패) | 실패 모드에서 스텁이 `failUrl`로 내비게이션한다 | PASS | AC-E2E-005b 테스트 — `tossPaymentStub.setMode("fail")` 이후 최종 URL이 `/checkout/complete/{orderId}?payment_failed=1`과 정확히 일치 |
+| AC-E2E-005a | 스텁 SDK가 성공 모드에서 애플리케이션이 만든 successUrl로 이동 | PASS | 위와 동일 |
+| AC-E2E-005b | 스텁 SDK가 실패 모드에서 애플리케이션이 만든 failUrl로 이동 | PASS | 위와 동일 |
+| REQ-E2E-005 (재확인, 이번 milestone 범위) | 결제 시나리오 두 건 모두에서 Toss 호스트로 나가는 요청이 0건 | PASS | 두 테스트 모두 `expect(tossHostHits).toHaveLength(0)` — 스텁이 CDN 스크립트 요청을 흡수하고 감시 라우트가 발동하지 않음 |
+| 프로덕션 소스 불변 | `src/lib/payment/toss-server.ts` diff 0줄 유지 | PASS | `git diff --stat 6d6af29... -- src/lib/payment/toss-server.ts` 빈 출력 |
+| M1 회귀 없음 | M1의 기존 2개 시나리오가 계속 통과 | PASS | 전체 `npm run test:e2e` 4/4 통과(§E5) |
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 ```yaml
-run_milestone: M1
-run_status: milestone-complete   # M1만 완료 — M2~M6은 미착수
-m1_spike_points_pass: 4   # / 4
-ac_verified_this_milestone: [AC-E2E-002, AC-E2E-003]   # 부분: AC-E2E-001은 M3+ 실 여정에서 완전 검증
+run_milestone: M2
+run_status: milestone-complete   # M1, M2 완료 — M3~M6은 미착수
+m1_spike_points_pass: 4   # / 4 (M1 그대로 유지)
+ac_verified_this_milestone: [AC-E2E-005a, AC-E2E-005b]
+ac_verified_cumulative: [AC-E2E-002, AC-E2E-003, AC-E2E-005a, AC-E2E-005b]
 baseline_vitest_files_before: 110
 baseline_vitest_files_after: 110
 baseline_vitest_tests_after: 1478
 toss_server_ts_diff_lines: 0
 typecheck_status: pass
 lint_status: pass
+e2e_status: pass   # 4/4 (m1-spike ×1, m2-toss-stub ×2, smoke ×1)
 new_files:
-  - playwright.config.ts
-  - e2e/e2e-stub.env
-  - e2e/smoke.spec.ts
-  - e2e/m1-spike.spec.ts
-  - e2e/support/env-check.ts
-  - e2e/support/call-log.ts
-  - e2e/support/fixtures.ts
-  - e2e/support/order-fixture.ts
-  - e2e/support/mock-toss-api.mjs
+  - e2e/m2-toss-stub.spec.ts
+  - e2e/support/toss-sdk-stub.js
+  - e2e/support/toss-stub-fixture.ts
 modified_files:
-  - package.json   # test:e2e script + @playwright/test + undici devDependencies
-  - package-lock.json
-worktree_case: isolated-recovery   # A.0 — 별도 워크트리에서 m1-e2e-spike 브랜치로 작업, t14로 머지 예정
-next_milestone: M2   # Toss 스텁 SDK와 결제 경로 (plan.md §F)
+  - e2e/support/fixtures.ts   # tossPaymentStub 픽스처 추가, 기존 tossHostHits는 불변
+worktree_case: isolated-recovery   # A.0 — 별도 워크트리(agent-a3091a9042ca9c1c6)에서 m2-toss-stub 브랜치로 작업, t14로 머지 예정
+next_milestone: M3   # 해피 패스 여정 (plan.md §F)
 ```
 
 ## §E.4 Sync-phase Audit-Ready Signal
