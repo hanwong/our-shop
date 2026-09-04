@@ -16,6 +16,7 @@ A TypeScript / Next.js e-commerce backend. This repository currently implements:
 - **SPEC-ADMIN-001** — this repository's first admin (back-office) surface: `/staff/login`, `/staff/orders` list, `/staff/orders/{orderId}` detail, and admin-triggered order cancellation.
 - **SPEC-AUTH-002** — the customer-facing `/login` and `/signup` screens, plus a role-agnostic server-side session lookup helper.
 - **SPEC-ADMIN-002** — the admin product back-office: `/staff/products` list, create/edit forms, and suspend/restore (soft delete via `Product.isActive`), with the customer-facing catalog scoped to sellable products only.
+- **SPEC-REVIEW-001** — product reviews: one star rating (1-5) + text review per account per product, an average/count/list on the product detail page, and a login-gated write form.
 
 ## Stack
 
@@ -196,6 +197,21 @@ SPEC-STOREFRONT-001이 스텁으로 남기고 "홈 콘텐츠 설계는 범위 �
 **클라이언트 인증 상태 저장소는 도입하지 않았다** — 액세스 토큰을 클라이언트 메모리에만 두는 `SPEC-AUTH-001`의 설계(REQ-AUTH-009)를 뒤집는 결정이라 별개 SPEC의 몫이며, `createContext`/`useContext`/`useAuth`/`localStorage`/`sessionStorage`가 0건이라는 것을 정적 가드가 강제한다. `src/features/admin/services/admin-session.ts`와 `src/middleware.ts`는 한 글자도 바뀌지 않았다.
 
 **알려진 한계**(자세한 내용은 `.moai/specs/SPEC-AUTH-002/progress.md` 참고): 헤더·전역 내비게이션이 없어 로그인해도 화면이 달라지지 않고 로그아웃할 방법도 화면에 없다. `resolveSession`은 아직 소비자가 없어 단위 테스트로만 검증됐고 실제 요청 경로에서 실행된 적이 없다. Google OAuth 진입 버튼이 없어 브라우저에서 소셜 로그인을 시작할 방법은 여전히 없다. 검증은 jsdom + Testing Library까지이며 실제 브라우저 폼 거동·모바일 뷰포트는 E2E 하네스 부재로 아직 확인하지 않았다.
+
+## 상품 리뷰 (SPEC-REVIEW-001)
+
+`SPEC-STOREFRONT-001`이 미리 예고하고 미뤄 둔 리뷰 기능이다(REQ-STOREFRONT-009, "리뷰는 별도 SPEC"). 로그인한 고객(또는 admin 계정)이 상품마다 별점(1-5) + 텍스트 후기를 하나씩 남기고, 상품 상세 페이지가 평균 평점·리뷰 개수·리뷰 목록을 표시한다. 방금 위에서 만든 `SPEC-AUTH-002`의 역할 무관 `resolveSession()`이 이 SPEC의 첫 소비자다.
+
+| 경로/함수 | 파일 | 설명 |
+|---|---|---|
+| `POST /api/reviews` | `src/app/api/reviews/route.ts` | 리뷰 작성. `POST`만 존재 — `GET`은 만들지 않는다(상세 페이지가 서비스를 직접 호출) |
+| `getProductReviewSummary()` | `src/features/reviews/services/review-service.ts` | 평균(소수 1자리 반올림)·개수·목록(최신순)을 함께 반환 |
+
+**정책 요약** — 별점 1-5 정수, 본문은 trim 후 비어있지 않고 최대 2000자(둘 다 서비스 레이어 검증, DB 제약 아님). 계정당 상품당 리뷰 1개 — `@@unique([userId, productId])`가 1차 방어선이고, 서비스가 `create()`의 `P2002` 위반을 잡아 409로 매핑하는 것이 레이스 상황의 2차 방어선이다. 구매 여부는 검증하지 않으며 role에 따른 추가 게이트도 없다 — customer와 admin이 완전히 동일한 경로로 작성한다. 수정·삭제·모더레이션 UI는 없다.
+
+**리뷰 본문은 저장형 XSS를 막도록 항상 일반 JSX 텍스트 자식으로만 렌더링된다**(`{review.body}`, `dangerouslySetInnerHTML` 미사용) — React의 기본 이스케이프에 기대는 것이 이 저장소의 다른 사용자-입력 렌더링과 같은 접근이다. 홈 화면 상품 그리드(`ProductGrid`/`ProductCard`)는 이 SPEC이 건드리지 않았고 여전히 평점 배지나 리뷰 개수를 표시하지 않는다.
+
+**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-REVIEW-001/progress.md` 참고): `Promise.all` 기반의 진짜 동시 도착 레이스는 재현하지 않았다 — 순차 재현(먼저 하나 성공시키고 두 번째를 `P2002`로 거부)으로 DB 제약 자체가 최종 방어선임을 확인했을 뿐이다. plan-audit의 선택 관찰 2건(HISTORY 갱신, body 길이 상한의 별도 formal AC)은 지시대로 착수하지 않았다. 신규 통합 테스트(`review-repository.test.ts`)는 로컬 실제 PostgreSQL에서만 실행을 확인했다.
 
 ## 주문/체크아웃 (SPEC-ORDER-001)
 

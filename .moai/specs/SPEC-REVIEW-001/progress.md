@@ -99,7 +99,7 @@ $ git diff --stat main...HEAD -- src/app/page.tsx src/components/product/Product
 
 ### Baseline-attribution
 
-이 워크트리(`.claude/worktrees/t36`, 브랜치 `WT-review-rating-purchase`) HEAD, M1~M5 커밋 전체 반영 후 실측. `npx prisma migrate dev --name add_review_model` 실측 적용(로컬 Postgres `our-shop-demo-pg`, 포트 5433) — `review-repository.test.ts`는 이 실제 DB에 대해 실행됨(capability gate로 도달 불가 시 이름 있는 이유와 함께 skip).
+이 워크트리(`.claude/worktrees/t36`, 브랜치 `WT-review-rating` — run-phase 완료 시점에 `WT-review-rating-purchase`에서 개명) HEAD, M1~M5 커밋 전체 반영 후 실측. `npx prisma migrate dev --name add_review_model` 실측 적용(로컬 Postgres `our-shop-demo-pg`, 포트 5433) — `review-repository.test.ts`는 이 실제 DB에 대해 실행됨(capability gate로 도달 불가 시 이름 있는 이유와 함께 skip).
 
 ### Gaps (미검증)
 
@@ -121,4 +121,40 @@ AC-REVIEW-001~016 전부 PASS(§E.2 매트릭스). `npx tsc --noEmit`/`npm run b
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+sync_status: complete
+sync_complete_at: 2026-09-05
+sync_commit_sha: pending-backfill-sync-review-001
+
+### Claim
+
+CHANGELOG.md·README.md에 SPEC-REVIEW-001 항목 반영 완료. spec.md frontmatter `status: in-progress → completed`(단일 sync 커밋으로 전이 — Status Transition Ownership Matrix의 `in-progress → implemented → completed`가 이 커밋 하나에 병합됨). 별도 sync-auditor 서브에이전트 실행은 수행하지 않았다(Gaps 참고) — 대신 이 세션이 직접 AC 매트릭스·PRESERVE diff·전체 스위트를 재확인하는 방식으로 독립 검증을 대체했다.
+
+### Evidence (verbatim)
+
+```
+$ grep -c "SPEC-REVIEW-001" CHANGELOG.md
+2   (헤더 1회 + "알려진 한계" 소제목 1회 — 중복 "추가" 항목 없음)
+
+$ npx vitest run
+ Test Files  110 passed (110)
+      Tests  1478 passed (1478)
+
+$ npx tsc --noEmit
+(no output — exit 0)
+
+$ npx eslint .
+(no output — exit 0)
+```
+
+### Baseline-attribution
+
+`.claude/worktrees/t36`, 브랜치 `WT-review-rating`, M6 커밋(`7c027a9`) 위에 CHANGELOG.md/README.md/progress.md/spec.md 문서 변경을 얹은 상태에서 실측. 회귀 없음 확인.
+
+### Gaps (미검증)
+
+- **sync-auditor 서브에이전트를 실행하지 않았다.** 이 세션이 이미 워크트리에 anchor된 상태에서 `Agent()`를 spawn하면 별도 worktree로 자동 격리되는 플랫폼 결함(이전 카드 t34에서 관찰·SendFeedback으로 보고됨)이 재현될 위험이 있어, 독립적 skeptical 재검토를 이 세션 스스로 수행하는 것으로 대체했다. 완전히 독립적인(제3자) 감사는 아니다 — 이 점을 lead/sync 검토 시 감안해야 한다.
+- `sync_commit_sha`는 이 커밋 자체가 자신의 SHA를 알 수 없어 `pending-backfill-*` 플레이스홀더로 남기고, 다음 커밋에서 실제 SHA로 백필한다(schema 문서의 자기참조 예외 패턴).
+
+### Residual-risk (잔여 위험)
+
+- README/CHANGELOG의 한국어 서술은 이 세션이 직접 작성했다 — 별도 감수자(manager-docs 서브에이전트 등)의 교차검증을 거치지 않았다.
