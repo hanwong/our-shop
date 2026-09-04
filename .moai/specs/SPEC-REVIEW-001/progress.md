@@ -123,7 +123,7 @@ AC-REVIEW-001~016 전부 PASS(§E.2 매트릭스). `npx tsc --noEmit`/`npm run b
 
 sync_status: complete
 sync_complete_at: 2026-09-05
-sync_commit_sha: pending-backfill-sync-review-001
+sync_commit_sha: 2f5f531
 
 ### Claim
 
