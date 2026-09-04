@@ -114,29 +114,60 @@ M1 종료 조건과 별개로, `e2e/e2e-stub.env`를 임시로 제거한 뒤 `np
 | 프로덕션 소스 불변 | `src/lib/payment/toss-server.ts` diff 0줄 유지 | PASS | `git diff --stat 6d6af29... -- src/lib/payment/toss-server.ts` 빈 출력 |
 | M1 회귀 없음 | M1의 기존 2개 시나리오가 계속 통과 | PASS | 전체 `npm run test:e2e` 4/4 통과(§E5) |
 
+### M3 — 해피 패스 여정 (완료)
+
+**작업 위치**: 오케스트레이터가 이 세션을 `.claude/worktrees/agent-a66a658e8f0d757fe`로 격리 배치했다 (t14가 아닌 별도 워크트리, HEAD가 `WT-checkout-e2e-tests`와 불일치 — 위임 프롬프트 §A.0의 예상된 격리 시나리오). `git checkout -b m3-happy-path 6beb53b...`로 t14의 M2 머지 커밋에서 분기해 작업했다. 최종 통합(머지)은 오케스트레이터가 t14 워크트리에서 수행한다.
+
+**cycle_type=tdd — RED-GREEN 실행 기록**: `e2e/m3-happy-path.spec.ts`를 먼저 작성했다 — `order-fixture.ts`에 아직 존재하지 않는 `getSeededProduct`/`clearStalePaymentKey`를 import한 상태로 실행해 `TypeError: (0 , _orderFixture.getSeededProduct) is not a function` RED를 확보했다(§E8 참조). 이후 두 헬퍼를 `order-fixture.ts`에 추가하자 곧바로 두 번째 실패가 나타났다 — 폼 제출 버튼(`type="submit"`)을 하이드레이션 완료 전에 클릭해 React의 `onSubmit`(내부에서 `event.preventDefault()`)이 아직 붙지 않은 채 브라우저 네이티브 GET 제출이 발생, `/checkout?recipientName=...` 쿼리 스트링 URL로 떨어진 것을 관측했다(`plan.md` §G가 명시한 "하이드레이션 타이밍 플레이크" 위험이 실제로 재현된 사례). 임의 `waitForTimeout`을 쓰지 않고 `page.waitForLoadState("networkidle")`(Playwright의 정식 대기 primitive)를 폼 조작 직전에 추가해 해결 — 이후 3회 연속 단독 실행, 전체 스위트 3회 연속 실행 모두 GREEN.
+
+**설계**: 여정 전체를 하나의 시나리오로 작성했다(spec.md §1.3 "여정 1개" 상한 — 각 단계가 이전 단계의 브라우저 상태(게스트 쿠키, 생성된 주문)에 의존하므로 분리하면 실제 여정 대신 지름길을 검증하게 된다).
+
+- **게스트 신원(Section D #5 확인 완료)**: M1/M2의 `order-fixture.ts`처럼 `context.addCookies()`로 쿠키를 주입하지 않았다. 대신 `POST /api/cart/items`(`src/app/api/cart/items/route.ts`)가 최초 담기 요청에서 `Set-Cookie: guest_cart_id=...`를 실제로 발급하는 것을 실제 브라우저가 자연스럽게 받아 이후 모든 내비게이션에 실어 나른다 — 이 SPEC이 세우는 게스트 쿠키 메커니즘 자체가 검증 대상이 됐다.
+- **시드 상품 픽스처**: `order-fixture.ts`에 `getSeededProduct()`를 신설 — `isActive: true, stock: { gt: 0 }`로 조회한다(`AddToCartButton`의 `stock === 0` 비활성 가드와 대칭). 주문을 직접 생성하지 않는다는 점이 M1/M2의 `createSpikeOrder()`와의 차이다 — REQ-E2E-008/009의 요점이 카트→체크아웃→주문 경로를 실제 UI로 태우는 것이기 때문이다.
+- **결제 성공 마무리**: M2의 `tossPaymentStub` 픽스처를 그대로 재사용했다(새 모킹 메커니즘 없음, Section D #0). `PayButton` 클릭 → `successUrl`(`/api/payments/confirm`) 실제 내비게이션 → 서버 confirm → `/checkout/complete/{orderId}`(결제 완료 상태) 전체를 실제로 완주시켜 AC-E2E-008을 관측했다 — M2의 두 시나리오는 최초 요청만 캡처하고 완주를 기다리지 않는다.
+
+**잔여 위험 재확인(Section A informational note) — 재현됨, M3 범위 내에서 방어**: `npm run test:e2e` 사전 실행(M3 착수 전, 코드 변경 없음) 단계에서 서버 로그에 `Prisma prisma.order.updateMany() ... Unique constraint failed on the fields: (paymentKey)` (P2002)가 실제로 나타났다 — 정보성 잔여 위험이 아니라 **재현 가능한 사실**임을 확인했다. 원인: `toss-sdk-stub.js`가 성공 모드에서 모든 시나리오에 대해 동일한 리터럴 `paymentKey`("e2e_stub_payment_key")를 쓰고, `Order.paymentKey`는 DB 레벨 `@unique` 제약이다(`prisma/schema.prisma:313`). M2의 성공 시나리오는 자신이 촉발한 내비게이션의 완주를 기다리지 않으므로, 서버 측 confirm 쓰기가 테스트 함수 종료 이후에도 백그라운드에서 진행 중일 수 있다 — 이후 시나리오(M3)가 같은 리터럴 키로 confirm을 시도하면 `markOrderPaid()`의 `updateMany()`가 처리되지 않은 예외(P2002)를 던져 confirm 리다이렉트가 500으로 깨질 수 있다.
+
+M5의 일반 시드·격리 정리로 확장하지 않고, **M3 자신의 시나리오에만 필요한 만큼만** 방어했다: `order-fixture.ts`에 `clearStalePaymentKey(paymentKey)`를 신설해 M3 시나리오가 자신의 결제 트리거를 누르기 직전에 그 리터럴 키를 쥔 잔여 행을 `null`로 정리한다 — 행을 삭제하지 않고 해당 컬럼 하나만 정리하는 좁은 방어. 이 가드를 추가한 뒤 전체 스위트 3회 연속 실행(§E2 참조) 모두 P2002 없이 5/5 GREEN이었다. M2 자신의 두 시나리오를 고치는 일(비동기 완주를 기다리게 만드는 등)은 M3의 스코프 밖이라 손대지 않았다 — 이 정정은 M2가 소유한 시나리오 자체가 아니라 M3이 그 위에서 안전하게 완주하기 위한 M3 쪽 방어선이다.
+
+## §E.2c M3 AC/REQ PASS 매트릭스
+
+| # | 항목 | 판정 | 근거 |
+|---|---|---|---|
+| REQ-E2E-008 / AC-E2E-006 | 상품 상세에서 장바구니 담기 → `/cart`에 그 상품이 한 줄로 반영, 빈 장바구니 화면 비표시 | PASS | `page.getByRole("button",{name:"장바구니에 담기"})` 클릭 → "장바구니로 이동" 링크로 `/cart` 진입 → `getByRole("heading",{name:"장바구니가 비어 있습니다"})` not visible, `getByText(product.name,{exact:true})` visible |
+| REQ-E2E-009 / AC-E2E-007 | `/checkout` 필수 5필드 중 4개(수령인 이름/연락처/우편번호/주소) 유효 제출 → 주문 생성 → `/checkout/complete/{orderId}` 이동, 결제 대기 상태+결제 트리거 표시 | PASS | 폼 제출 후 `toHaveURL(/\/checkout\/complete\/[^/?]+$/)`, `getByRole("status").filter({hasText:"아직 결제 전 단계입니다"})` visible, `getByRole("button",{name:"결제하기"})` visible |
+| REQ-E2E-010 / AC-E2E-008 | 스텁 성공 모드로 결제 완료 → `payment_failed` 파라미터 없이 `/checkout/complete/{orderId}` 안착, 결제 완료 상태 표시, 결제 트리거 더 이상 미표시 | PASS | `toHaveURL(new RegExp('/checkout/complete/'+orderId+'$'))`, `not.toHaveURL(/payment_failed=1/)`, `getByRole("status").filter({hasText:"결제가 완료되었습니다"})` visible, `getByRole("button",{name:"결제하기"})` not visible |
+| AC-E2E-001 | `npm run test:e2e` 실행 시 Playwright가 서버를 기동하고 Chromium으로 시나리오를 실행하며 종료 코드 0 | PASS | 5개 시나리오(m1-spike ×1, m2-toss-stub ×2, m3-happy-path ×1, smoke ×1) 전부 통과, `EXIT_CODE=0`(§E1 참조) — plan.md §F가 M3 종료 조건으로 명시한 AC |
+| REQ-E2E-005 (재확인, M3 결제 시나리오) | 이 여정의 결제 단계에서도 Toss 호스트로 나가는 요청이 0건 | PASS | `expect(tossHostHits).toHaveLength(0)` |
+| 게스트 신원 메커니즘 | 수동 쿠키 주입 없이 `POST /api/cart/items`의 `Set-Cookie` 발급이 여정 전체의 신원을 실어 나른다 | PASS | `context.addCookies()` 호출 없음 — 코드 리뷰 + 여정 전체 통과로 확인 |
+| 프로덕션 소스 불변 | `src/lib/payment/toss-server.ts` diff 0줄 유지 | PASS | `git diff --stat 6beb53b... -- src/lib/payment/toss-server.ts` 빈 출력(§E4) |
+| M1/M2 회귀 없음 | 기존 3개 시나리오가 계속 통과 | PASS | 전체 `npm run test:e2e` 5/5 통과, 3회 연속 재확인(§E2) |
+| 기존 Vitest 스위트 불변 (REQ-E2E-002) | `npm test` 수집 파일 수·테스트 수가 M2 이후와 동일 | PASS | 110 files / 1478 tests, 변경 없음(§E2) |
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 ```yaml
-run_milestone: M2
-run_status: milestone-complete   # M1, M2 완료 — M3~M6은 미착수
+run_milestone: M3
+run_status: milestone-complete   # M1, M2, M3 완료 — M4~M6은 미착수
 m1_spike_points_pass: 4   # / 4 (M1 그대로 유지)
-ac_verified_this_milestone: [AC-E2E-005a, AC-E2E-005b]
-ac_verified_cumulative: [AC-E2E-002, AC-E2E-003, AC-E2E-005a, AC-E2E-005b]
+ac_verified_this_milestone: [AC-E2E-001, AC-E2E-006, AC-E2E-007, AC-E2E-008]
+ac_verified_cumulative: [AC-E2E-001, AC-E2E-002, AC-E2E-003, AC-E2E-005a, AC-E2E-005b, AC-E2E-006, AC-E2E-007, AC-E2E-008]
 baseline_vitest_files_before: 110
 baseline_vitest_files_after: 110
 baseline_vitest_tests_after: 1478
 toss_server_ts_diff_lines: 0
 typecheck_status: pass
 lint_status: pass
-e2e_status: pass   # 4/4 (m1-spike ×1, m2-toss-stub ×2, smoke ×1)
+e2e_status: pass   # 5/5 (m1-spike ×1, m2-toss-stub ×2, m3-happy-path ×1, smoke ×1) — 3회 연속 재확인
 new_files:
-  - e2e/m2-toss-stub.spec.ts
-  - e2e/support/toss-sdk-stub.js
-  - e2e/support/toss-stub-fixture.ts
+  - e2e/m3-happy-path.spec.ts
 modified_files:
-  - e2e/support/fixtures.ts   # tossPaymentStub 픽스처 추가, 기존 tossHostHits는 불변
-worktree_case: isolated-recovery   # A.0 — 별도 워크트리(agent-a3091a9042ca9c1c6)에서 m2-toss-stub 브랜치로 작업, t14로 머지 예정
-next_milestone: M3   # 해피 패스 여정 (plan.md §F)
+  - e2e/support/order-fixture.ts   # getSeededProduct, STUB_SUCCESS_PAYMENT_KEY, clearStalePaymentKey 신설; 기존 export는 불변
+residual_risk_m2_paymentkey_collision:
+  status: reproduced-and-guarded   # M3 착수 전 사전 실행에서 P2002 실제 재현, M3 전용 방어(clearStalePaymentKey)로 해결
+  scope: m3-only   # M2 자신의 두 시나리오는 수정하지 않음 — M5 일반 정리로 확장하지 않음
+worktree_case: isolated-recovery   # A.0 — 별도 워크트리(agent-a66a658e8f0d757fe)에서 m3-happy-path 브랜치로 작업, t14로 머지 예정
+next_milestone: M4   # 실패·재시도와 엣지 경로 (plan.md §F)
 ```
 
 ## §E.4 Sync-phase Audit-Ready Signal
