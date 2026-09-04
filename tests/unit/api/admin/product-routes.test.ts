@@ -56,10 +56,10 @@ const activeReq = (body: unknown = { isActive: false }, raw?: string) =>
 
 const ctx = (productId = "p1") => ({ params: Promise.resolve({ productId }) });
 
-const importCreate = async () => (await import("@/app/admin/api/products/route")).POST;
-const importEdit = async () => (await import("@/app/admin/api/products/[productId]/route")).PATCH;
+const importCreate = async () => (await import("@/app/staff/api/products/route")).POST;
+const importEdit = async () => (await import("@/app/staff/api/products/[productId]/route")).PATCH;
 const importActive = async () =>
-  (await import("@/app/admin/api/products/[productId]/active/route")).PATCH;
+  (await import("@/app/staff/api/products/[productId]/active/route")).PATCH;
 
 beforeEach(() => {
   csrf.verifyCsrfRequest.mockReset().mockReturnValue(true);

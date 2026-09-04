@@ -50,7 +50,7 @@ beforeEach(() => {
 describe("REQ-ADMIN-016 — CSRF is verified FIRST, before any other check", () => {
   it("answers 403 and touches NOTHING else when CSRF verification fails", async () => {
     csrf.verifyCsrfRequest.mockReturnValue(false);
-    const { PATCH } = await import("@/app/admin/api/orders/[orderId]/status/route");
+    const { PATCH } = await import("@/app/staff/api/orders/[orderId]/status/route");
 
     const response = await PATCH(patchReq({ status: "cancelled" }), ctx());
 
@@ -65,7 +65,7 @@ describe("REQ-ADMIN-017 — the session is re-verified on every write, never reu
   it("answers a rejection when resolveAdminSession() resolves to null, and never calls cancelOrderAsAdmin", async () => {
     csrf.verifyCsrfRequest.mockReturnValue(true);
     adminSession.resolveAdminSession.mockResolvedValue(null);
-    const { PATCH } = await import("@/app/admin/api/orders/[orderId]/status/route");
+    const { PATCH } = await import("@/app/staff/api/orders/[orderId]/status/route");
 
     const response = await PATCH(patchReq({ status: "cancelled" }), ctx());
 
@@ -74,7 +74,7 @@ describe("REQ-ADMIN-017 — the session is re-verified on every write, never reu
   });
 
   it("AC-ADMIN-003 spirit — the session-rejection response is indistinguishable in shape from the CSRF-rejection response", async () => {
-    const { PATCH } = await import("@/app/admin/api/orders/[orderId]/status/route");
+    const { PATCH } = await import("@/app/staff/api/orders/[orderId]/status/route");
 
     csrf.verifyCsrfRequest.mockReturnValue(false);
     const csrfFailure = await PATCH(patchReq({ status: "cancelled" }), ctx());
@@ -97,7 +97,7 @@ describe("REQ-ADMIN-012/013 — only { status: \"cancelled\" } is accepted; NO p
   });
 
   it("rejects a { status: \"paid\" } request with 400 and makes NO database call at all", async () => {
-    const { PATCH } = await import("@/app/admin/api/orders/[orderId]/status/route");
+    const { PATCH } = await import("@/app/staff/api/orders/[orderId]/status/route");
 
     const response = await PATCH(patchReq({ status: "paid" }), ctx());
 
@@ -107,7 +107,7 @@ describe("REQ-ADMIN-012/013 — only { status: \"cancelled\" } is accepted; NO p
   });
 
   it("rejects any other unrecognized status value with 400 and calls no repository function", async () => {
-    const { PATCH } = await import("@/app/admin/api/orders/[orderId]/status/route");
+    const { PATCH } = await import("@/app/staff/api/orders/[orderId]/status/route");
 
     const response = await PATCH(patchReq({ status: "shipped" }), ctx());
 
@@ -116,7 +116,7 @@ describe("REQ-ADMIN-012/013 — only { status: \"cancelled\" } is accepted; NO p
   });
 
   it("rejects a non-JSON body with 400", async () => {
-    const { PATCH } = await import("@/app/admin/api/orders/[orderId]/status/route");
+    const { PATCH } = await import("@/app/staff/api/orders/[orderId]/status/route");
 
     const response = await PATCH(patchReq(undefined, "not-json"), ctx());
 
@@ -133,7 +133,7 @@ describe("AC-ADMIN-013 — an invalid transition (already cancelled / missing or
 
   it("answers 404/409 when cancelOrderAsAdmin resolves { transitioned: false }", async () => {
     adminOrderRepo.cancelOrderAsAdmin.mockResolvedValue({ transitioned: false });
-    const { PATCH } = await import("@/app/admin/api/orders/[orderId]/status/route");
+    const { PATCH } = await import("@/app/staff/api/orders/[orderId]/status/route");
 
     const response = await PATCH(patchReq({ status: "cancelled" }), ctx());
 
@@ -142,7 +142,7 @@ describe("AC-ADMIN-013 — an invalid transition (already cancelled / missing or
 
   it("calls cancelOrderAsAdmin inside prisma.$transaction with the route's orderId", async () => {
     adminOrderRepo.cancelOrderAsAdmin.mockResolvedValue({ transitioned: false });
-    const { PATCH } = await import("@/app/admin/api/orders/[orderId]/status/route");
+    const { PATCH } = await import("@/app/staff/api/orders/[orderId]/status/route");
 
     await PATCH(patchReq({ status: "cancelled" }), ctx("o-target"));
 
@@ -156,7 +156,7 @@ describe("REQ-ADMIN-014/015 — a valid cancellation succeeds", () => {
     csrf.verifyCsrfRequest.mockReturnValue(true);
     adminSession.resolveAdminSession.mockResolvedValue({ userId: "admin-1", role: "admin" });
     adminOrderRepo.cancelOrderAsAdmin.mockResolvedValue({ transitioned: true });
-    const { PATCH } = await import("@/app/admin/api/orders/[orderId]/status/route");
+    const { PATCH } = await import("@/app/staff/api/orders/[orderId]/status/route");
 
     const response = await PATCH(patchReq({ status: "cancelled" }), ctx());
 

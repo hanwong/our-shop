@@ -8,10 +8,10 @@ import {
   GENERIC_AUTH_ERROR,
   isMissingCategoryError,
   MISSING_CATEGORY_ERRORS,
-} from "@/app/admin/api/products/shared";
+} from "@/app/staff/api/products/shared";
 
 /**
- * SPEC-ADMIN-002 M4 — `POST /admin/api/products` (REQ-ADMIN-024/026~030/038~040).
+ * SPEC-ADMIN-002 M4 — `POST /staff/api/products` (REQ-ADMIN-024/026~030/038~040).
  *
  * Order of operations, identical to SPEC-ADMIN-001's status/route.ts and to
  * this SPEC's other two write routes. Each step gates the next; none may be

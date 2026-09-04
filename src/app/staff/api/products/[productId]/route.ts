@@ -8,10 +8,10 @@ import {
   GENERIC_AUTH_ERROR,
   isMissingCategoryError,
   MISSING_CATEGORY_ERRORS,
-} from "@/app/admin/api/products/shared";
+} from "@/app/staff/api/products/shared";
 
 /**
- * SPEC-ADMIN-002 M4 — `PATCH /admin/api/products/[productId]`
+ * SPEC-ADMIN-002 M4 — `PATCH /staff/api/products/[productId]`
  * (REQ-ADMIN-025/026~030/038~040).
  *
  * The same four-step order the create route documents: CSRF -> fresh session

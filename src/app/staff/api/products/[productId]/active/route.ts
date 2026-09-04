@@ -3,10 +3,10 @@ import { cookies } from "next/headers";
 import { verifyCsrfRequest } from "@/lib/auth/csrf";
 import { resolveAdminSession } from "@/features/admin/services/admin-session";
 import { setProductActive } from "@/features/admin/repositories/admin-product-repository";
-import { GENERIC_AUTH_ERROR } from "@/app/admin/api/products/shared";
+import { GENERIC_AUTH_ERROR } from "@/app/staff/api/products/shared";
 
 /**
- * SPEC-ADMIN-002 M5 — `PATCH /admin/api/products/[productId]/active`
+ * SPEC-ADMIN-002 M5 — `PATCH /staff/api/products/[productId]/active`
  * (REQ-ADMIN-031/032/033/038/039/040).
  *
  * A dedicated sub-route rather than a field on the edit route, matching how
