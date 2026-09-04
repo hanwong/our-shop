@@ -28,11 +28,96 @@ AC 총 개수가 14개에서 16개로 증가(REQ/AC 예산 16/16 이내). `plan.
 
 ## §E.2 Run-phase Evidence
 
-_<pending run-phase>_
+run_status: complete
+run_complete_at: 2026-09-05
+
+### Claim
+
+M1-M5 전부 구현 완료. AC-REVIEW-001~016 전부 PASS. `git diff --stat main...HEAD`로 plan.md §D PRESERVE 목록(page.tsx/ProductGrid/ProductCard/AddToCartButton/ProductGallery/admin-session.ts/orders route.ts) 미변경 확인.
+
+### AC PASS/FAIL 매트릭스
+
+| AC | 판정 | 검증 근거 |
+|---|---|---|
+| AC-REVIEW-001 | PASS | `review-service.test.ts` "creates a review and returns 201-shaped success" + `route.test.ts` "returns 201 with the created review on success" |
+| AC-REVIEW-002 | PASS | `review-service.test.ts` "returns 409 without calling create() when a review already exists" |
+| AC-REVIEW-003 | PASS | `route.test.ts` "returns 401 without calling createReview when there is no session" |
+| AC-REVIEW-004 | PASS | `review-service.test.ts` `it.each([0,6,-1,3.5,"4"])` rating rejection |
+| AC-REVIEW-005 | PASS | `review-service.test.ts` `it.each(["", "   "])` + 2000자 상한 초과/경계 3건 |
+| AC-REVIEW-006 | PASS | `review-service.test.ts` "returns 404 without calling create() for an unknown productId" |
+| AC-REVIEW-007 | PASS | `review-service.test.ts` "rounds the average to one decimal place" + `product-detail-page.test.tsx` "shows the rounded average rating and the review count" (표시 "평균 평점 4.0 · 리뷰 3개") |
+| AC-REVIEW-008 | PASS | `product-detail-page.test.tsx` "shows no average figure and an explicit zero count" |
+| AC-REVIEW-009 | PASS | `product-detail-page.test.tsx` "shows a login-prompt link to /login instead of the write form for an anonymous visitor" |
+| AC-REVIEW-010 | PASS | `product-detail-page.test.tsx` "shows the ReviewForm write control instead of the login prompt for a logged-in visitor" |
+| AC-REVIEW-011 | PASS | `product-detail-page.test.tsx` "renders the review list in the order the service already returned" + repository 레벨 `review-repository.test.ts`(실제 PostgreSQL) "aggregateByProduct() and listByProduct() reflect real rows, newest first" |
+| AC-REVIEW-012 | PASS | mechanical grep: `grep -rn "평점\|리뷰" src/components/product/ProductCard.tsx src/components/product/ProductGrid.tsx` → 매치 0건 (exit 1) |
+| AC-REVIEW-013 | PASS | `product-detail-page.test.tsx`의 `firstRenderSources()`(ReviewForm.tsx/AddToCartButton.tsx 제외) 스캔 + ReviewForm.tsx 단독 스캔("keeps ReviewForm's fetch confined to its own submit handler") |
+| AC-REVIEW-014 | PASS | `route.test.ts` "succeeds for an admin-role session exactly like a customer session" |
+| AC-REVIEW-015 | PASS | mechanical grep: `grep -n "^export " src/app/api/reviews/route.ts` → `POST`만 존재; `grep -rln "review\|리뷰" src/app/staff` → 매치 0건 |
+| AC-REVIEW-016 | PASS | `review-service.test.ts` "maps a create()-time unique-constraint violation to a structured 409" + `review-repository.test.ts`(실제 PostgreSQL) "rejects a concurrent duplicate at the DB level" (`P2002` 실측) |
+
+### Evidence (verbatim)
+
+```
+$ npx vitest run
+ Test Files  110 passed (110)
+      Tests  1478 passed (1478)
+```
+
+```
+$ npx vitest run --coverage
+All files          |   97.02 |    93.47 |   98.97 |   97.02 |
+ ...pp/api/reviews |     100 |       90 |     100 |     100 |
+ ...s/repositories (reviews) | 100 | 100 | 100 | 100 |
+ ...views/services |     100 |    96.96 |     100 |     100 |
+ ...onents/product (ReviewForm.tsx incl.) | 100 | 84.61-100 | 100 | 100 |
+```
+(프로젝트 전역 기준 lines/functions/statements 85%, branches 80% — 이 SPEC이 추가한 모든 파일 개별 충족: review-repository.ts 100/100/100/100, review-service.ts 100/96.96/100/100, route.ts 100/90/100/100, ReviewForm.tsx 100/84.61/100/100. review.ts는 타입 전용 파일로 실행 가능 코드가 없어 0/0/0/0 — 프로젝트의 다른 모든 타입 전용 파일(product.ts, cart.ts, order.ts, payment.ts, discount.ts)과 동일한 패턴.)
+
+```
+$ npx tsc --noEmit
+(no output — exit 0)
+
+$ npx eslint .
+(no output — exit 0)
+
+$ npm run build
+✓ Generating static pages (29/29)
+├ ƒ /api/reviews                              176 B         102 kB
+├ ƒ /products/[productId]                   2.31 kB         110 kB
+```
+
+```
+$ grep -rn "AskUserQuestion\|mcp__askuser" src/features/reviews src/app/api/reviews src/components/product/ReviewForm.tsx src/app/products
+(no output — 0 matches)
+```
+
+```
+$ git diff --stat main...HEAD -- src/app/page.tsx src/components/product/ProductGrid.tsx src/components/product/ProductCard.tsx src/app/api/orders/route.ts src/features/admin/services/admin-session.ts src/components/product/AddToCartButton.tsx src/components/product/ProductGallery.tsx
+(no output — PRESERVE 목록 전부 미변경)
+```
+
+### Baseline-attribution
+
+이 워크트리(`.claude/worktrees/t36`, 브랜치 `WT-review-rating-purchase`) HEAD, M1~M5 커밋 전체 반영 후 실측. `npx prisma migrate dev --name add_review_model` 실측 적용(로컬 Postgres `our-shop-demo-pg`, 포트 5433) — `review-repository.test.ts`는 이 실제 DB에 대해 실행됨(capability gate로 도달 불가 시 이름 있는 이유와 함께 skip).
+
+### Gaps (미검증)
+
+- CI 환경(GitHub Actions)에서의 `review-repository.test.ts` 실행 여부 — 로컬 실측만 확인, CI의 `DATABASE_URL`이 실제 Postgres에 도달 가능한지는 이 세션에서 확인하지 않음(다른 `*.postgres.test.ts`/`coupon-model.test.ts`와 동일한 기존 리스크 패턴).
+- D9(HISTORY 행 미갱신)·D10(길이 상한 formal AC 부재)는 plan-audit iteration 2에서 optional로 기록되었고 이번 run-phase에서 착수하지 않음(선택 사항, 지시대로).
+- 동시 두 요청이 실제로 동시에(in-process race) 도달하는 시나리오는 검증하지 않음 — `review-repository.test.ts`는 순차적으로 첫 create 성공 후 두 번째 create가 P2002로 거부됨을 확인했을 뿐, `Promise.all` 기반 실제 동시성 테스트(`concurrency.postgres.test.ts`류)는 작성하지 않음. DB 제약 자체가 최종 방어선이므로 순서와 무관하게 유일성은 보장되나, "정확히 동시"의 관측적 증거는 이 리포트의 잔여 위험으로 남긴다.
+
+### Residual-risk (잔여 위험)
+
+- 평균 평점 반올림(소수 1자리)의 경계값(예: x.x5) 반올림 방향은 JS `Math.round` 표준 동작(0.5는 올림)에 의존 — 별도 단위 테스트로 경계값을 명시적으로 확인하지 않음.
+- `ReviewForm.tsx`의 미검증 브랜치(84.61% branch, 2줄 미검증)는 `catch` 블록의 극히 예외적인 하위 경로로 추정 — 기능적으로 AddToCartButton.tsx와 동일 관용구이므로 위험은 낮음.
 
 ## §E.3 Run-phase Audit-Ready Signal
 
-_<pending run-phase>_
+run_audit_ready: true
+run_audit_ready_at: 2026-09-05
+
+AC-REVIEW-001~016 전부 PASS(§E.2 매트릭스). `npx tsc --noEmit`/`npm run build`/`npx eslint .` 전부 통과. 커버리지 전역 97.02/93.47/98.97/97.02(85%/80% 기준 상회), 이 SPEC이 추가한 개별 파일도 전부 기준 충족(§E.2 Evidence 참고). subagent boundary grep 0건. plan.md §D PRESERVE 목록 `git diff --stat` 확인 결과 미변경. `tests/unit/components/product-detail-view.test.tsx`의 AC-STOREFRONT-009 단언은 plan.md M3 지시대로 "리뷰" 토큰만 제거하고 `/관련 상품|재고 변동/`로 좁혔으며 여전히 PASS(전체 스위트 110 files / 1478 tests 확인). Tier M plan-audit(§E.1, 0.97 PASS)의 optional 관찰 D9/D10은 지시대로 착수하지 않음. run-audit 준비 완료.
 
 ## §E.4 Sync-phase Audit-Ready Signal
 

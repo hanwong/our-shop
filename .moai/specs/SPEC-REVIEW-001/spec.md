@@ -2,9 +2,9 @@
 id: SPEC-REVIEW-001
 title: "상품 리뷰 작성 및 평점/후기 표시"
 version: "0.1.0"
-status: draft
+status: in-progress
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-05
 author: snake
 priority: P2
 phase: "v0.2.0 target"
