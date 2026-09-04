@@ -1,6 +1,6 @@
 ---
 id: SPEC-STOREFRONT-003
-status: in-progress
+status: completed
 updated: 2026-09-04
 tier: M
 ---
@@ -108,4 +108,37 @@ run_status: audit-ready
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+sync_complete_at: 2026-09-04
+sync_commit_sha: pending-backfill-sync
+sync_status: audit-ready
+b12_self_test_a: "grep -c 'STOREFRONT-003' CHANGELOG.md → 0 (append 안전, 중복 없음)"
+b12_self_test_b: "AC 개수 11건 — acceptance.md(SSOT) 직접 대조. grep -oE 'AC-([A-Z0-9]+-)*[0-9]+' → 12건 매치이나 그중 AC-STOREFRONT-001은 §0 서문·§3의 선행 SPEC 상호참조 문구일 뿐 정의된 AC가 아님(2줄 모두 육안 확인). 자체 정의 AC는 AC-STOREFRONT-031~041 11건."
+b12_self_test_c: "CHANGELOG/README에 인용한 7개 경로 전부 ls 실측 확인 — ProductCard.tsx, ProductGrid.tsx, page.tsx, home-page.test.tsx, product-card.test.tsx, product-grid.test.tsx, shell.test.tsx"
+changelog_entry_position: "CHANGELOG.md [Unreleased] 최상단 — 기존 'SPEC-ADMIN-003' 항목 바로 앞"
+frontmatter_status_transitions:
+  spec_md: "in-progress → completed"
+  plan_md: "draft → completed (run-phase에서 draft로 남아 있던 것을 sync 커밋이 함께 정리)"
+  acceptance_md: "전이 없음 — 이 파일은 프론트매터 블록 자체가 없다(Gap, 아래 참조)"
+  progress_md: "in-progress → completed"
+mx_tag_validation:
+  result: "추가 의무 없음"
+  fan_in: "ProductCard 프로덕션 호출자 1건(ProductGrid), ProductGrid 1건(page.tsx) — 둘 다 @MX:ANCHOR 의무선(3건) 미만"
+  danger_patterns: "고루틴/동시성/복잡도 위험 패턴 0건. 세 파일 모두 'use client'·fetch·useEffect 부재(정적 검사로 이미 AC-039가 고정)"
+  note: "형제 컴포넌트(ProductDetailView.tsx, ProductGallery.tsx)는 @MX:NOTE를 달고 있어 관례상 신규 2파일에도 @MX:NOTE가 어울리나, 이번 sync 위임의 파일 범위(CHANGELOG/README/SPEC 아티팩트)에 src 파일이 포함되지 않아 추가하지 않았다 — 후속 조치 후보로 남긴다"
+```
+
+**sync-phase 산출물 diff 요약**
+
+- `CHANGELOG.md` — `[Unreleased]` 최상단에 `### 추가 — SPEC-STOREFRONT-003: 홈 화면 상품 목록 그리드` 절과 `### 알려진 한계 — SPEC-STOREFRONT-003` 절 신규 추가. 기존 항목은 무변경.
+- `README.md` — `## 홈 화면 상품 그리드 (SPEC-STOREFRONT-003)` 절을 `## 장바구니 화면·담기 UI (SPEC-STOREFRONT-002)`와 `## 주문/체크아웃 (SPEC-ORDER-001)` 사이에 신규 추가. 더불어 `## 스토어프론트 화면 (SPEC-STOREFRONT-001)` 표의 `/` 행이 이제 사실과 다르므로("상세 화면 진입 링크 한 줄짜리 스텁") 당시 상태였음을 밝히고 이 SPEC이 교체했음을 덧붙였다 — 1행 수정.
+- SPEC 아티팩트 4종 프론트매터 — 위 `frontmatter_status_transitions` 참조. 본문(§A~§H)은 전부 무변경.
+
+**미검증(Gap)**
+
+- `acceptance.md`에는 YAML 프론트매터 블록이 애초에 없어 `status:`/`updated:` 전이를 수행하지 못했다. 없는 블록을 새로 만드는 것은 프론트매터 갱신이 아니라 본문 추가이므로 manager-docs의 권한(`status:`/`updated:` 한정) 밖이며, 임의로 하지 않고 여기에 기록해 sync-auditor 판단에 넘긴다. `design-notes.md`도 동일하게 프론트매터가 없다(Tier M 정본 3종 밖의 design-phase 산출물).
+- `sync_commit_sha`는 이 커밋 자신의 해시라 커밋 시점에 알 수 없어 `pending-backfill-sync` 자리표시자로 둔다(spec-frontmatter-schema.md § SHA placeholder backfill exemption).
+- 이번 sync-phase에서 타입체크·린트는 재실행하지 않았다. §E.2/§E.3의 run-phase 실측을 인용하며, 그 이후 이 브랜치에 코드 변경이 없다는 것이 근거다(이번 커밋은 문서와 프론트매터만 건드린다).
+- 전체 테스트 스위트는 sync 커밋의 pre-commit 게이트가 실제로 재실행했고 결과를 관측했다: `Test Files 1 failed | 101 passed (102) / Tests 1 failed | 1416 passed (1417)`, 유일한 실패는 `tests/integration/auth/login.test.ts`의 `AC-AUTH-005`(30초 타임아웃, 백로그 `t20` 플레이크, `SPEC-AUTH-001` 소유). 이 SPEC 소유 테스트 25건은 전부 통과했다 — `product-card.test.tsx` 9건, `product-grid.test.tsx` 4건, `home-page.test.tsx` 8건, `shell.test.tsx` 4건. run-phase 관측치와 동일한 숫자다.
+
+**pre-commit 게이트 우회 공개**: 위 실패 1건 때문에 이 sync 커밋은 `SKIP_MOAI_PRECOMMIT=1`(저장소가 게이트 출력에서 직접 안내하는 공식 우회 경로, `--no-verify` 아님)로 이루어졌다. `SPEC-ADMIN-002`/`SPEC-ADMIN-003`과 동일한 사유이며, 이 SPEC이 만든 실패는 0건이다.

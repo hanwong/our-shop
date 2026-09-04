@@ -133,7 +133,7 @@ Key security properties (see `.moai/specs/SPEC-AUTH-001/` for the full spec/acce
 
 | 경로 | 파일 | 설명 |
 |---|---|---|
-| `/` | `src/app/page.tsx` | 상세 화면 진입 링크 한 줄짜리 스텁. 홈 콘텐츠 설계는 범위 밖 |
+| `/` | `src/app/page.tsx` | 당시에는 상세 화면 진입 링크 한 줄짜리 스텁(홈 콘텐츠 설계는 이 SPEC의 범위 밖이었다). 지금은 SPEC-STOREFRONT-003이 상품 그리드로 교체했다 |
 | `/products/[productId]` | `src/app/products/[productId]/page.tsx` | 상품 상세. 서버 컴포넌트가 `getProductDetail()`을 직접 호출한다(자기 API를 HTTP로 되부르지 않음) |
 | (404) | `src/app/products/[productId]/not-found.tsx` | 존재하지 않는 상품 안내 화면 |
 
@@ -160,6 +160,22 @@ Key security properties (see `.moai/specs/SPEC-AUTH-001/` for the full spec/acce
 접근성: 수량 증가/감소·삭제 버튼에 상품명을 포함한 `aria-label`, 카트 이미지 전량에 상품명을 포함한 `alt`, 수량 숫자에 `tabular-nums`.
 
 **알려진 한계**(자세한 내용은 `.moai/specs/SPEC-STOREFRONT-002/progress.md` 참고): `tests/integration/auth/login.test.ts`의 AC-AUTH-005는 알려진 플레이크다(칸반 백로그 카드 `t20`, 이 SPEC과 무관 — 격리 실행에서는 통과함을 재확인했다). `EmptyCart`의 "상품 목록으로 이동" 링크는 이 저장소에 아직 없는 `/products` 대신 `/`를 가리킨다(REQ-STOREFRONT-017이 정확한 href를 고정하지 않으므로 실제 진입점으로 보정). 브라우저 E2E 자동화는 범위 밖이다(jsdom + Testing Library까지만).
+
+## 홈 화면 상품 그리드 (SPEC-STOREFRONT-003)
+
+SPEC-STOREFRONT-001이 스텁으로 남기고 "홈 콘텐츠 설계는 범위 밖"이라며 이월한 결정을 받아 닫는다. 스키마·API·백엔드 변경은 없고, SPEC-CATALOG-001의 `listProducts`/`ProductListItem`/`PaginatedProducts` 계약을 그대로 소비한다.
+
+| 경로 | 파일 | 설명 |
+|---|---|---|
+| `/` | `src/app/page.tsx` | 상품 목록 첫 페이지를 서버에서 조회해 초기 렌더에 채워 넣는 서버 컴포넌트. 브라우저 측 추가 데이터 요청 없음 |
+
+화면 컴포넌트는 `src/components/product/`에 있다 — `ProductGrid`(반응형 2열 → `sm` 3열 → `lg` 4열, `<ul>`/`<li>` 시맨틱)와 `ProductCard`(이미지·이름·가격). **카드 전체가 하나의 `<a>`**라 클릭 대상이 넓고 포커스 링·Enter 활성화·새 탭 열기를 브라우저에서 그대로 받는다. `next/link`가 아닌 평범한 `<a>`를 쓰는 것은 `EmptyCart`/`CartView`가 내부 이동에 이미 택한 관례다. 이미지가 없는 상품은 `ProductGallery`와 같은 placeholder 처리("이미지 준비 중")를 받으며, 상품이 하나도 없으면 그리드 대신 안내 문구를 낸다.
+
+`listProducts`는 **빈 `URLSearchParams`로** 호출된다 — `parseListQuery`가 부재한 파라미터마다 자기 기본값(`page=1`/`pageSize=20`/`sort="newest"`)으로 되돌아가고 그것이 이 화면이 원하는 첫 페이지와 정확히 일치하므로, 쿼리를 손으로 조립하지 않는다. `"use client"`도 `fetch`도 `useEffect`도 없다(자기 API를 HTTP로 되부르지 않는 SPEC-STOREFRONT-001의 관례 유지).
+
+`ProductGrid`는 **정렬·필터·페이지네이션 prop을 아예 받지 않는다** — 나중을 위해 자리를 비워 두는 대신, 그 기능들이 범위 밖이라는 결정을 타입으로 고정했다. 카드 위의 담기 버튼, 헤더·전역 내비게이션, 공유 포맷 유틸 추출도 전부 범위 밖이다. 가격 포맷(`formatWon`)은 이 저장소에서 이미 7개 파일이 각자 정의하고 있고 이 SPEC도 여덟 번째 지역 정의를 택했다(중복 제거는 별개 결정).
+
+**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-STOREFRONT-003/progress.md` 참고): 홈은 첫 20개에서 끝나며 21번째 상품부터는 도달할 방법이 없다(페이지네이션 범위 밖 — `totalCount`는 읽지만 화면에 쓰지 않는다). `/products` 목록 라우트는 여전히 없다. 2/3/4열 전환은 Tailwind 브레이크포인트 클래스의 존재로만 검증했고 폭 375px 실제 가로 스크롤 여부는 SPEC-STOREFRONT-001과 마찬가지로 아직 확인하지 않았다(E2E 하네스 부재). 이미지 허용 호스트는 여전히 `next.config.ts`의 `picsum.photos` 하나뿐인 임시 플레이스홀더이며 이 SPEC은 그 파일을 건드리지 않았다.
 
 ## 주문/체크아웃 (SPEC-ORDER-001)
 
