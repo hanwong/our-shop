@@ -26,7 +26,7 @@
 
 ### 결정 3 — 판매 중단을 별도 API 라우트로 분리한다
 
-**결정(잠정, design.md §1에 근거)**: `PATCH /admin/api/products/[productId]/active`를 수정 라우트와 분리한다.
+**결정(잠정, design.md §1에 근거)**: `PATCH /staff/api/products/[productId]/active`를 수정 라우트와 분리한다.
 
 `SPEC-ADMIN-001`이 주문 상태 전이를 `/status` 하위 라우트로 분리한 선례와 일치하며, 수정 폼이 `isActive`를 무심코 뒤집는 사고를 구조적으로 막는다.
 
@@ -49,14 +49,14 @@
 관리자 → GET /staff/products?category=&search=&page=
        → 목록(판매 중단 상품 포함, 상태 배지로 구분)
        → "새 상품 등록" → GET /staff/products/new
-                        → 폼 제출 → POST /admin/api/products
+                        → 폼 제출 → POST /staff/api/products
                         → 성공 → /staff/products 로 이동
                         → 검증 실패 → 필드별 오류 표시, 상품 생성 없음
 
        → 행 클릭 → GET /staff/products/[productId] (수정 폼, 현재 값 채워짐)
-                  → 폼 제출 → PATCH /admin/api/products/[productId]
+                  → 폼 제출 → PATCH /staff/api/products/[productId]
                   → 성공 → router.refresh()
-                  → "판매 중단" / "판매 재개" 버튼 → PATCH /admin/api/products/[productId]/active
+                  → "판매 중단" / "판매 재개" 버튼 → PATCH /staff/api/products/[productId]/active
                   → 성공 → router.refresh() (배지 갱신)
 
 고객   → GET /api/products (목록)        → 판매 중인 상품만 (REQ-ADMIN-034)
@@ -64,7 +64,9 @@
        → 주문 이력                        → 영향 없음 (OrderItem 스냅샷을 읽음)
 ```
 
-`/staff/*`는 관리자용 SSR 화면, `/admin/api/*`는 쓰기 API — `SPEC-ADMIN-001`이 확립한 경로 관례 그대로다(REQ-ADMIN-040). 두 경로가 미들웨어와 어떤 관계인지는 그 SPEC의 design.md §1이 이미 상세히 기록했으므로 되풀이하지 않는다.
+`/staff/*`는 관리자용 SSR 화면, `/staff/api/*`는 쓰기 API — `SPEC-ADMIN-001`이 확립한 경로 관례를 잇는다(REQ-ADMIN-040).
+
+**쓰기 API 접두사는 `SPEC-ADMIN-003` REQ-ADMIN-042가 승계했다.** 이 SPEC은 원래 쓰기 API를 `/admin` 하위에 두었고, 근거는 미들웨어를 이중 방어선으로 얻는다는 것이었다. 실측은 반대였다 — 미들웨어가 핸들러보다 **먼저** 리다이렉트하므로 핸들러는 아예 실행되지 않았고, `fetch`가 307을 따라가 200을 받아 화면이 성공을 보고했다. 그 반증과 이동의 상세는 `SPEC-ADMIN-003` spec.md §1에 있다.
 
 ## §2. 데이터 모델 변경 (두 번째로 되돌리기 비쌈)
 
@@ -99,9 +101,9 @@ model Product {
 - `staff/products/new/page.tsx` — 등록 화면.
 - `staff/products/[productId]/page.tsx` — 수정 화면 + 판매 중단/재개 영역.
 - `staff/products/ProductForm.tsx` — 등록·수정이 공유하는 Client Component 폼(design.md §5의 유일한 선례 이탈 지점, 지역 컴포넌트).
-- `admin/api/products/route.ts` — `POST`(생성).
-- `admin/api/products/[productId]/route.ts` — `PATCH`(수정).
-- `admin/api/products/[productId]/active/route.ts` — `PATCH`(판매 중단/재개).
+- `staff/api/products/route.ts` — `POST`(생성).
+- `staff/api/products/[productId]/route.ts` — `PATCH`(수정).
+- `staff/api/products/[productId]/active/route.ts` — `PATCH`(판매 중단/재개).
 
 세 라우트 모두 호출 순서가 동일하다: **CSRF → 새 `resolveAdminSession()` → 본문 검증 → 쓰기**(REQ-ADMIN-038/039). `SPEC-ADMIN-001`의 `status/route.ts:43~73`이 그 순서를 문서화해 두었다.
 
@@ -124,7 +126,7 @@ model Product {
 - `src/lib/auth/{jwt,session,cookies,csrf}.ts` — import만, 로직 무변경
 - `src/app/api/auth/**` — 로그인·리프레시·로그아웃 무변경
 - `src/features/admin/services/admin-session.ts` — **읽고 import만**. 이 SPEC은 관리자 판정 로직을 한 줄도 바꾸지 않는다(REQ-ADMIN-037)
-- `src/features/admin/repositories/admin-order-repository.ts`, `src/app/staff/orders/**`, `src/app/admin/api/orders/**` — SPEC-ADMIN-001의 주문 절반 전체
+- `src/features/admin/repositories/admin-order-repository.ts`, `src/app/staff/orders/**`, `src/app/staff/api/orders/**` — SPEC-ADMIN-001의 주문 절반 전체
 - `src/features/catalog/services/product-service.ts` — 저장소 시그니처가 안 바뀌므로 호출부도 안 바뀐다
 - `src/features/catalog/repositories/category-repository.ts` — 관리자용 카테고리 목록은 관리자 쪽에 새로 둔다
 - `src/features/cart/**`, `src/features/orders/**`, `src/features/payments/**`, `src/features/discounts/**`
@@ -133,7 +135,7 @@ model Product {
 
 ### 범위 밖(어느 마일스톤에도 배정하지 않음)
 
-- `GET /admin/api/products` (목록 JSON) — design.md §2의 판단. Server Component가 저장소를 직접 호출하므로 필요하지 않고, 어떤 REQ도 요구하지 않는다.
+- `GET /staff/api/products` (목록 JSON) — design.md §2의 판단. Server Component가 저장소를 직접 호출하므로 필요하지 않고, 어떤 REQ도 요구하지 않는다.
 - 카테고리 CUD 화면·API — spec.md §3.
 - 이미지 업로드 파이프라인 — spec.md §3.
 
@@ -157,8 +159,8 @@ model Product {
 1. **M1 (Priority High) — 스키마 + 고객 대면 필터 확장**: `Product.isActive` 추가 + 마이그레이션, `findProductsPage`/`findProductById` 확장, `tests/unit/catalog/product-repository.test.ts` 기댓값 9건 갱신 + `findFirst` 모킹, 판매 중단 상품이 목록·상세에서 사라지는 단위 테스트 신규. **완료 기준: 카탈로그·스토어프론트 스위트 전체 통과.**
 2. **M2 (Priority High) — 관리자 저장소 + 검증 모듈**: `admin-product-repository.ts` 6개 함수, `product-validation.ts`, `types/admin.ts` 상품 타입 추가. 검증 단위 테스트(가격 0/음수/소수, 재고 음수, 이름·설명 공백, 이미지 비URL·빈 배열 허용).
 3. **M3 (Priority High) — 관리자 상품 목록 화면**: `/staff/products` Server Component, 세션 게이팅, 카테고리·검색 필터, 페이지네이션, 판매 중단 배지.
-4. **M4 (Priority High) — 등록·수정 폼과 쓰기 API**: `ProductForm.tsx`, `/staff/products/new`, `/staff/products/[productId]`, `POST /admin/api/products`, `PATCH /admin/api/products/[productId]`. CSRF → 세션 재판정 → 검증 → 쓰기 순서 적용. `categoryId` FK 위반 처리.
-5. **M5 (Priority High) — 판매 중단·복구**: `setProductActive()`, `PATCH /admin/api/products/[productId]/active`, 수정 화면의 중단/재개 영역. 중단이 `CartItem`/`OrderItem`을 건드리지 않음을 검증하는 테스트(REQ-ADMIN-033).
+4. **M4 (Priority High) — 등록·수정 폼과 쓰기 API**: `ProductForm.tsx`, `/staff/products/new`, `/staff/products/[productId]`, `POST /staff/api/products`, `PATCH /staff/api/products/[productId]`. CSRF → 세션 재판정 → 검증 → 쓰기 순서 적용. `categoryId` FK 위반 처리.
+5. **M5 (Priority High) — 판매 중단·복구**: `setProductActive()`, `PATCH /staff/api/products/[productId]/active`, 수정 화면의 중단/재개 영역. 중단이 `CartItem`/`OrderItem`을 건드리지 않음을 검증하는 테스트(REQ-ADMIN-033).
 6. **M6 (Priority Medium) — 통합·회귀·접근성**: 전체 스위트 무회귀, 커버리지 임계값, `src/middleware.ts`·`admin-session.ts`·주문 관련 파일 diff 0줄 회귀 가드, 폼 접근성(라벨 연결, `role="alert"` 오류, 키보드 조작), `@MX` 태그 정리.
 
 ## §6. 성공 기준
@@ -166,7 +168,7 @@ model Product {
 - REQ-ADMIN-019 ~ 041 각각 acceptance.md에 대응 AC 존재.
 - `src/middleware.ts` diff 0줄.
 - `src/features/admin/services/admin-session.ts` diff 0줄 (import만).
-- `src/features/admin/repositories/admin-order-repository.ts` · `src/app/staff/orders/**` · `src/app/admin/api/orders/**` diff 0줄.
+- `src/features/admin/repositories/admin-order-repository.ts` · `src/app/staff/orders/**` · `src/app/staff/api/orders/**` diff 0줄.
 - `src/features/catalog/repositories/product-repository.ts`의 변경이 `where` 조건 1개 추가 + `findUnique`→`findFirst` 치환으로 한정됨(시그니처·`LIST_SELECT`·`DETAIL_SELECT`·`SORT_ORDER_BY` diff 0줄).
 - `src/features/catalog/services/product-service.ts` diff 0줄.
 - `npm run typecheck` · `npm run lint` · `npm test` 종료 코드 0.

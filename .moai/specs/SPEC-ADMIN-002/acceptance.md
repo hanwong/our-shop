@@ -152,13 +152,15 @@ REQ-ADMIN-019 ~ 041의 23개 요구사항에 대응하는 **24개 AC**(REQ-ADMIN
 
 - **Given** 이 SPEC이 추가한 라우트 파일 전체에서
 - **When** 경로를 확인하면
-- **Then** 모든 관리자 화면이 `/staff` 하위에, 모든 관리자 쓰기 API가 `/admin/api` 하위에 있고, `/admin` 하위에 페이지 파일이 0건이다.
+- **Then** 모든 관리자 화면이 `/staff` 하위에, 모든 관리자 쓰기 API가 `/staff/api` 하위에 있고, `src/app/admin` 디렉터리가 존재하지 않는다. (쓰기 API의 접두사는 `SPEC-ADMIN-003` REQ-ADMIN-042가 승계했다 — 원래의 `/admin` 하위 배치는 미들웨어 매처 안이어서 핸들러가 실행되지 않았고, 같은 SPEC의 REQ-ADMIN-044가 그 디렉터리의 소멸을 요구한다. 이 판정의 집행자는 `tests/unit/admin/product-boundaries.test.ts`의 `[AC-ADMIN-040]` 블록이다.)
 
 ### AC-ADMIN-041 (REQ-ADMIN-041)
 
 - **Given** 이 SPEC의 전체 변경분에서
 - **When** PRESERVE 목록(plan.md §3)의 파일들에 대해 diff를 확인하고, 완료된 SPEC이 소유한 파일 중 변경된 것을 전부 열거하면
 - **Then** PRESERVE 목록의 모든 파일에서 diff가 0줄이고, 완료된 SPEC 소유 파일 중 변경된 것이 **spec.md §1 "확장하는 계약" 표의 6개 파일**(`prisma/schema.prisma`, `src/features/catalog/repositories/product-repository.ts`, `src/features/admin/types/admin.ts`, `tests/unit/catalog/product-repository.test.ts`, `tests/unit/catalog/query-surface.test.ts`, `tests/integration/catalog/search.test.ts`) 뿐이며, 그 6개가 plan.md §3 EXTEND 표의 6개 항목과 정확히 일치한다(REQ-ADMIN-041의 예외 조항이 가리키는 것과 같은 경계·같은 단위).
+
+> **PR 단위 주석**: 이 PR에는 `SPEC-ADMIN-003`의 변경분이 함께 실린다(같은 브랜치에서 미병합 상태로 이어졌다). 따라서 PR 전체 diff에는 이 AC가 열거하지 않는 파일이 포함되며, 그것은 이 AC의 위반이 아니라 `SPEC-ADMIN-003`의 범위다. 이 AC의 판정 대상은 `SPEC-ADMIN-002` 자신의 변경분이다.
 
 ---
 

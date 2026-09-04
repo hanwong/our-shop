@@ -28,7 +28,9 @@ related_specs: [SPEC-CART-001, SPEC-ORDER-001, SPEC-ORDER-002, SPEC-DISCOUNT-001
 
 `our-shop`의 **두 번째 관리자(백오피스) 화면**을 정의한다 — 관리자가 상품 목록을 조회하고, 새 상품을 등록하고, 기존 상품을 수정하고, 상품을 판매 중단(소프트 삭제)·복구할 수 있게 한다. `product.md` 핵심 기능 #6("관리자 상품·주문 관리")의 **상품 관리 절반**이며, 주문 관리 절반은 `SPEC-ADMIN-001`이 이미 완료했다.
 
-> **이 SPEC은 새 관리자 인증 체계를 만들지 않는다.** `SPEC-ADMIN-001`이 만든 `resolveAdminSession()`, CSRF 적용 순서, `/staff/*` 페이지 + `/admin/api/*` 쓰기 API 경로 관례를 **그대로 재사용**한다(research.md §3). 그 SPEC의 design.md §1이 "`t11`이 그대로 재사용할 수 있는 관례를 만든다 — `/staff/products`, `/admin/api/products` 형태로 확장 가능"이라고 이 확장을 미리 지목해 두었다.
+> **이 SPEC은 새 관리자 인증 체계를 만들지 않는다.** `SPEC-ADMIN-001`이 만든 `resolveAdminSession()`, CSRF 적용 순서, 그리고 화면과 쓰기 API를 가르는 경로 관례를 **그대로 재사용**한다(research.md §3). 그 SPEC의 design.md §1이 `t11`이 이 관례를 그대로 확장할 것을 미리 지목해 두었다.
+>
+> **경로 승계(`SPEC-ADMIN-003` REQ-ADMIN-042)**: 이 SPEC이 처음 작성될 당시 쓰기 API의 자리는 `/staff/products`와 짝을 이루는 `/admin` 하위였다. `SPEC-ADMIN-003`이 그 자리를 `/staff/api` 하위로 옮겼다 — 미들웨어 매처가 핸들러보다 먼저 응답해 쓰기가 조용히 사라졌기 때문이다. 이 문서의 경로 표기는 그 이전 결과를 반영한다. 옮긴 근거의 원문은 `SPEC-ADMIN-001`의 plan.md·design.md에 보존되어 있다.
 
 > **이 SPEC은 상품을 물리 삭제하지 않는다.** `OrderItem.product`가 `onDelete: Restrict`이므로 주문된 적 있는 상품은 DB 레벨에서 삭제가 아예 실패하고, `CartItem.product`는 `onDelete: Cascade`라 삭제가 성공하는 경우에도 고객 장바구니가 예고 없이 줄어든다(research.md §1). 소프트 삭제는 이 비대칭에 대한 정확한 대응이며, 새 선호가 아니라 스키마가 이미 요구하던 것이다.
 
@@ -56,7 +58,7 @@ related_specs: [SPEC-CART-001, SPEC-ORDER-001, SPEC-ORDER-002, SPEC-DISCOUNT-001
 | `SPEC-AUTH-001` `POST /api/auth/login` + `buildCsrfCookie` | API | 관리자 로그인은 기존 `/staff/login` 화면을 그대로 씀. 무변경 |
 | `SPEC-ADMIN-001` `DEFAULT_PAGE` / `DEFAULT_PAGE_SIZE` / `MAX_PAGE_SIZE` (`types/admin.ts:16~22`) | 상수 | 관리자 상품 목록 페이지네이션에 그대로 import(REQ-ADMIN-023) |
 | `SPEC-ADMIN-001` `listOrdersForAdmin()` (`admin-order-repository.ts:67`) | 함수 시그니처 패턴 | 관리자 상품 목록 저장소가 같은 모양(`Promise.all([findMany, count])` + 안정 정렬)을 따름 |
-| `SPEC-ADMIN-001` `/staff/*` 페이지 + `/admin/api/*` 쓰기 API 경로 관례 (design.md §1) | 경로 관례 | `/staff/products`, `/admin/api/products`로 확장(REQ-ADMIN-040) |
+| `SPEC-ADMIN-001` 화면과 쓰기 API를 가르는 경로 관례 (design.md §1) | 경로 관례 | `/staff/products`, `/staff/api/products`로 확장(REQ-ADMIN-040 — 쓰기 API의 접두사는 `SPEC-ADMIN-003` REQ-ADMIN-042가 승계) |
 | `SPEC-CATALOG-001` `Category` 모델 | 모델 | 상품 폼의 `<select>` 옵션 원본. **읽기 전용** |
 | `SPEC-ORDER-001` `OrderItem.productName`/`unitPrice`/`lineTotal` 스냅샷 | 컬럼 | 주문 이력이 `Product`를 조인하지 않는다는 사실이, 고객 대면 필터(REQ-ADMIN-034/035)가 주문 이력에 영향을 주지 않는 근거 |
 
@@ -119,7 +121,7 @@ Tier L — 요구사항 상한 25개 이내(현재 23개). `SPEC-ADMIN-001`의 R
 - **REQ-ADMIN-037** (Ubiquitous): 관리자 상품 화면과 관리자 상품 API는 `SPEC-ADMIN-001`이 만든 관리자 세션 판정 함수를 그대로 재사용해야 하며, 별도의 관리자 판정 로직을 새로 만들어서는 안 된다. 또한 관리자 판정 실패는 그 사유(세션 쿠키 없음·만료·폐기·`role`이 관리자가 아님)를 요청자가 응답으로 구별할 수 없는 형태여야 한다.
 - **REQ-ADMIN-038** (Unwanted, shall not): 관리자 상품 쓰기 API는 페이지 진입 시점에 판정된 관리자 여부를 재사용해서는 안 되며, 생성·수정·판매 중단·복구를 포함한 모든 쓰기 요청마다 관리자 세션을 다시 판정해야 한다.
 - **REQ-ADMIN-039** (Ubiquitous): 관리자 상품 쓰기 API는 `SPEC-ADMIN-001`의 상태 변경 API와 동일한 CSRF 검증을 어떤 데이터베이스 접근보다도 먼저 수행해야 하며, CSRF 검증 실패 응답은 REQ-ADMIN-037의 관리자 판정 실패 응답과 상태 코드·본문 모양에서 구별되지 않아야 한다.
-- **REQ-ADMIN-040** (Ubiquitous): 관리자 상품 화면은 기존 RBAC 미들웨어 매처와 겹치지 않는 `/staff` 하위 경로에, 관리자 상품 쓰기 API는 `/admin/api` 하위 경로에 두어 `SPEC-ADMIN-001`이 확립한 경로 관례를 따라야 한다.
+- **REQ-ADMIN-040** (Ubiquitous): 관리자 상품 화면은 기존 RBAC 미들웨어 매처와 겹치지 않는 `/staff` 하위 경로에, 관리자 상품 쓰기 API는 `/staff/api` 하위 경로에 두어 `SPEC-ADMIN-001`이 확립한 경로 관례를 따라야 한다. (쓰기 API의 접두사는 `SPEC-ADMIN-003` REQ-ADMIN-042가 승계했다 — 원래의 `/admin` 하위 배치는 미들웨어 매처 안이어서 핸들러가 실행되지 않았다.)
 - **REQ-ADMIN-041** (Unwanted, shall not): 이 SPEC은 `src/middleware.ts`, `SPEC-AUTH-001`의 토큰 발급·회전·로그아웃 로직, `SPEC-ADMIN-001`의 주문 관련 파일, `SPEC-CATALOG-001`·`SPEC-CATALOG-002`·`SPEC-PAYMENT-001`·`SPEC-DISCOUNT-001`·`SPEC-ORDER-001`·`SPEC-CART-001`이 소유한 구현 파일과 테스트 파일을 변경해서는 안 된다 — 유일한 예외는 §1 "확장하는 계약" 표에 열거한 **6개 파일**이다.
 
 ---

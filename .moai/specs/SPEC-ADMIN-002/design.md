@@ -7,22 +7,24 @@
 /staff/products/new             (페이지, 폼)                 ─┤  resolveAdminSession() 자체 판정
 /staff/products/[productId]     (페이지, 폼 — 수정)          ─┘  (미들웨어 매처 밖)
 
-POST   /admin/api/products                     (생성)          ─┐  CSRF → 새 resolveAdminSession()
-PATCH  /admin/api/products/[productId]         (수정)          ─┤  → 본문 검증 → 쓰기
-PATCH  /admin/api/products/[productId]/active  (중단/복구)     ─┘
+POST   /staff/api/products                     (생성)          ─┐  CSRF → 새 resolveAdminSession()
+PATCH  /staff/api/products/[productId]         (수정)          ─┤  → 본문 검증 → 쓰기
+PATCH  /staff/api/products/[productId]/active  (중단/복구)     ─┘
 ```
 
-`SPEC-ADMIN-001` design.md §1이 이 확장을 미리 지목해 두었다 — "`/staff/products`, `/admin/api/products` 형태로 확장 가능". 두 경로 선택의 근거는 그 SPEC이 이미 확립했으므로 여기서 되풀이하지 않는다: 페이지가 `/admin` **밖**에 있는 이유는 `src/middleware.ts`의 `/admin/:path*` 매처가 `Authorization` 헤더 없는 요청을 무조건 리다이렉트하는데 브라우저 최상위 내비게이션은 그 헤더를 실을 수 없기 때문이고, 쓰기 API가 `/admin/api` **안**에 있는 이유는 미들웨어를 이중 방어선으로 얻되 그것에 의존하지 않기 때문이다(라우트 핸들러가 자체 판정을 다시 수행 — REQ-ADMIN-038).
+`SPEC-ADMIN-001` design.md §1이 이 확장을 미리 지목해 두었다 — `/staff/products`와 짝을 이루는 쓰기 API로 확장 가능하다고. 페이지가 `/admin` **밖**에 있는 이유는 그 SPEC이 이미 확립했으므로 되풀이하지 않는다: `src/middleware.ts`의 `/admin/:path*` 매처가 `Authorization` 헤더 없는 요청을 무조건 리다이렉트하는데 브라우저 최상위 내비게이션은 그 헤더를 실을 수 없기 때문이다.
+
+**쓰기 API의 자리는 승계되었다 (`SPEC-ADMIN-003` REQ-ADMIN-042).** 이 SPEC이 작성될 당시의 근거는 "쓰기 API를 `/admin` 하위에 두면 미들웨어를 이중 방어선으로 얻되 그것에 의존하지는 않는다(라우트 핸들러가 자체 판정을 다시 수행 — REQ-ADMIN-038)"였다. 그 근거는 실측으로 반증되었다 — 미들웨어는 이중 방어선이 아니라 **일차 차단기** 였고, 핸들러는 한 바이트도 실행되지 않았다. `/staff/*` 화면은 액세스 토큰을 손에 넣지 못하므로(REQ-AUTH-009, 메모리 전용) `Authorization` 헤더를 실을 수 없고, 브라우저 `fetch`는 307을 메서드째 따라가 200을 받아 `response.ok === true` 가 된다. 그래서 쓰기 API는 `/staff/api` 하위로 옮겨졌다. 반증의 상세와 라이브 프로브 증거는 `SPEC-ADMIN-003` spec.md §1과 research.md에 있다.
 
 ### 왜 판매 중단이 별도 하위 라우트인가
 
-`PATCH /admin/api/products/[productId]/active`를 수정 라우트에 접지 않고 분리했다.
+`PATCH /staff/api/products/[productId]/active`를 수정 라우트에 접지 않고 분리했다.
 
-- **선례 일치**: `SPEC-ADMIN-001`이 주문 상태 전이를 `PATCH /admin/api/orders/[orderId]/status`라는 전용 하위 라우트로 분리했다. 판매 중단은 상품의 상태 전이이므로 같은 모양이 맞다.
+- **선례 일치**: `SPEC-ADMIN-001`이 주문 상태 전이를 `PATCH /staff/api/orders/[orderId]/status`라는 전용 하위 라우트로 분리했다. 판매 중단은 상품의 상태 전이이므로 같은 모양이 맞다.
 - **사고로 뒤집히지 않는다**: 수정 폼이 `isActive`를 함께 보내면, 폼이 비활성 상품을 편집할 때 무심코 활성으로 되살리거나 그 반대가 일어날 수 있다. 라우트를 나누면 판매 중단은 **의도적으로 그 요청을 보낼 때만** 일어난다.
-- **수정 라우트의 검증이 단순해진다**: `PATCH /admin/api/products/[productId]`의 본문은 REQ-ADMIN-026·027·029가 정한 필드 집합으로 고정되고, `isActive`는 그 집합에 없다 — 들어오면 무시가 아니라 거부 대상이다.
+- **수정 라우트의 검증이 단순해진다**: `PATCH /staff/api/products/[productId]`의 본문은 REQ-ADMIN-026·027·029가 정한 필드 집합으로 고정되고, `isActive`는 그 집합에 없다 — 들어오면 무시가 아니라 거부 대상이다.
 
-## §2. `GET /admin/api/products`를 만들지 않는다
+## §2. `GET /staff/api/products`를 만들지 않는다
 
 `SPEC-ADMIN-001` design.md §3이 남긴 판단을 이 SPEC이 이어받는다. 그 SPEC은 목록 API를 만들지 않고 Server Component가 저장소를 직접 호출하게 했으며, "향후 `t11` 같은 다른 화면이나 외부 도구가 같은 목록 조회가 필요해지면, 그때 별도 SPEC 또는 이 SPEC의 후속 확장으로 추가한다"고 결정을 이 SPEC에 넘겼다.
 
