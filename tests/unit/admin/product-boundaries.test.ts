@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -15,6 +15,13 @@ import { describe, expect, it } from "vitest";
  * Read via readFileSync, never by shelling out to git — the same discipline
  * SPEC-ADMIN-001's middleware-preserve.test.ts established, so these keep
  * failing loudly long after this SPEC closes.
+ *
+ * Succession: the old `/admin`-prefixed API clause of AC-ADMIN-040 was superseded by
+ * SPEC-ADMIN-003 REQ-ADMIN-042 (admin write APIs live under `/staff/api`,
+ * outside the `/admin/:path*` middleware matcher). Only that one clause moved
+ * — the `[AC-ADMIN-040]` block below asserts the new convention, and the other
+ * six describe blocks (020 / 028 / 036 / 037 / 039 / 041) are unchanged in
+ * what they judge and how strongly, path strings aside (REQ-ADMIN-055).
  */
 
 const ROOT = path.resolve(__dirname, "../../..");
@@ -24,10 +31,10 @@ const SPEC_SOURCE_FILES = [
   "src/features/admin/repositories/admin-product-repository.ts",
   "src/features/admin/services/product-validation.ts",
   "src/features/admin/types/admin.ts",
-  "src/app/admin/api/products/route.ts",
-  "src/app/admin/api/products/shared.ts",
-  "src/app/admin/api/products/[productId]/route.ts",
-  "src/app/admin/api/products/[productId]/active/route.ts",
+  "src/app/staff/api/products/route.ts",
+  "src/app/staff/api/products/shared.ts",
+  "src/app/staff/api/products/[productId]/route.ts",
+  "src/app/staff/api/products/[productId]/active/route.ts",
   "src/app/staff/products/page.tsx",
   "src/app/staff/products/new/page.tsx",
   "src/app/staff/products/[productId]/page.tsx",
@@ -116,7 +123,7 @@ describe("[AC-ADMIN-028] no upload pipeline and no new dependency", () => {
 
 describe("[AC-ADMIN-037] admin identity is decided in exactly one place", () => {
   const WRITE_SURFACES = SPEC_SOURCE_FILES.filter(
-    (f) => f.startsWith("src/app/staff/products") || f.startsWith("src/app/admin/api/products")
+    (f) => f.startsWith("src/app/staff/products") || f.startsWith("src/app/staff/api/products")
   );
 
   it.each(WRITE_SURFACES.filter((f) => !f.endsWith("ProductForm.tsx") && !f.endsWith("shared.ts")))(
@@ -154,9 +161,9 @@ describe("[AC-ADMIN-037] admin identity is decided in exactly one place", () => 
 
 describe("[AC-ADMIN-039] the two rejection reasons are literally the same response", () => {
   it.each([
-    "src/app/admin/api/products/route.ts",
-    "src/app/admin/api/products/[productId]/route.ts",
-    "src/app/admin/api/products/[productId]/active/route.ts",
+    "src/app/staff/api/products/route.ts",
+    "src/app/staff/api/products/[productId]/route.ts",
+    "src/app/staff/api/products/[productId]/active/route.ts",
   ])("%s answers CSRF and session failures from one shared constant", (file) => {
     const source = read(file);
 
@@ -168,9 +175,9 @@ describe("[AC-ADMIN-039] the two rejection reasons are literally the same respon
   });
 
   it.each([
-    "src/app/admin/api/products/route.ts",
-    "src/app/admin/api/products/[productId]/route.ts",
-    "src/app/admin/api/products/[productId]/active/route.ts",
+    "src/app/staff/api/products/route.ts",
+    "src/app/staff/api/products/[productId]/route.ts",
+    "src/app/staff/api/products/[productId]/active/route.ts",
   ])("%s verifies CSRF before it resolves the session", (file) => {
     const source = read(file);
 
@@ -194,23 +201,35 @@ describe("[AC-ADMIN-040] the route convention SPEC-ADMIN-001 established is foll
     ]);
   });
 
-  it("puts every admin write API under /admin/api and NO page there", () => {
-    const files = walk("src/app/admin");
+  it("puts every admin write API under /staff/api and NO page there", () => {
+    const files = walk("src/app/staff/api");
 
-    // A page under /admin would be caught by the `/admin/:path*` middleware
-    // matcher, which redirects any request without an Authorization header —
-    // and a top-level browser navigation cannot carry one.
+    // A route handler under /admin would be caught by the `/admin/:path*`
+    // middleware matcher, which redirects any request without an Authorization
+    // header — and no /staff/* screen holds an access token to attach one
+    // (REQ-AUTH-009, memory-only). The redirect is then followed by fetch()'s
+    // default `redirect: "follow"`, yielding 200 and response.ok === true, so
+    // the caller reports success while nothing was written. Placement, not the
+    // caller, is what keeps that from happening (SPEC-ADMIN-003 REQ-ADMIN-042).
     expect(files.filter((f) => f.endsWith("page.tsx"))).toEqual([]);
     expect(files.filter((f) => f.includes("products")).sort()).toEqual([
-      "src/app/admin/api/products/[productId]/active/route.ts",
-      "src/app/admin/api/products/[productId]/route.ts",
-      "src/app/admin/api/products/route.ts",
-      "src/app/admin/api/products/shared.ts",
+      "src/app/staff/api/products/[productId]/active/route.ts",
+      "src/app/staff/api/products/[productId]/route.ts",
+      "src/app/staff/api/products/route.ts",
+      "src/app/staff/api/products/shared.ts",
     ]);
   });
 
-  it("builds no GET /admin/api/products list endpoint (design.md §2)", () => {
-    const source = read("src/app/admin/api/products/route.ts");
+  it("leaves no src/app/admin directory behind for a future route to land in", () => {
+    // An empty shell would read as "admin API goes here" to the next person,
+    // which is the most natural path back inside the matcher. Asserting the
+    // absence here keeps SPEC-ADMIN-003 REQ-ADMIN-044 enforced from the
+    // neighbouring SPEC's own guard as well as its own.
+    expect(existsSync(path.join(ROOT, "src/app/admin"))).toBe(false);
+  });
+
+  it("builds no GET /staff/api/products list endpoint (design.md §2)", () => {
+    const source = read("src/app/staff/api/products/route.ts");
 
     // The list page calls the repository in-process; an HTTP round trip would
     // add an auth/pagination/serialization surface with no consumer.

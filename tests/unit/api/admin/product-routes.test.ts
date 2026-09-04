@@ -48,11 +48,11 @@ function req(url: string, method: string, body: unknown, raw?: string): Request 
 }
 
 const createReq = (body: unknown = VALID_BODY, raw?: string) =>
-  req("http://localhost/admin/api/products", "POST", body, raw);
+  req("http://localhost/staff/api/products", "POST", body, raw);
 const editReq = (body: unknown = VALID_BODY, raw?: string) =>
-  req("http://localhost/admin/api/products/p1", "PATCH", body, raw);
+  req("http://localhost/staff/api/products/p1", "PATCH", body, raw);
 const activeReq = (body: unknown = { isActive: false }, raw?: string) =>
-  req("http://localhost/admin/api/products/p1/active", "PATCH", body, raw);
+  req("http://localhost/staff/api/products/p1/active", "PATCH", body, raw);
 
 const ctx = (productId = "p1") => ({ params: Promise.resolve({ productId }) });
 
@@ -133,7 +133,7 @@ describe("[AC-ADMIN-039] a CSRF failure is indistinguishable from a session fail
   });
 });
 
-describe("[AC-ADMIN-024] POST /admin/api/products creates a sellable product", () => {
+describe("[AC-ADMIN-024] POST /staff/api/products creates a sellable product", () => {
   it("writes the submitted fields and answers 201", async () => {
     const response = await (await importCreate())(createReq());
 
@@ -155,7 +155,7 @@ describe("[AC-ADMIN-024] POST /admin/api/products creates a sellable product", (
   });
 });
 
-describe("[AC-ADMIN-025] PATCH /admin/api/products/[productId] updates a product", () => {
+describe("[AC-ADMIN-025] PATCH /staff/api/products/[productId] updates a product", () => {
   it("updates that product with the submitted fields and answers 200", async () => {
     const response = await (await importEdit())(editReq(), ctx());
 

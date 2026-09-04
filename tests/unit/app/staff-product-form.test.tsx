@@ -91,7 +91,7 @@ describe("the form carries every editable field, each labelled", () => {
   });
 });
 
-describe("[AC-ADMIN-024] create mode submits to POST /admin/api/products", () => {
+describe("[AC-ADMIN-024] create mode submits to POST /staff/api/products", () => {
   it("posts the entered values with the CSRF header", async () => {
     await renderForm();
 
@@ -104,7 +104,7 @@ describe("[AC-ADMIN-024] create mode submits to POST /admin/api/products", () =>
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe("/admin/api/products");
+    expect(url).toBe("/staff/api/products");
     expect(init.method).toBe("POST");
     expect(init.headers["X-CSRF-Token"]).toBe("tok123");
     expect(body()).toMatchObject({
@@ -161,7 +161,7 @@ describe("[AC-ADMIN-025] edit mode pre-fills and PATCHes that product", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe("/admin/api/products/p1");
+    expect(url).toBe("/staff/api/products/p1");
     expect(init.method).toBe("PATCH");
   });
 
@@ -291,7 +291,7 @@ describe("[AC-ADMIN-031/032] the suspend/restore control lives outside the save 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe("/admin/api/products/p1/active");
+    expect(url).toBe("/staff/api/products/p1/active");
     expect(init.method).toBe("PATCH");
     expect(JSON.parse(init.body as string)).toEqual({ isActive: false });
   });

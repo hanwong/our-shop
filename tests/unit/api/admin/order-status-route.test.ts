@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 /**
- * SPEC-ADMIN-001 M4 — PATCH /admin/api/orders/[orderId]/status
+ * SPEC-ADMIN-001 M4 — PATCH /staff/api/orders/[orderId]/status
  * (REQ-ADMIN-012~017, AC-ADMIN-013/016/017).
  *
  * Mirrors tests/unit/api/cart/route.test.ts's Request-construction pattern
@@ -29,7 +29,7 @@ const transactionMock = vi.fn(async (callback: (tx: unknown) => unknown) => call
 vi.mock("@/lib/db", () => ({ prisma: { $transaction: transactionMock } }));
 
 function patchReq(body: unknown, raw?: string): Request {
-  return new Request("http://localhost/admin/api/orders/o1/status", {
+  return new Request("http://localhost/staff/api/orders/o1/status", {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: raw ?? JSON.stringify(body),
