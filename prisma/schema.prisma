@@ -42,6 +42,8 @@ model User {
   // because Prisma derives arity from the FK side's uniqueness, and a scalar
   // here would not compile against a nullable non-unique-typed back-reference.
   carts         Cart[]
+  // SPEC-REVIEW-001 M1 — back-relation only; no existing field above changes.
+  reviews       Review[]
 }
 
 model OAuthAccount {
@@ -128,6 +130,8 @@ model Product {
   // Its FK side is Restrict, deliberately unlike cartItems' Cascade, so a
   // product that has ever been ordered can no longer be deleted (design.md §1.2).
   orderItems  OrderItem[]
+  // SPEC-REVIEW-001 M1 — back-relation only; no existing field above changes.
+  reviews     Review[]
 
   @@index([categoryId]) // REQ-CATALOG-010 category filter
   @@index([createdAt]) // REQ-CATALOG-008 `newest` sort (the default)
@@ -138,6 +142,42 @@ model Product {
   // unaccelerated. A GIN index over trigrams can, which is what keeps a search
   // request inside REQ-CATALOG-016B's p95 300ms budget as the catalog grows.
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "product_name_trgm_idx")
+}
+
+// ---------------------------------------------------------------------------
+// SPEC-REVIEW-001 M1 — product review domain.
+//
+// Source of truth for this model shape: SPEC-REVIEW-001 plan.md §M1 / spec.md
+// §1. Do not diverge from plan.md without updating plan.md first
+// (manager-develop is not the owner of SPEC body content).
+// ---------------------------------------------------------------------------
+
+// One customer's (or admin's) review of one product. No purchase check, no
+// edit/delete, no moderation (REQ-REVIEW-011/012 — spec.md §3 Out of Scope).
+//
+// @MX:ANCHOR fan-in target — every review read and write reaches the database
+// through review-service.ts, which is the only caller of this model's
+// repository (review-repository.ts).
+// @MX:REASON `@@unique([userId, productId])` is the invariant that caps one
+// account to one review per product (REQ-REVIEW-001/004) — a change to it
+// changes what "duplicate" means for the whole feature.
+model Review {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  rating    Int
+  body      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // The race-free last line of defence (spec.md §1, plan.md M2): a
+  // service-level pre-check alone cannot stop two concurrent submissions from
+  // both passing, so review-service.ts also catches this constraint's P2002
+  // violation and maps it to a 409 failure.
+  @@unique([userId, productId])
+  @@index([productId])
 }
 
 // ---------------------------------------------------------------------------
