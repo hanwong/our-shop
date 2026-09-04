@@ -113,7 +113,7 @@
 - **Given** 이전과 테스트 봉투 갱신이 끝난 트리에서
 - **When** `grep -rn 'admin/api' src/ tests/`를 실행하고, spec.md §1 "테스트 파일 봉투" 표의 네 파일 각각에 대해 `git diff`를 확인하면
 - **Then** grep 출력이 **0건** 이고, 네 파일 모두 변경되어 있다 — `tests/unit/admin/product-boundaries.test.ts`, `tests/unit/api/admin/order-status-route.test.ts`, `tests/unit/api/admin/product-routes.test.ts`, `tests/unit/app/staff-product-form.test.tsx`.
-- **그리고** `tests/unit/app/staff-product-form.test.tsx`의 URL 리터럴 단언 세 건이 각각 `"/staff/api/products"`, `"/staff/api/products/p1"`, `"/staff/api/products/p1/active"`를 기대한다 (옛 줄 번호 `:107`·`:164`·`:294`. 탐지 모델을 정확히 적는다 — 이 세 건은 `expect(url).toBe(...)` 형태의 **정확 일치 단언**이므로 갱신되지 않으면 `npm test`가 **실패로 잡아낸다**. 잡지 못하는 것은 `npm run typecheck` 쪽이다(문자열 리터럴이라 타입 검사 대상이 아니다). 어느 쪽도 잡지 못하는 것은 문서 주석과 구조 가드의 경로 상수이며, 그 둘이 이 SPEC에서 계획 없이 미루면 위험한 범주다).
+- **그리고** `tests/unit/app/staff-product-form.test.tsx`의 URL 리터럴 단언 세 건이 각각 `"/staff/api/products"`, `"/staff/api/products/p1"`, `"/staff/api/products/p1/active"`를 기대한다 (옛 줄 번호 `:107`·`:164`·`:294`. 탐지 모델을 정확히 적는다 — 이 세 건은 `expect(url).toBe(...)` 형태의 **정확 일치 단언**이므로 갱신되지 않으면 `npm test`가 **실패로 잡아낸다**. 잡지 못하는 것은 `npm run typecheck` 쪽이다(문자열 리터럴이라 타입 검사 대상이 아니다). 구조 가드(`product-boundaries.test.ts`)의 경로 상수도 `npm test`가 잡는다 — 낡은 경로는 단언 실패가 아니라 **ENOENT 예외**로 터지기 때문이다(research.md §4). 따라서 **어느 쪽도 잡지 못하는 범주는 문서 주석 하나뿐**이며, 계획 없이 미루면 위험한 것은 그것이다).
 
 ### AC-ADMIN-055 (REQ-ADMIN-055 — 구조 가드는 재작성되고, 나머지 판정력은 보존된다)
 
