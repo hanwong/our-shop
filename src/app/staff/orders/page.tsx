@@ -23,7 +23,7 @@ import {
  * check is never reused from a prior page entry).
  *
  * Calls `listOrdersForAdmin()` DIRECTLY (no `fetch`, no intermediate
- * `GET /admin/api/orders` route — design.md §3's explicit "직접 호출"
+ * `GET /staff/api/orders` route — design.md §3's explicit "직접 호출"
  * instruction; that route is out of scope for this SPEC, plan.md §3).
  */
 

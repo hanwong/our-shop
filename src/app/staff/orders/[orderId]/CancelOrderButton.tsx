@@ -3,11 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { REQUEST_NOT_DELIVERED } from "@/features/admin/write-failure";
+
 /**
  * SPEC-ADMIN-001 M4 — the order-detail "취소" (cancel) action
  * (REQ-ADMIN-012~016).
  *
- * fetch()es PATCH /admin/api/orders/[orderId]/status with
+ * fetch()es PATCH /staff/api/orders/[orderId]/status with
  * { status: "cancelled" }. Deliberately NO optimistic update (design.md §3
  * — "낙관적 업데이트 없음"): on success this calls router.refresh() so the
  * Server Component re-reads the order's ACTUAL current state from the
@@ -43,7 +45,7 @@ export function CancelOrderButton({ orderId }: { orderId: string }) {
     setError(null);
 
     try {
-      const response = await fetch(`/admin/api/orders/${orderId}/status`, {
+      const response = await fetch(`/staff/api/orders/${orderId}/status`, {
         method: "PATCH",
         headers: {
           "content-type": "application/json",
@@ -51,6 +53,17 @@ export function CancelOrderButton({ orderId }: { orderId: string }) {
         },
         body: JSON.stringify({ status: "cancelled" }),
       });
+
+      // Ahead of the response.ok branch on purpose: a middleware or proxy
+      // redirect is followed by fetch()'s default `redirect: "follow"`, and a
+      // 307 preserves the method, so the caller gets a 200 from wherever it
+      // landed and `ok` is true. Checked after `ok`, this branch never runs
+      // and the screen reports a cancellation that never happened
+      // (SPEC-ADMIN-003 REQ-ADMIN-046/047).
+      if (response.redirected) {
+        setError(REQUEST_NOT_DELIVERED);
+        return;
+      }
 
       if (response.ok) {
         router.refresh();

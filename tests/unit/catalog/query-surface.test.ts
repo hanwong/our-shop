@@ -119,6 +119,10 @@ describe("AC-CATALOG-001 — the generated Product model carries every required 
       description: string;
       images: string[];
       stock: number;
+      // SPEC-ADMIN-002 REQ-ADMIN-019 — the generated Product type gained this
+      // column, and `satisfies Product` below requires the annotation, the
+      // literal and the key list to move together.
+      isActive: boolean;
       categoryId: string;
       createdAt: Date;
       updatedAt: Date;
@@ -129,6 +133,7 @@ describe("AC-CATALOG-001 — the generated Product model carries every required 
       description: "설명",
       images: ["https://cdn.example.com/a.jpg"],
       stock: 12,
+      isActive: true, // SPEC-ADMIN-002 REQ-ADMIN-019
       categoryId: "cat-tops",
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -140,6 +145,7 @@ describe("AC-CATALOG-001 — the generated Product model carries every required 
       "description",
       "id",
       "images",
+      "isActive", // SPEC-ADMIN-002 REQ-ADMIN-019 — sorts between images and name
       "name",
       "price",
       "stock",

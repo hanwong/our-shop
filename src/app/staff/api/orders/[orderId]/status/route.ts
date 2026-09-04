@@ -6,7 +6,7 @@ import { resolveAdminSession } from "@/features/admin/services/admin-session";
 import { cancelOrderAsAdmin } from "@/features/admin/repositories/admin-order-repository";
 
 /**
- * SPEC-ADMIN-001 M4 — `PATCH /admin/api/orders/[orderId]/status`
+ * SPEC-ADMIN-001 M4 — `PATCH /staff/api/orders/[orderId]/status`
  * (REQ-ADMIN-012~017).
  *
  * Order of operations — each step gates the next, and none may be reordered:

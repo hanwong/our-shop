@@ -19,6 +19,8 @@
 
 이 경로 선택은 `t11`(관리자 상품 백오피스, 후속 SPEC)이 그대로 재사용할 수 있는 관례를 만든다 — `/staff/products`, `/admin/api/products` 형태로 확장 가능.
 
+> **승계 (`SPEC-ADMIN-003` REQ-ADMIN-042, 2026-09-04)**: 위 "왜 API는 `/admin/api` 안에 두는가" 문단의 두 전제는 이후 실측으로 반증되었고, 쓰기 API는 `/staff/api` 하위로 옮겨졌다. 원문은 `SPEC-ADMIN-003`의 근본 원인 분석이 인용하는 1차 증거이므로 **한 줄도 고치지 않고 그대로 둔다** — 반증의 내용은 그 SPEC의 spec.md §1에 있다.
+
 ## §2. 관리자 세션 판정 — `resolveAdminSession()`
 
 ```

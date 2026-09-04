@@ -102,7 +102,7 @@ REQ-ADMIN-001 ~ 018 (18건) 전부가 AC-ADMIN-001 ~ 018 (18건)로 1:1 대응�
 
 **AC-ADMIN-016** — CSRF 방지 없는 상태 변경 요청은 거부된다
 - **Given** 유효한 관리자 리프레시 쿠키는 있지만 CSRF 토큰(더블서브밋/synchronizer, `src/lib/auth/csrf.ts` 방식)이 없거나 불일치하는 요청이 있을 때
-- **When** `PATCH /admin/api/orders/[orderId]/status`를 호출하면
+- **When** `PATCH /staff/api/orders/[orderId]/status`를 호출하면
 - **Then** 요청이 거부되고 주문 상태가 변하지 않는다
 - **Traces**: REQ-ADMIN-016
 
