@@ -154,7 +154,7 @@ run_status: audit-ready
 ```yaml
 sync_status: audit-ready
 sync_complete_at: 2026-09-04
-sync_commit_sha: pending-backfill-sync
+sync_commit_sha: 6cf4f4e
 b12_self_test_a: "grep -c 'SPEC-AUTH-002' CHANGELOG.md → 0 (중복 없음, 발행 진행)"
 b12_self_test_b: "AC 12건 — acceptance.md(SSOT) 직접 검사. grep 원시 결과는 13건이나 AC-AUTH-001은 3행 산문의 범위 표기('AC-AUTH-001~024')에서 온 것이고, 실제 AC는 AC-AUTH-025~036 12건. CHANGELOG 인용 12건과 일치"
 b12_self_test_c: "CHANGELOG·README가 인용한 모든 경로를 git show --stat / ls로 실재 확인 — 신규 7개(src 3 + tests 4) 전부 존재"
