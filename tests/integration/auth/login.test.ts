@@ -107,7 +107,7 @@ describe("AC-AUTH-005 — response-time similarity between nonexistent-email and
       // THEN all 30 wrong-password samples confounds any load drift between
       // the two blocks with the thing being measured, producing a spurious
       // median gap that has nothing to do with the login handler's actual
-      // timing-safety (reproduced: an isolated run passed with diff=3.88ms,
+      // timing-safety (reproduced: an isolated run passed with diff=2.71ms,
       // a contended full-suite run failed with diff=847.63ms against a
       // 184.21ms tolerance — a swing far larger than bcrypt's own per-call
       // jitter, consistent with a load-drift confound, not a handler
