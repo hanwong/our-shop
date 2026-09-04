@@ -50,10 +50,14 @@ if (!token) {
 
 네 라우트 모두 **CSRF 먼저, 그 다음 새 세션 판정** 을 스스로 수행한다.
 
+> **경로 표기 안내** — 아래 표의 경로는 **이 SPEC이 라우트를 옮긴 뒤의 최종 경로(`/staff/api/**`)** 다. 조사 시점에는 네 파일 모두 `src/app/admin/api/**` 아래에 있었고, 그 위치가 바로 이 SPEC이 제거한 결함의 원인이다. 조사 결론(핸들러가 스스로 CSRF·세션을 검사한다)은 이동 전후로 동일하며, 줄 번호는 이동 후 실측값이다.
+
 | 파일 | CSRF | 세션 재판정 |
 |---|---|---|
-| `src/app/admin/api/products/route.ts` | `:38` `verifyCsrfRequest(request)` | `:43~45` `cookies()` → `resolveAdminSession(jar)` |
-| `src/app/admin/api/orders/[orderId]/status/route.ts` | `:44` `verifyCsrfRequest(request)` | `:50~52` `cookies()` → `resolveAdminSession(jar)` |
+| `src/app/staff/api/products/route.ts` | `:38` `verifyCsrfRequest(request)` | `:43~44` `cookies()` → `resolveAdminSession(jar)` |
+| `src/app/staff/api/products/[productId]/route.ts` | `:32` `verifyCsrfRequest(request)` | `:37~38` `cookies()` → `resolveAdminSession(jar)` |
+| `src/app/staff/api/products/[productId]/active/route.ts` | `:36` `verifyCsrfRequest(request)` | `:41~42` `cookies()` → `resolveAdminSession(jar)` |
+| `src/app/staff/api/orders/[orderId]/status/route.ts` | `:44` `verifyCsrfRequest(request)` | `:50~51` `cookies()` → `resolveAdminSession(jar)` |
 
 `products/route.ts` `:20~30`의 문서 주석이 이 순서를 "각 단계가 다음을 게이팅하며 재배치 불가"로 명시한다. 두 실패 응답은 상태 코드와 본문이 동일해(reason-blind) 어느 검사가 거부했는지 노출하지 않는다.
 
