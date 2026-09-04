@@ -8,6 +8,7 @@ import type {
   AdminProductDetailDTO,
   ProductInputErrors,
 } from "@/features/admin/types/admin";
+import { REQUEST_NOT_DELIVERED } from "@/features/admin/write-failure";
 
 /**
  * SPEC-ADMIN-002 M4/M5 — the product form shared by create and edit
@@ -104,6 +105,17 @@ export function ProductForm({ mode, categories, product }: ProductFormProps) {
         body: JSON.stringify(payload),
       });
 
+      // Ahead of the response.ok branch on purpose: a middleware or proxy
+      // redirect is followed by fetch()'s default `redirect: "follow"`, and a
+      // 307 preserves the method, so the caller gets a 200 from wherever it
+      // landed and `ok` is true. Checked after `ok`, this branch never runs
+      // and the form reports a success that never happened
+      // (SPEC-ADMIN-003 REQ-ADMIN-046/047).
+      if (response.redirected) {
+        setFormError(REQUEST_NOT_DELIVERED);
+        return;
+      }
+
       if (response.ok) {
         if (mode === "create") {
           router.push("/staff/products");
@@ -142,6 +154,13 @@ export function ProductForm({ mode, categories, product }: ProductFormProps) {
         },
         body: JSON.stringify({ isActive: !isActive }),
       });
+
+      // Same guard, same reason as the save path above — a redirect must not
+      // reach the isActive toggle (SPEC-ADMIN-003 REQ-ADMIN-046/047).
+      if (response.redirected) {
+        setFormError(REQUEST_NOT_DELIVERED);
+        return;
+      }
 
       if (response.ok) {
         setIsActive((current) => !current);

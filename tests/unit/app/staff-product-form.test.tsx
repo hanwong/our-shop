@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, it, expect, vi, beforeEach } from "vitest";
 import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { REQUEST_NOT_DELIVERED } from "@/features/admin/write-failure";
 
 /**
  * SPEC-ADMIN-002 M4/M5 — ProductForm and the suspend/restore control
@@ -325,5 +326,81 @@ describe("[AC-ADMIN-031/032] the suspend/restore control lives outside the save 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     expect(fetchMock.mock.calls[0]![1].headers["X-CSRF-Token"]).toBe("tok123");
+  });
+});
+
+/**
+ * SPEC-ADMIN-003 M4 (C layer) — a redirect response is a FAILURE, never a
+ * success (REQ-ADMIN-046 / REQ-ADMIN-047, AC-ADMIN-046a / AC-ADMIN-047).
+ *
+ * The defect this SPEC closes did not present as a broken write; it presented
+ * as a write that never happened while the screen said it had. A middleware
+ * redirect is followed by fetch()'s default `redirect: "follow"`, and a 307
+ * preserves the method, so the caller receives a 200 from `/` — ok === true.
+ * The mock below reproduces exactly that shape: ok true, status 200, and
+ * redirected true. Only the last field distinguishes it, which is why the
+ * check keys on `response.redirected` and sits AHEAD of the `response.ok`
+ * branch (design.md §3.3).
+ */
+function redirectedResponse() {
+  return {
+    ok: true,
+    status: 200,
+    redirected: true,
+    url: "http://localhost/",
+    json: async () => ({}),
+  };
+}
+
+describe("[AC-ADMIN-046a] ProductForm reads a redirect as a failure, not a success", () => {
+  it("save/create: shows the dedicated message and never navigates", async () => {
+    fetchMock.mockResolvedValue(redirectedResponse());
+    await renderForm();
+
+    fireEvent.change(screen.getByLabelText(/상품명/), { target: { value: "새 상품" } });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(screen.getAllByRole("alert").length).toBeGreaterThan(0));
+    expect(screen.getByText(REQUEST_NOT_DELIVERED)).toBeDefined();
+    expect(routerPush).not.toHaveBeenCalled();
+    expect(routerRefresh).not.toHaveBeenCalled();
+  });
+
+  it("save/edit: shows the dedicated message and never refreshes", async () => {
+    fetchMock.mockResolvedValue(redirectedResponse());
+    await renderForm({ mode: "edit", product: EXISTING });
+
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(screen.getAllByRole("alert").length).toBeGreaterThan(0));
+    expect(screen.getByText(REQUEST_NOT_DELIVERED)).toBeDefined();
+    expect(routerRefresh).not.toHaveBeenCalled();
+    expect(routerPush).not.toHaveBeenCalled();
+  });
+
+  it("suspend/restore: shows the dedicated message and never flips isActive", async () => {
+    fetchMock.mockResolvedValue(redirectedResponse());
+    await renderForm({ mode: "edit", product: EXISTING });
+
+    fireEvent.click(screen.getByRole("button", { name: "판매 중단" }));
+
+    await waitFor(() => expect(screen.getAllByRole("alert").length).toBeGreaterThan(0));
+    expect(screen.getByText(REQUEST_NOT_DELIVERED)).toBeDefined();
+    // The control still offers 판매 중단 — the toggle never flipped.
+    expect(screen.getByRole("button", { name: "판매 중단" })).toBeDefined();
+    expect(routerRefresh).not.toHaveBeenCalled();
+  });
+
+  it("does not show the generic save-failure wording — the cause must survive", async () => {
+    fetchMock.mockResolvedValue(redirectedResponse());
+    await renderForm();
+
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(screen.getAllByRole("alert").length).toBeGreaterThan(0));
+    expect(screen.queryByText("판매 상태를 변경하지 못했습니다")).toBeNull();
+    expect(
+      screen.getAllByRole("alert").some((n) => n.textContent === REQUEST_NOT_DELIVERED)
+    ).toBe(true);
   });
 });

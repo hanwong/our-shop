@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { REQUEST_NOT_DELIVERED } from "@/features/admin/write-failure";
+
 /**
  * SPEC-ADMIN-001 M4 — the order-detail "취소" (cancel) action
  * (REQ-ADMIN-012~016).
@@ -51,6 +53,17 @@ export function CancelOrderButton({ orderId }: { orderId: string }) {
         },
         body: JSON.stringify({ status: "cancelled" }),
       });
+
+      // Ahead of the response.ok branch on purpose: a middleware or proxy
+      // redirect is followed by fetch()'s default `redirect: "follow"`, and a
+      // 307 preserves the method, so the caller gets a 200 from wherever it
+      // landed and `ok` is true. Checked after `ok`, this branch never runs
+      // and the screen reports a cancellation that never happened
+      // (SPEC-ADMIN-003 REQ-ADMIN-046/047).
+      if (response.redirected) {
+        setError(REQUEST_NOT_DELIVERED);
+        return;
+      }
 
       if (response.ok) {
         router.refresh();
