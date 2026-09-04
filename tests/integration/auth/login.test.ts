@@ -13,6 +13,20 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
  * verification report's Residual-risk section for observed local-run
  * variance. The tolerance formula is acceptance.md's exact AC-AUTH-005
  * formula and is NOT loosened here.
+ *
+ * @MX:NOTE t20 fix — 60 sequential real bcrypt(cost 12) round-trips take
+ * ~22-24s even in full isolation (measured), leaving only ~20% headroom
+ * against the prior 30s test timeout. Any CPU contention from concurrently
+ * scheduled test-runner worker processes (a full-suite or --coverage run)
+ * slows and destabilizes each bcrypt call, which can push the run past that
+ * timeout — a false-negative FAIL unrelated to the timing-safety property
+ * itself (confirmed: an isolated run passes with diff=2.71ms against a
+ * 55.42ms tolerance, i.e. the design is correct — the margin was the bug).
+ * The per-test timeout below is widened to absorb that contention without
+ * masking a genuine timing-safety regression, which would still fail the
+ * tolerance assertion regardless of how much wall-clock time it is given.
+ * SAMPLE_SIZE stays at 30 (acceptance.md AC-AUTH-005 requires N≥30) and the
+ * tolerance formula is unchanged — see backlog card t20.
  */
 
 interface FakeUserRow {
@@ -87,24 +101,39 @@ describe("AC-AUTH-005 — response-time similarity between nonexistent-email and
       // making 60 requests in a row.
       const { __resetRateLimitStoreForTests } = await import("@/lib/auth/rate-limit");
 
+      // @MX:NOTE t20 fix — interleaved (not two sequential blocks). A
+      // full-suite/coverage run's background CPU load is NOT constant across
+      // this test's ~24s+ duration; running all 30 nonexistent-email samples
+      // THEN all 30 wrong-password samples confounds any load drift between
+      // the two blocks with the thing being measured, producing a spurious
+      // median gap that has nothing to do with the login handler's actual
+      // timing-safety (reproduced: an isolated run passed with diff=3.88ms,
+      // a contended full-suite run failed with diff=847.63ms against a
+      // 184.21ms tolerance — a swing far larger than bcrypt's own per-call
+      // jitter, consistent with a load-drift confound, not a handler
+      // regression). Interleaving both conditions within the same loop
+      // exposes both to the same time-varying load, which is the standard
+      // mitigation for this class of confound in timing-side-channel
+      // measurement. N stays 30 per condition (acceptance.md AC-AUTH-005
+      // requires N≥30); the tolerance formula is unchanged.
       const nonexistentDurations: number[] = [];
-      for (let i = 0; i < SAMPLE_SIZE; i++) {
-        __resetRateLimitStoreForTests();
-        const start = performance.now();
-        const response = await POST(makeRequest({ email: "ghost@example.com", password: "irrelevant-password" }));
-        nonexistentDurations.push(performance.now() - start);
-        expect(response.status).toBe(401);
-      }
-
       const wrongPasswordDurations: number[] = [];
       for (let i = 0; i < SAMPLE_SIZE; i++) {
         __resetRateLimitStoreForTests();
-        const start = performance.now();
-        const response = await POST(
+        const startNonexistent = performance.now();
+        const nonexistentResponse = await POST(
+          makeRequest({ email: "ghost@example.com", password: "irrelevant-password" })
+        );
+        nonexistentDurations.push(performance.now() - startNonexistent);
+        expect(nonexistentResponse.status).toBe(401);
+
+        __resetRateLimitStoreForTests();
+        const startWrongPassword = performance.now();
+        const wrongPasswordResponse = await POST(
           makeRequest({ email: "real-user@example.com", password: "wrong-password-guess" })
         );
-        wrongPasswordDurations.push(performance.now() - start);
-        expect(response.status).toBe(401);
+        wrongPasswordDurations.push(performance.now() - startWrongPassword);
+        expect(wrongPasswordResponse.status).toBe(401);
       }
 
       const medianNonexistent = median(nonexistentDurations);
@@ -120,6 +149,6 @@ describe("AC-AUTH-005 — response-time similarity between nonexistent-email and
 
       expect(diff).toBeLessThan(tolerance);
     },
-    30000
+    90000
   );
 });
