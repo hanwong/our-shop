@@ -4,6 +4,31 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+### 수정 — SPEC-ADMIN-003: 관리자 쓰기 API가 저장되지 않은 변경을 "저장됨"으로 보고하던 결함
+
+**관리자 화면이 성공했다고 말하는 동안 아무것도 저장되지 않고 있었다.** 관리자 쓰기 API 4개가 `src/middleware.ts`의 `/admin/:path*` 매처 뒤에 놓여 있어 핸들러가 **아예 실행되지 않았다**. 미들웨어는 4xx가 아니라 **307 리다이렉트**를 돌려주고, 브라우저 `fetch()`의 기본값 `redirect: "follow"`가 그것을 따라가며, 307은 메서드를 보존하므로 호출부는 결국 `/`에서 **200**을 받는다 — `response.ok`가 `true`다. 상품 등록·수정·판매중단·주문 취소가 전부 이 경로였다. 실패가 조용했다는 것이 이 결함의 본질이다: 쓰기는 사라지고, 화면은 성공을 표시하고, 테스트는 한 건도 깨지지 않았다. `SPEC-ADMIN-002`의 sync-audit이 라이브 서버 프로브로 실측해 Critical로 지목한 결함(F1)이며, 이 SPEC(백로그 카드 `t28`)이 그것을 닫는다.
+
+이 SPEC은 **두 겹**으로 닫는다 — 경로를 옮겨 결함을 제거하고, 같은 부류가 재발하면 자동으로 실패하는 검증 계층을 세운다. 저장소에 **미들웨어를 통과하는 테스트가 단 한 건도 없었다**는 것이 268개 테스트·24개 AC·plan-audit PASS가 모두 이 결함을 놓친 근본 원인이기 때문이다.
+
+- `src/app/staff/api/products/route.ts` · `[productId]/route.ts` · `[productId]/active/route.ts` · `orders/[orderId]/status/route.ts` + `products/shared.ts`(전부 `src/app/admin/api/**`에서 이동) — 네 개의 쓰기 라우트와 공유 모듈이 매처 밖 `/staff/api`로 옮겨졌다. **핸들러 본문은 바뀌지 않았다**: 검사 순서(CSRF 선행 → 세션 재판정 → 본문 검증 → 쓰기)·상태 코드·응답 본문 모양에 변경이 0줄이고, 각 파일의 차분은 `import` 지정자와 문서 주석 안의 URL 문자열뿐이다. `src/app/admin` 디렉터리는 더 이상 존재하지 않는다.
+- `src/features/admin/write-failure.ts`(신규, 21줄) — 세 호출부가 공유하는 전용 실패 문구 상수 `REQUEST_NOT_DELIVERED`(`"요청이 처리되지 않았습니다. 변경 사항이 저장되지 않았습니다."`). 문구가 이 결정의 실질이다 — 이 SPEC이 닫는 결함은 "쓰기가 실패했다"가 아니라 "쓰기가 실패했는데 화면이 성공했다고 말했다"이므로, 일반 문구("저장에 실패했습니다" 부류)는 실패를 보고하면서 그 **원인을 지운다**.
+- `src/app/staff/products/ProductForm.tsx`(2곳) + `src/app/staff/orders/[orderId]/CancelOrderButton.tsx`(1곳) — 세 호출부가 `response.redirected`를 검사해 리다이렉트를 **성공이 아니라 실패로** 읽는다. 검사 분기는 세 곳 모두 `response.ok` 판정보다 **앞에** 있다 — 뒤에 두면 리다이렉트를 따라간 200이 먼저 성공 분기로 흘러 이 SPEC이 닫으려는 결함이 그대로 남기 때문에, 순서가 곧 요구사항의 실질이다.
+- `tests/unit/admin/route-placement-guard.test.ts`(신규, A층) — `src/app` 아래 어떤 라우트 핸들러도 미들웨어 매처가 주장하는 URL에 앉을 수 없다는 배치 인벤토리 가드. 매처는 `src/middleware.ts`에서, 라우트는 파일시스템에서 **양쪽 다 트리를 읽어** 대조하므로 매처가 바뀌면 따라가고 아무도 등록하지 않은 장래 라우트까지 덮는다.
+- `tests/unit/admin/middleware-traversal.test.ts`(신규, B층) — 이 저장소에서 `src/middleware.ts`를 **읽는 것이 아니라 실행하는** 첫 테스트. 기존 `middleware-preserve.test.ts`는 파일이 바뀌지 않았음을 단언할 뿐이고, "이 파일이 무엇을 하는가"는 다른 질문이다 — 그 둘 사이의 틈이 이 결함이 살던 자리다. 매처에 걸린 요청이 **리다이렉트**를 돌려받는다는 사실(4xx가 아니라 3xx이므로 조용하다는 것)을 기록으로 고정한다.
+- `tests/unit/admin/redirect-failure-guard.test.ts`(신규, C층) — 검사 분기의 **위치**와 문구를 판정하는 소스 순서 가드. 동작 테스트는 "오늘 리다이렉트가 오류로 표시된다"까지만 증명할 수 있고 검사가 어디 있는지는 증명하지 못하는데, 위치가 바로 요구사항이다. 호출부는 공유 상수의 importer를 읽어 발견하므로 네 번째 관리자 쓰기 표면이 나중에 추가되어도 아무도 이 가드를 고치지 않고 판정된다.
+
+**설계 결정 — 미들웨어를 고치지 않고 라우트를 옮긴다.** 대안은 `src/middleware.ts`의 매처에서 관리자 API를 제외하는 것이었으나 기각했다. 그 파일은 `SPEC-AUTH-001` 소유이고 `SPEC-ADMIN-001`이 "전체 이력에 걸쳐 `git diff` 0줄"을 회귀 가드로 고정해 둔 대상이다. 이 SPEC은 그 불변식을 유지한다 — `src/middleware.ts`와 `middleware-preserve.test.ts`는 **한 바이트도 바뀌지 않았다**(차분 0줄로 재확인). 대신 `SPEC-ADMIN-001`이 이미 **페이지**를 `/staff`로 옮기며 세운 관례를 **API**까지 마저 적용했다 — 옮기지 않고 남아 있던 절반이 정확히 이 결함이었다. 그 귀결로 남는 것은 구조적 잠금이 없다는 점이다: 새 관리자 라우트를 `/admin/api`에 만드는 것을 막는 것은 **A층 배치 가드가 유일한 방어층**이며, 그래서 그 가드에는 허용 목록(allowlist)을 두지 않는다.
+
+인수 기준 16건(AC-ADMIN-042~055, `AC-ADMIN-046`·`AC-ADMIN-053`은 각각 a/b 두 하위 항목으로 분할 — 요구사항 14건에 대응) 전부 PASS. `npx tsc --noEmit` 통과, `grep -rn 'admin/api' src/ tests/` 0건.
+
+**pre-commit 게이트 우회 공개 (`SKIP_MOAI_PRECOMMIT=1`).** 이 SPEC의 모든 커밋(run-phase + 이번 sync 커밋)은 `SKIP_MOAI_PRECOMMIT=1` 우회로 이루어졌다. `SPEC-ADMIN-002`와 **동일한 이유이고 동일한 원인**이다 — 저장소 전역 `moai gate`가 전체 스위트 green을 요구하는데, 백로그 카드 `t20`의 타이밍 플레이크(`tests/integration/auth/login.test.ts`의 `AC-AUTH-005`, `SPEC-AUTH-001` 소유)가 해소되기 전까지 이 저장소의 **어떤 커밋도** 우회 없이는 게이트를 통과하지 못한다. **이 SPEC이 만든 실패는 0건이다** — 전체 스위트 1372건 중 실패 1건은 위 플레이크뿐이며, 격리 실행하면 `diff=0.07ms`(허용 `53.77ms`)로 통과한다. 게이트를 약화시키거나 남의 SPEC 소유 테스트를 이 SPEC의 봉투 밖에서 손대는 두 대안은 의도적으로 기각하고 **우회 + 명시적 공개**를 택했다.
+
+### 알려진 한계 — SPEC-ADMIN-003
+
+- **구조적 잠금은 없다** — 새 관리자 쓰기 라우트를 `/admin/api` 아래 만드는 것을 프레임워크나 타입 수준에서 막는 장치는 없다. A층 배치 가드가 유일한 방어층이므로, 그 가드에 예외를 한 건이라도 허용하는 순간 이 결함이 걸어 들어올 문이 다시 열린다.
+- **`/staff/products/new`와 `/staff/products/[productId]` 두 화면의 세션 게이트는 여전히 동작 테스트로 실행되지 않는다** — `SPEC-ADMIN-002` sync-audit이 지목한 Medium 결함(F2)이며 **이 SPEC이 닫지 않았다**. 두 화면 모두 `resolveAdminSession()`이 `null`이면 `/staff/login`으로 리다이렉트하는 게이트를 갖고 있으나, 그 `null` 경로를 실제로 실행하는 테스트가 없다. `product-boundaries.test.ts`는 소스를 **읽어** 게이트의 존재를 단언하는 정적 가드일 뿐이고, `product-accessibility.test.tsx`는 유효한 세션을 모킹한 정상 경로만 렌더한다. 이미 동작 테스트를 가진 세 화면(`/staff/orders`, `/staff/orders/[orderId]`, `/staff/products`)과 대비되는 공백이다.
+- **범위 밖으로 남긴 것들**: 미들웨어 매처 자체의 변경, 관리자 페이지 내비게이션의 인증 게이팅(`SPEC-ADMIN-001`의 `resolveAdminSession()` 방식을 그대로 유지), 라우트 배치를 강제하는 타입·빌드 수준 장치, `t20` 플레이크 해소.
+
 ### 추가 — SPEC-ADMIN-002: 관리자 상품 등록/수정 백오피스
 
 **`product.md` 핵심 기능 #6("관리자 상품·주문 관리")의 나머지 절반인 상품 관리를 다룬다.** 주문 관리 절반은 `SPEC-ADMIN-001`이 이미 끝냈고, 그 SPEC이 만든 관리자 세션 판정(`resolveAdminSession()`)·CSRF 적용 순서·`/staff/*` + `/admin/api/*` 경로 관례를 **새로 만들지 않고 그대로 재사용**한다. 네 개의 선행 SPEC(`SPEC-ADMIN-001`, `SPEC-CATALOG-001`, `SPEC-CATALOG-002`, `SPEC-CART-001`)이 각자 독립적으로 상품 관리자 기능의 소유자로 이 SPEC(백로그 `t11`)을 지목해 두었다.

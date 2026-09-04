@@ -269,9 +269,9 @@ Key security properties (see `.moai/specs/SPEC-AUTH-001/` for the full spec/acce
 | `/staff/login` | GET/POST | 관리자 로그인 화면. 기존 `/api/auth/login`을 그대로 호출한다(신규 로그인 로직 없음) |
 | `/staff/orders` | GET | 전체 주문 목록(게스트 귀속과 무관), 상태 필터, 기존 카탈로그 페이지네이션 관례 |
 | `/staff/orders/[orderId]` | GET | 주문 상세 — 배송지 스냅샷·항목별 상품명/단가/수량·금액 내역·현재 상태. 결제수단·`paymentKey`는 노출하지 않는다 |
-| `/admin/api/orders/[orderId]/status` | PATCH | 상태 변경(취소만). `pending_payment→cancelled`/`paid→cancelled` 두 전이만 허용 |
+| `/staff/api/orders/[orderId]/status` | PATCH | 상태 변경(취소만). `pending_payment→cancelled`/`paid→cancelled` 두 전이만 허용 |
 
-핸들러·화면은 `src/app/staff/`·`src/app/admin/api/`에, 도메인 로직은 `src/features/admin/`(신규 피처)에 있다.
+핸들러·화면은 `src/app/staff/`·`src/app/staff/api/`에, 도메인 로직은 `src/features/admin/`(신규 피처)에 있다. 관리자 쓰기 API가 `/staff/api`에 있는 것은 취향이 아니다 — `/admin/api`에 두면 `src/middleware.ts`의 `/admin/:path*` 매처에 걸려 핸들러가 실행되지 않고, 리다이렉트를 따라간 호출부가 200을 받아 **저장되지 않은 변경을 저장됨으로 보고**한다(SPEC-ADMIN-003).
 
 ### 관리자 세션 판정 — 새 인증 체계를 만들지 않는다
 

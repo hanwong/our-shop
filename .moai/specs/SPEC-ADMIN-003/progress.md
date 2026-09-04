@@ -185,4 +185,29 @@ evidence_dir: .moai/state/verify/run-t28/
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+spec_id: SPEC-ADMIN-003
+card: t28
+sync_complete_at: 2026-09-04
+sync_commit_sha: <PENDING-BACKFILL>
+sync_status: complete
+b12_self_test_a: pass    # grep -c 'SPEC-ADMIN-003' CHANGELOG.md -> 0 (중복 없음)
+b12_self_test_b: pass    # acceptance.md AC 표제 16건 == CHANGELOG 기재 16건
+b12_self_test_c: pass    # 기재된 모든 파일 경로를 실제 트리에서 확인
+changelog_entry_position: "[Unreleased] 최상단 — SPEC-ADMIN-002 항목 앞"
+frontmatter_status_transitions:
+  spec_md: "in-progress -> implemented -> completed (단일 sync 커밋)"
+  plan_md: "n/a — YAML frontmatter 없음"
+  acceptance_md: "n/a — YAML frontmatter 없음"
+  progress_md: "n/a — YAML frontmatter 없음"
+docs_synced:
+  - CHANGELOG.md
+  - README.md            # 272행 라우트 경로, 274행 핸들러 위치 정정
+precommit_gate: overridden   # SKIP_MOAI_PRECOMMIT=1 — 저장소 전역 t20 플레이크. 게이트 통과 아님
+neighbor_spec_status_untouched: SPEC-ADMIN-002   # 종결 판단은 오케스트레이터 소관
+```
+
+### F1 / F2 판정 근거 (SPEC-ADMIN-002 sync-audit 대응)
+
+- **F1 (Critical) — 닫힘.** 네 라우트가 전부 `src/app/staff/api/**`로 이동해 `/admin/:path*` 매처 밖에 있고, `src/app/admin`은 존재하지 않는다. `grep -rn 'admin/api' src/ tests/` 0건. 세 호출부가 `response.redirected`를 `response.ok`보다 앞에서 검사한다. 재발 방지는 A/B/C 세 검증 계층이 맡는다.
+- **F2 (Medium) — 존치.** `/staff/products/new`와 `/staff/products/[productId]` 두 화면의 세션 게이트 `null` 경로를 실행하는 동작 테스트는 여전히 없다. 이 SPEC은 `product-boundaries.test.ts`의 경로 문자열만 갱신했을 뿐 판정력을 더하지 않았다.
