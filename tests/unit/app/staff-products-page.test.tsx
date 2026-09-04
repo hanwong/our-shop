@@ -164,3 +164,76 @@ describe("[AC-ADMIN-023] pagination reuses SPEC-ADMIN-001's constants and clamp 
     expect(repo.listProductsForAdmin.mock.calls[0]![0]).toMatchObject({ page: 3, pageSize: 50 });
   });
 });
+
+/**
+ * CodeRabbit review, PR #18 — the 이전/다음 links spread a `filters` object that
+ * carried only `category` and `search`, so `pageSize` was dropped from every
+ * pagination hop. An admin browsing at `?pageSize=50` landed on a page rendered
+ * at the default 20: the page boundaries stopped matching the page number that
+ * produced them, and rows were skipped or repeated across the seam.
+ */
+function paginationLinks(container: HTMLElement) {
+  const anchors = Array.from(container.querySelectorAll('nav[aria-label="페이지네이션"] a'));
+  const href = (label: string) =>
+    anchors.find((a) => a.textContent === label)?.getAttribute("href") ?? null;
+  return { prev: href("이전"), next: href("다음") };
+}
+
+/** Order-independent: the assertion is about the parameters, not their spelling. */
+function linkParams(href: string | null): URLSearchParams {
+  expect(href).not.toBeNull();
+  return new URL(href!, "http://localhost").searchParams;
+}
+
+describe("[CodeRabbit PR#18] pagination links carry the active pageSize", () => {
+  it("keeps a non-default pageSize on both the previous and the next link", async () => {
+    // 200 rows at 50 per page = 4 pages; sitting on page 2 renders both links.
+    repo.listProductsForAdmin.mockResolvedValue({ rows: [row()], totalCount: 200 });
+    const { container } = await renderPage({ page: "2", pageSize: "50" });
+
+    const { prev, next } = paginationLinks(container);
+
+    expect(linkParams(prev).get("pageSize")).toBe("50");
+    expect(linkParams(prev).get("page")).toBe("1");
+    expect(linkParams(next).get("pageSize")).toBe("50");
+    expect(linkParams(next).get("page")).toBe("3");
+  });
+
+  it("keeps the pageSize alongside the category and search filters", async () => {
+    repo.listProductsForAdmin.mockResolvedValue({ rows: [row()], totalCount: 200 });
+    const { container } = await renderPage({
+      page: "2",
+      pageSize: "50",
+      category: "cat-tops",
+      search: "denim",
+    });
+
+    const next = linkParams(paginationLinks(container).next);
+
+    expect(next.get("pageSize")).toBe("50");
+    expect(next.get("category")).toBe("cat-tops");
+    expect(next.get("search")).toBe("denim");
+    expect(next.get("page")).toBe("3");
+  });
+
+  it("carries the CLAMPED pageSize, not the raw one, so the link matches the page shown", async () => {
+    // 5000 is clamped to MAX_PAGE_SIZE=100 for the query; the link must agree
+    // with what was rendered, or the next hop silently changes size.
+    repo.listProductsForAdmin.mockResolvedValue({ rows: [row()], totalCount: 1000 });
+    const { container } = await renderPage({ page: "2", pageSize: "5000" });
+
+    expect(linkParams(paginationLinks(container).next).get("pageSize")).toBe("100");
+  });
+
+  it("omits pageSize when it is the default, matching how empty filters are omitted", async () => {
+    // queryString() already drops undefined/empty values, so the default page
+    // size stays out of the URL rather than appearing as noise.
+    repo.listProductsForAdmin.mockResolvedValue({ rows: [row()], totalCount: 200 });
+    const { container } = await renderPage({ page: "2" });
+
+    const next = linkParams(paginationLinks(container).next);
+
+    expect(next.has("pageSize")).toBe(false);
+    expect(next.get("page")).toBe("3");
+  });
+});

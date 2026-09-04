@@ -115,7 +115,18 @@ export default async function StaffProductsPage({
     totalPages: Math.max(1, Math.ceil(totalCount / pageSize)),
   };
 
-  const filters = { category: categoryId, search };
+  // Carried into the 이전/다음 links below. `pageSize` belongs here as much as the
+  // filters do: without it the next hop silently reverts to DEFAULT_PAGE_SIZE,
+  // so the page boundaries stop matching the page number that produced them and
+  // rows are skipped or repeated across the seam. It is the CLAMPED value, not
+  // the raw parameter, so the link agrees with the page actually rendered.
+  // Omitted at the default, the same way queryString() drops an absent category
+  // or an empty search rather than spelling out "no filter".
+  const linkParams = {
+    category: categoryId,
+    search,
+    pageSize: pageSize === DEFAULT_PAGE_SIZE ? undefined : pageSize,
+  };
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-12">
@@ -225,10 +236,10 @@ export default async function StaffProductsPage({
 
       <nav aria-label="페이지네이션" className="mt-6 flex gap-4 text-sm">
         {page > 1 ? (
-          <a href={`/staff/products${queryString({ ...filters, page: page - 1 })}`}>이전</a>
+          <a href={`/staff/products${queryString({ ...linkParams, page: page - 1 })}`}>이전</a>
         ) : null}
         {page < result.totalPages ? (
-          <a href={`/staff/products${queryString({ ...filters, page: page + 1 })}`}>다음</a>
+          <a href={`/staff/products${queryString({ ...linkParams, page: page + 1 })}`}>다음</a>
         ) : null}
       </nav>
     </main>
