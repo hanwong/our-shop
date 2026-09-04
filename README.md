@@ -14,6 +14,7 @@ A TypeScript / Next.js e-commerce backend. This repository currently implements:
 - **SPEC-PAYMENT-001** — Toss Payments PG integration: payment-window trigger, confirm callback, and payment/cancellation webhook processing (guest-only).
 - **SPEC-ORDER-003** — guest order revisit lookup: order-number + phone lookup, a cookie-only bypass entry, and order-status display, with rate limiting and response redaction.
 - **SPEC-ADMIN-001** — this repository's first admin (back-office) surface: `/staff/login`, `/staff/orders` list, `/staff/orders/{orderId}` detail, and admin-triggered order cancellation.
+- **SPEC-AUTH-002** — the customer-facing `/login` and `/signup` screens, plus a role-agnostic server-side session lookup helper.
 - **SPEC-ADMIN-002** — the admin product back-office: `/staff/products` list, create/edit forms, and suspend/restore (soft delete via `Product.isActive`), with the customer-facing catalog scoped to sellable products only.
 
 ## Stack
@@ -176,6 +177,25 @@ SPEC-STOREFRONT-001이 스텁으로 남기고 "홈 콘텐츠 설계는 범위 �
 `ProductGrid`는 **정렬·필터·페이지네이션 prop을 아예 받지 않는다** — 나중을 위해 자리를 비워 두는 대신, 그 기능들이 범위 밖이라는 결정을 타입으로 고정했다. 카드 위의 담기 버튼, 헤더·전역 내비게이션, 공유 포맷 유틸 추출도 전부 범위 밖이다. 가격 포맷(`formatWon`)은 이 저장소에서 이미 8개 파일이 각자 정의하고 있고 이 SPEC도 아홉 번째 지역 정의를 택했다(중복 제거는 별개 결정).
 
 **알려진 한계**(자세한 내용은 `.moai/specs/SPEC-STOREFRONT-003/progress.md` 참고): 홈은 첫 20개에서 끝나며 21번째 상품부터는 도달할 방법이 없다(페이지네이션 범위 밖 — `totalCount`는 읽지만 화면에 쓰지 않는다). `/products` 목록 라우트는 여전히 없다. 2/3/4열 전환은 Tailwind 브레이크포인트 클래스의 존재로만 검증했고 폭 375px 실제 가로 스크롤 여부는 SPEC-STOREFRONT-001과 마찬가지로 아직 확인하지 않았다(E2E 하네스 부재). 이미지 허용 호스트는 여전히 `next.config.ts`의 `picsum.photos` 하나뿐인 임시 플레이스홀더이며 이 SPEC은 그 파일을 건드리지 않았다.
+
+## 고객용 로그인·회원가입 화면 (SPEC-AUTH-002)
+
+`SPEC-AUTH-001`이 인증 API를 완성해 두었지만 브라우저에서 그것을 부르는 고객용 화면은 없었다 — 이 저장소의 유일한 로그인 화면은 `/staff/login`(SPEC-ADMIN-001)이었고 회원가입 화면은 아예 없었다. 이 SPEC이 그 틈을 닫는다. **API·스키마·미들웨어 변경은 0건**이며 기존 파일 수정도 0건이다(신규 파일만 추가).
+
+| 경로 | 파일 | 설명 |
+|---|---|---|
+| `/login` | `src/app/login/page.tsx` | 고객 로그인. `POST /api/auth/login`을 기존 요청 모양 그대로 호출하고 성공 시 `/`로 이동 |
+| `/signup` | `src/app/signup/page.tsx` | 회원가입. `POST /api/auth/signup` 호출, 201에도 자동 로그인하지 않고 `/login`으로 이동 |
+
+두 화면 모두 `src/app/staff/login/page.tsx`의 시각 관례(`useId` 라벨 연결, `noValidate`, `role="alert"` 오류 표시, 제출 중 버튼 비활성화)를 그대로 재사용하며 서로 이동하는 링크를 갖는다. 실패 시에는 서버가 준 `error` 문자열을 **그대로** 표시한다 — 클라이언트에서 문구를 다시 쓰지 않는다.
+
+**로그인 화면은 `redirect`/`?next=` 쿼리 파라미터를 읽지 않는다.** `useSearchParams`도, 이동 대상을 계산하는 코드도 없고 `router.push`의 인자는 리터럴 `"/"` 하나뿐이다 — 열린 리다이렉트가 들어올 자리를 기능이 아니라 부재로 고정했고, 정적 소스 테스트가 그 부재를 판정한다.
+
+`src/lib/auth/session-resolver.ts`의 `resolveSession()`은 역할 무관 서버 측 세션 조회다. `SPEC-ADMIN-001`의 `resolveAdminSession`에서 `role !== "admin"` 필터만 걷어낸 같은 알고리즘이며, 두 함수는 위임 없이 독립으로 둔다(`resolveAdminSession` 리팩터는 명시적 범위 밖). **읽기 전용이라** 토큰을 회전·재발급하지 않고, 실패 경로 네 가지(쿠키 없음·레코드 없음·폐기·만료)가 전부 같은 `null`로 수렴해 실패 사유가 호출부로 새지 않는다.
+
+**클라이언트 인증 상태 저장소는 도입하지 않았다** — 액세스 토큰을 클라이언트 메모리에만 두는 `SPEC-AUTH-001`의 설계(REQ-AUTH-009)를 뒤집는 결정이라 별개 SPEC의 몫이며, `createContext`/`useContext`/`useAuth`/`localStorage`/`sessionStorage`가 0건이라는 것을 정적 가드가 강제한다. `src/features/admin/services/admin-session.ts`와 `src/middleware.ts`는 한 글자도 바뀌지 않았다.
+
+**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-AUTH-002/progress.md` 참고): 헤더·전역 내비게이션이 없어 로그인해도 화면이 달라지지 않고 로그아웃할 방법도 화면에 없다. `resolveSession`은 아직 소비자가 없어 단위 테스트로만 검증됐고 실제 요청 경로에서 실행된 적이 없다. Google OAuth 진입 버튼이 없어 브라우저에서 소셜 로그인을 시작할 방법은 여전히 없다. 검증은 jsdom + Testing Library까지이며 실제 브라우저 폼 거동·모바일 뷰포트는 E2E 하네스 부재로 아직 확인하지 않았다.
 
 ## 주문/체크아웃 (SPEC-ORDER-001)
 

@@ -4,6 +4,30 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+### 추가 — SPEC-AUTH-002: 고객용 로그인·회원가입 화면과 역할 무관 세션 조회 헬퍼
+
+**`SPEC-AUTH-001`이 만든 인증 API에 드디어 고객이 직접 쓸 수 있는 화면이 붙었다.** 그동안 이 저장소의 유일한 로그인 화면은 `/staff/login`(`SPEC-ADMIN-001`)이었고 회원가입 화면은 아예 없었다 — `POST /api/auth/login`과 `POST /api/auth/signup`은 완성되어 있었으나 브라우저에서 그것을 부르는 방법이 없었다. 이 SPEC(백로그 카드 `t13`)이 `/login`·`/signup` 두 화면을 만들어 그 틈을 닫는다. **API·스키마·미들웨어 변경은 0건이다** — 기존 엔드포인트를 기존 요청 모양 그대로 소비하며, 기존 파일을 한 줄도 수정하지 않고 신규 파일만 추가했다.
+
+- `src/lib/auth/session-resolver.ts`(신규, 72줄) — 역할 무관 서버 측 세션 조회 `resolveSession()`. `SPEC-ADMIN-001`의 `resolveAdminSession`에서 `role !== "admin"` 필터만 걷어낸 같은 알고리즘이라, customer와 admin이 **같은 함수 하나로** 해석된다. 두 함수를 위임 관계로 묶지 않고 독립으로 둔 것은 의도적이다 — `resolveAdminSession` 리팩터는 이 SPEC이 명시적으로 범위 밖으로 확정한 항목이고(spec.md §3), 남의 SPEC이 소유한 보안 경계 파일을 편의를 위해 건드릴 일이 아니다. **읽기 전용이다**: `findFirst` 한 번만 하고 `create`/`update`/`updateMany`를 전혀 부르지 않으므로 토큰을 회전시키거나 재발급하지 않는다. 실패 경로 네 가지(쿠키 없음·매칭 레코드 없음·폐기됨·만료됨)가 전부 **같은 `null`**로 수렴하는 것도 설계다 — 호출부가 실패 사유를 구분하지 못하게 해서 사유가 밖으로 새지 않는다. 쿠키가 없으면 DB 조회 이전에 단락한다.
+- `src/app/login/page.tsx`(신규, 117줄) — 고객 로그인 화면. `src/app/staff/login/page.tsx`의 시각 관례(`useId` 기반 라벨 연결, `noValidate`, `role="alert"` 오류 표시, 제출 중 버튼 비활성화)를 그대로 재사용했고 차이는 둘뿐이다: 성공 시 이동 대상이 `/staff/orders`가 아니라 `/`라는 것과, 회원가입으로 가는 상호 이동 링크가 하나 붙었다는 것. **`redirect`/`?next=` 같은 쿼리 파라미터를 읽지 않는다** — `useSearchParams`도, 이동 대상을 계산하는 코드도 없고 `router.push`의 인자는 리터럴 `"/"` 하나뿐이다. 열린 리다이렉트가 들어올 자리를 남겨 두지 않기 위해 기능이 아니라 부재로 고정했다.
+- `src/app/signup/page.tsx`(신규, 118줄) — 회원가입 화면. LoginPage와 구조가 동일하다(이 저장소에 베낄 수 있는 기존 회원가입 UI가 없었으므로 방금 만든 로그인 화면을 선례로 삼았다). **201을 받아도 자동 로그인하지 않는다** — 회원가입 API가 세션을 발급하지 않으므로 `/login`으로 보낸다. 실패 시에는 서버가 준 `error` 문자열을 **그대로** 보여준다(`"Invalid email format"`, `"Password must be at least 8 characters"`, `"Email already registered"` 3종) — 클라이언트에서 문구를 다시 쓰지 않는다.
+- `tests/unit/auth/session-resolver.test.ts` · `tests/unit/app/login-page.test.tsx` · `tests/unit/app/signup-page.test.tsx` · `tests/unit/auth/auth-boundary-static.test.ts`(신규 4종, 21건) — 요청 바디·이동 대상·오류 표시·읽기 전용성·실패 경로 수렴을 덮는다. 여기에 **정적 소스 가드** 두 건이 붙는다: 로그인 화면에 redirect 파라미터 처리가 0건이라는 것과, 세 신규 파일에 `createContext`/`useContext`/`useAuth`/`localStorage`/`sessionStorage`가 0건이라는 것. 둘 다 "오늘 없다"가 아니라 "들어오면 실패한다"로 고정하기 위한 것이다.
+
+**클라이언트 인증 상태 저장소를 만들지 않았다.** 이 저장소는 액세스 토큰을 클라이언트 메모리에만 두는 설계(`REQ-AUTH-009`)이고, 전역 auth context나 `localStorage` 세션 캐시를 도입하는 것은 그 설계를 뒤집는 결정이라 별개 SPEC의 몫이다. 정적 가드로 부재를 강제한 것이 그 결정의 실질이다.
+
+**의도적으로 만들지 않은 것.** 로그아웃 UI, 공유 헤더·전역 내비게이션, "로그인 유지" 부가 UX, OAuth 버튼(Google 로그인 API는 `SPEC-AUTH-001`에 있으나 화면은 없다), `resolveAdminSession` 리팩터가 전부 범위 밖이다. `resolveSession`은 이 SPEC 안에 **소비자가 없다** — 함수의 존재와 정확한 동작만 요구되며, 실제 소비는 후속 SPEC이 맡는다(plan-audit이 D3으로 기록한 선제 구축이며, SPEC 스스로 명시적으로 정당화했다).
+
+인수 기준 12건(AC-AUTH-025~036, 요구사항 12건 REQ-AUTH-026~037에 대응) 전부 PASS. `npx tsc --noEmit` exit 0, `npm run lint` 신규 이슈 0건, 신규 파일 3종 커버리지 100% lines·statements(branch 85.71%/86.66%/100%). 전체 스위트 1438건 통과, 회귀 0건.
+
+**경계 보존.** `src/features/admin/services/admin-session.ts`와 `src/middleware.ts`는 **한 글자도 바뀌지 않았다**(`git diff --stat` 무출력으로 확인). `tests/unit/admin/admin-session.test.ts` 재실행도 무회귀다. 이 SPEC의 차분은 신규 파일 13개 추가·기존 파일 수정 0건·삭제 0줄이다.
+
+### 알려진 한계 — SPEC-AUTH-002
+
+- **로그인해도 화면이 달라지지 않는다.** 헤더·전역 내비게이션이 없으므로 로그인 성공 후 `/`로 이동해도 "로그인됨"을 알려주는 UI가 없고, 로그아웃할 방법도 화면에 없다. 후속 SPEC 대상이다.
+- **`resolveSession`은 아직 아무도 부르지 않는다.** 동작은 단위 테스트로 완전히 검증했으나 실제 요청 경로에서 실행된 적은 없다 — 통합 동작은 첫 소비자가 붙는 SPEC에서야 관측된다.
+- **브라우저 실측은 하지 않았다.** 검증은 jsdom + Testing Library까지이며, 실제 브라우저에서의 폼 자동완성 거동·모바일 뷰포트 레이아웃은 E2E 하네스 부재로 아직 아무도 보지 않았다.
+- **Google OAuth 화면은 여전히 없다.** `SPEC-AUTH-001`이 만든 Google 로그인 API로 진입하는 버튼이 이 두 화면에 없으므로, 브라우저에서 소셜 로그인을 시작할 방법은 아직 없다.
+
 ### 수정 — AC-AUTH-005 로그인 타이밍 테스트가 pre-commit 게이트를 상시 차단하던 플레이크 (백로그 카드 `t20`)
 
 **게이트를 막고 있던 것은 로그인 핸들러가 아니라 그것을 재는 방법이었다.** `tests/integration/auth/login.test.ts`의 `AC-AUTH-005`(응답 시간 유사성 검증)가 전체 스위트·커버리지 실행에서 간헐 실패해, 이 저장소의 최근 SPEC들이 전부 `SKIP_MOAI_PRECOMMIT=1` 우회로 커밋해 왔다(`SPEC-ADMIN-002`·`SPEC-ADMIN-003`·`SPEC-STOREFRONT-003`의 "게이트 우회 공개" 항목이 모두 이 카드를 지목한다). 원인 미확정 결함(Class B)으로 접수되어 SPEC 없이 진행했으며, 전체 증거는 `.moai/reports/fix/t20-auth-timing-flake.md`에 있다.
