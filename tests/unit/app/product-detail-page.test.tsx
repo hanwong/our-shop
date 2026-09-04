@@ -22,6 +22,14 @@ import type { ProductDetail } from "@/features/catalog/types/product";
  * tests/unit/app/checkout-page.test.tsx already draws for CheckoutForm.tsx.
  * `storefrontSources()` (unfiltered) still backs every other assertion in
  * this file unchanged.
+ *
+ * SPEC-REVIEW-001 M5 note: `firstRenderSources()` now ALSO excludes
+ * ReviewForm.tsx for the identical reason as AddToCartButton.tsx — its
+ * fetch() fires from a submit handler, never from render. `resolveSession()`
+ * and `getProductReviewSummary()` are mocked here the same way
+ * `getProductDetail()` already is, per plan.md M5 (login/anon branching,
+ * average/count display, and the source scan below, AC-REVIEW-007/008/009/
+ * 010/011/013).
  */
 
 // `notFound()` THROWS in the real App Router — that is how it aborts rendering
@@ -33,16 +41,36 @@ vi.mock("next/navigation", () => ({
   notFound: vi.fn(() => {
     throw new Error(NEXT_NOT_FOUND);
   }),
+  // ReviewForm.tsx (rendered inside ProductDetailView for a logged-in
+  // visitor) calls useRouter() at render time — a no-op refresh is enough
+  // since no test here exercises ReviewForm's submit path.
+  useRouter: vi.fn(() => ({ refresh: vi.fn() })),
 }));
 
 vi.mock("@/features/catalog/services/product-service", () => ({
   getProductDetail: vi.fn(),
 }));
 
+// `page.tsx` awaits `cookies()` before handing the jar to `resolveSession()` —
+// the mock's return value only needs to be duck-type compatible (§File
+// header), so a bare empty object is enough; `resolveSession` itself is
+// mocked separately below and never reads it.
+vi.mock("next/headers", () => ({ cookies: vi.fn().mockResolvedValue({}) }));
+
+vi.mock("@/lib/auth/session-resolver", () => ({ resolveSession: vi.fn() }));
+
+vi.mock("@/features/reviews/services/review-service", () => ({
+  getProductReviewSummary: vi.fn(),
+}));
+
 const { notFound } = await import("next/navigation");
 const { getProductDetail } = await import("@/features/catalog/services/product-service");
+const { resolveSession } = await import("@/lib/auth/session-resolver");
+const { getProductReviewSummary } = await import("@/features/reviews/services/review-service");
 const { default: ProductDetailPage } = await import("@/app/products/[productId]/page");
 const { default: ProductNotFound } = await import("@/app/products/[productId]/not-found");
+
+const EMPTY_REVIEW_SUMMARY = { aggregate: { averageRating: null, count: 0 }, reviews: [] };
 
 const product: ProductDetail = {
   id: "p-1",
@@ -68,16 +96,18 @@ function storefrontSources(): string[] {
 
 /**
  * Only the FIRST-RENDER path. AddToCartButton.tsx (SPEC-STOREFRONT-002 M4)
- * is deliberately excluded — it is a client "island" whose fetch() call
- * fires from a click handler, not from render, the same distinction
- * checkout-page.test.tsx draws for CheckoutForm.tsx.
+ * and ReviewForm.tsx (SPEC-REVIEW-001 M4) are deliberately excluded — both
+ * are client "islands" whose fetch() call fires from an event handler, not
+ * from render, the same distinction checkout-page.test.tsx draws for
+ * CheckoutForm.tsx.
  */
 function firstRenderSources(): string[] {
   const roots = ["src/app/products", "src/components/product"];
+  const excluded = ["AddToCartButton.tsx", "ReviewForm.tsx"];
   return roots.flatMap((root) =>
     readdirSync(root, { recursive: true, encoding: "utf8" })
       .filter((entry) => entry.endsWith(".tsx"))
-      .filter((entry) => !entry.endsWith("AddToCartButton.tsx"))
+      .filter((entry) => !excluded.some((name) => entry.endsWith(name)))
       .map((entry) => readFileSync(join(root, entry), "utf8"))
   );
 }
@@ -89,6 +119,8 @@ afterEach(cleanup);
 beforeEach(() => {
   vi.mocked(notFound).mockClear();
   vi.mocked(getProductDetail).mockReset();
+  vi.mocked(resolveSession).mockReset().mockResolvedValue(null);
+  vi.mocked(getProductReviewSummary).mockReset().mockResolvedValue(EMPTY_REVIEW_SUMMARY);
 });
 
 describe("ProductDetailPage — AC-STOREFRONT-003 / 005", () => {
@@ -122,7 +154,11 @@ describe("ProductDetailPage — AC-STOREFRONT-003 / 005", () => {
   });
 
   it("requires no authentication and never redirects", () => {
-    // AC-005(b): no session lookup or redirect in the detail code path.
+    // AC-005(b): the page never redirects or gates on being logged in. Since
+    // SPEC-REVIEW-001, `page.tsx` DOES read `resolveSession()` — but only to
+    // steer the review section's write-vs-login-prompt branch (REQ-REVIEW-008),
+    // never to redirect or to require it, so this stays a redirect/gate scan
+    // rather than a "no session lookup at all" scan.
     for (const source of storefrontSources()) {
       expect(source).not.toMatch(/\bredirect\s*\(/);
       expect(source).not.toMatch(/getSession|requireAuth|verifyAccessToken/);
@@ -156,5 +192,82 @@ describe("ProductDetailPage — AC-STOREFRONT-004", () => {
     // AC-004(c): the service's internal message never reaches the screen.
     expect(container.textContent).not.toContain("Product not found");
     expect(container.textContent).not.toMatch(/prisma|stack|SQL/i);
+  });
+});
+
+describe("ProductDetailPage — AC-REVIEW-007 / 008", () => {
+  it("shows the rounded average rating and the review count", async () => {
+    vi.mocked(getProductDetail).mockResolvedValue({ ok: true, data: product });
+    vi.mocked(getProductReviewSummary).mockResolvedValue({
+      aggregate: { averageRating: 4, count: 3 },
+      reviews: [],
+    });
+
+    render(await ProductDetailPage({ params: Promise.resolve({ productId: "p-1" }) }));
+
+    expect(screen.getByText(/평균 평점 4\.0/)).toBeDefined();
+    expect(screen.getByText(/리뷰 3개/)).toBeDefined();
+  });
+
+  it("shows no average figure and an explicit zero count for a product with no reviews yet", async () => {
+    vi.mocked(getProductDetail).mockResolvedValue({ ok: true, data: product });
+    // The beforeEach default (EMPTY_REVIEW_SUMMARY) already covers this case;
+    // restated explicitly here so the AC has its own named test.
+    vi.mocked(getProductReviewSummary).mockResolvedValue(EMPTY_REVIEW_SUMMARY);
+
+    render(await ProductDetailPage({ params: Promise.resolve({ productId: "p-1" }) }));
+
+    expect(screen.queryByText(/평균 평점/)).toBeNull();
+    expect(screen.getByText(/리뷰 0개/)).toBeDefined();
+  });
+});
+
+describe("ProductDetailPage — AC-REVIEW-009 / 010", () => {
+  it("shows a login-prompt link to /login instead of the write form for an anonymous visitor", async () => {
+    vi.mocked(getProductDetail).mockResolvedValue({ ok: true, data: product });
+    vi.mocked(resolveSession).mockResolvedValue(null);
+
+    render(await ProductDetailPage({ params: Promise.resolve({ productId: "p-1" }) }));
+
+    const link = screen.getByRole("link", { name: "로그인하고 리뷰 남기기" });
+    expect(link.getAttribute("href")).toBe("/login");
+    expect(screen.queryByLabelText("리뷰 내용")).toBeNull();
+  });
+
+  it("shows the ReviewForm write control instead of the login prompt for a logged-in visitor", async () => {
+    vi.mocked(getProductDetail).mockResolvedValue({ ok: true, data: product });
+    vi.mocked(resolveSession).mockResolvedValue({ userId: "user-1", role: "customer" });
+
+    render(await ProductDetailPage({ params: Promise.resolve({ productId: "p-1" }) }));
+
+    expect(screen.getByLabelText("리뷰 내용")).toBeDefined();
+    expect(screen.queryByText("로그인하고 리뷰 남기기")).toBeNull();
+  });
+});
+
+describe("ProductDetailPage — AC-REVIEW-011", () => {
+  it("renders the review list in the order the service already returned (newest first)", async () => {
+    vi.mocked(getProductDetail).mockResolvedValue({ ok: true, data: product });
+    vi.mocked(getProductReviewSummary).mockResolvedValue({
+      aggregate: { averageRating: 4.5, count: 2 },
+      reviews: [
+        { id: "r-newest", userId: "u1", productId: "p-1", rating: 5, body: "최신 리뷰", createdAt: "2026-09-02T00:00:00.000Z" },
+        { id: "r-older", userId: "u2", productId: "p-1", rating: 4, body: "이전 리뷰", createdAt: "2026-09-01T00:00:00.000Z" },
+      ],
+    });
+
+    render(await ProductDetailPage({ params: Promise.resolve({ productId: "p-1" }) }));
+
+    const bodies = screen.getAllByText(/리뷰$/).map((node) => node.textContent);
+    expect(bodies.indexOf("최신 리뷰")).toBeLessThan(bodies.indexOf("이전 리뷰"));
+  });
+});
+
+describe("ProductDetailPage — AC-REVIEW-013 (server-rendering source scan)", () => {
+  it("keeps ReviewForm's fetch confined to its own submit handler", () => {
+    const source = readFileSync("src/components/product/ReviewForm.tsx", "utf8");
+
+    expect(source).not.toMatch(/\buseEffect\b/);
+    expect(source).toMatch(/\bfetch\s*\(/);
   });
 });
