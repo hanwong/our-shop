@@ -4,6 +4,16 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+### 수정 — AC-AUTH-021 로그인 rate-limit 테스트가 전체 스위트 실행 시 간헐 실패하던 플레이크 (백로그 카드 `t33`)
+
+**t20(AC-AUTH-005)과는 별개의 두 번째 플레이크였고, 원인도 달랐다.** `tests/unit/api/auth/login.test.ts`의 `AC-AUTH-021` 테스트("returns 429 after more than 5 requests/60s ...")가 전체 스위트 실행에서 간헐 실패해 왔다(t20의 자체 조사에서도 같은 고부하 조건에서 두 번 다 재현된 바 있음 — `.moai/reports/fix/t20-auth-timing-flake.md` §5). 원인 미확정 결함(Class B)으로 접수되어 SPEC 없이 진행했으며, 전체 증거는 `.moai/reports/fix/t33-auth-ratelimit-flake.md`에 있다.
+
+- **근본 원인 — 절대 시간창(60초) 소진.** 이 테스트는 real bcrypt(cost 12) 기반 로그인 요청 6회를 순차 실행한다. `src/lib/auth/rate-limit.ts`의 `checkRateLimit()`은 새 요청을 카운트하기 **전에** 60초보다 오래된 타임스탬프를 먼저 걸러낸다(`timestamps.filter((t) => now - t < WINDOW_MS)`). 격리 실행에서는 6회 요청이 ~1.3-1.4초 만에 끝나 여유가 충분하지만, 전체 스위트의 CPU 경합(다른 파일들의 동시 real-bcrypt 호출) 하에서 6회 요청의 실제 경과 시간이 60초에 근접·초과하면 1번째 요청의 타임스탬프가 6번째 판정 시점에 이미 창 밖으로 밀려나 카운트가 6에서 5로 줄고, 6번째 요청이 429 대신 200을 반환해 버린다. 페이크 타이머로 이 메커니즘을 실제 라우트 코드에서 직접 재현해(`expected 200 to be 429`) 가설을 확인했다.
+- `tests/unit/api/auth/login.test.ts` — `AC-AUTH-021` 테스트에 `vi.useFakeTimers({ now: <고정 시각> })`를 추가해 6회 요청 내내 `Date.now()`를 고정시켰다. 실제 bcrypt Promise는 마이크로태스크 큐를 통해 정상적으로 real-time에 resolve되므로(네이티브 비동기 I/O는 페이크 타이머의 영향을 받지 않는다) 라우트의 실제 동작은 그대로 검증되고, rate limiter가 관측하는 시계만 고정되어 6회 요청이 실제로 얼마나 걸리든 항상 "동시"로 취급된다.
+- **약화시키지 않은 것.** `src/lib/auth/rate-limit.ts`의 60,000ms 윈도우·15분 잠금·`MAX_REQUESTS_PER_WINDOW=5` 등 REQ-AUTH-021의 프로덕션 로직은 한 글자도 건드리지 않았다(t20이 확립한 원칙과 동일 — 테스트 방법론을 고치되 실제 임계값은 건드리지 않는다). 차분은 테스트 파일 하나뿐이다.
+
+**검증.** 수정 후 해당 파일 11/11 통과(회귀 없음), 전체 스위트 3회 연속 110 files/1478 tests 통과. `npx tsc --noEmit`, `npx eslint .` 전부 exit 0.
+
 ### 추가 — SPEC-REVIEW-001: 상품 리뷰 작성 및 평점/후기 표시
 
 **`SPEC-STOREFRONT-001`이 예고만 해두고 미뤄뒀던 리뷰 기능이 들어왔다.** 그 SPEC의 `ProductDetailView.tsx`는 처음부터 "리뷰는 별도 SPEC의 몫"이라고 못 박아 두었고(REQ-STOREFRONT-009, spec.md §3 Out of Scope), 회귀 테스트에도 "리뷰" 부재를 명시적으로 단언해 두었다. 이 SPEC(백로그 카드 `t36`)이 그 자리를 정확히 채운다 — 로그인한 고객(또는 admin 계정)이 상품마다 별점(1-5)과 텍스트 후기를 하나씩 남기고, 상품 상세 페이지가 평균 평점·리뷰 개수·리뷰 목록을 표시하며, 미로그인 방문자에게는 `/login`으로 연결되는 안내 문구를 보여준다. `SPEC-AUTH-002`가 미리 만들어 둔 역할 무관 `resolveSession()`이 이 SPEC의 첫 소비자다.

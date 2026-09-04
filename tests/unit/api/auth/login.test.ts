@@ -218,16 +218,44 @@ describe("POST /api/auth/login", () => {
       });
     }
 
-    for (let i = 0; i < 5; i++) {
-      const response = await POST(
+    // t33 fix — freeze the clock so this test's pass condition no longer
+    // depends on how long the 6 real bcrypt-backed round trips actually take
+    // in wall-clock time. Root cause (.moai/reports/fix/t33-auth-ratelimit-flake.md
+    // has the full diagnosis): `checkRateLimit()` filters out any timestamp
+    // older than the 60s window BEFORE counting the current request
+    // (rate-limit.ts's `timestamps.filter((t) => now - t < WINDOW_MS)`).
+    // Under normal load six sequential `comparePassword()` calls finish in
+    // ~1-2s, comfortably inside the window — but under heavy full-suite
+    // contention (many other files' real bcrypt calls competing for the same
+    // CPU/thread-pool capacity) the aggregate elapsed time can occasionally
+    // stretch far enough that the FIRST request's timestamp ages out of the
+    // window before the 6th check runs, silently dropping the count from 6
+    // to 5 and letting the 6th request through with 200 instead of the
+    // expected 429 — a spurious failure for this assertion, not a real
+    // regression in the rate limiter.
+    //
+    // No `shouldAdvanceTime` (defaults false): the fake clock stays frozen
+    // rather than ticking forward with real time, so the rate limiter always
+    // sees all 6 requests as effectively simultaneous regardless of real
+    // execution speed. Real bcrypt promise resolution is unaffected either
+    // way — native async I/O resolves via the microtask queue, not via faked
+    // timers. This does NOT touch REQ-AUTH-021's actual 60-second production
+    // window — only the test's dependency on wall-clock speed is removed.
+    vi.useFakeTimers({ now: new Date("2026-01-01T00:00:00.000Z") });
+    try {
+      for (let i = 0; i < 5; i++) {
+        const response = await POST(
+          makeIpRequest({ email: "rate-limit-a@example.com", password: "correct-password-a" })
+        );
+        expect(response.status).toBe(200);
+      }
+      const sixth = await POST(
         makeIpRequest({ email: "rate-limit-a@example.com", password: "correct-password-a" })
       );
-      expect(response.status).toBe(200);
+      expect(sixth.status).toBe(429);
+    } finally {
+      vi.useRealTimers();
     }
-    const sixth = await POST(
-      makeIpRequest({ email: "rate-limit-a@example.com", password: "correct-password-a" })
-    );
-    expect(sixth.status).toBe(429);
   });
 
   it("[SPEC-AUTH-001 M6 / REQ-AUTH-023] a successful login sets a csrf_token cookie alongside the refresh-token cookie (not httpOnly, SameSite=Lax)", async () => {
