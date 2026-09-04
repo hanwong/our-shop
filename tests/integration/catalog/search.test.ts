@@ -43,6 +43,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 const findMany = vi.fn();
 const count = vi.fn();
 const findUnique = vi.fn();
+const findFirst = vi.fn();
 const categoryFindUnique = vi.fn();
 
 vi.mock("@/lib/db", () => ({
@@ -51,6 +52,11 @@ vi.mock("@/lib/db", () => ({
       findMany: (...args: unknown[]) => findMany(...args),
       count: (...args: unknown[]) => count(...args),
       findUnique: (...args: unknown[]) => findUnique(...args),
+      // SPEC-ADMIN-002 REQ-ADMIN-035 — findProductById moved from findUnique
+      // to findFirst (findUnique takes only unique fields in its where, and
+      // isActive is not one). Without this delegate the detail route dies with
+      // a TypeError before any assertion runs.
+      findFirst: (...args: unknown[]) => findFirst(...args),
     },
     category: {
       findUnique: (...args: unknown[]) => categoryFindUnique(...args),
@@ -211,6 +217,7 @@ beforeEach(() => {
   findMany.mockReset().mockImplementation(async (args) => fakeFindMany(args));
   count.mockReset().mockImplementation(async (args) => fakeCount(args));
   findUnique.mockReset().mockResolvedValue(null);
+  findFirst.mockReset().mockResolvedValue(null); // SPEC-ADMIN-002 REQ-ADMIN-035
   categoryFindUnique
     .mockReset()
     .mockImplementation(async (args: { where: { slug: string } }) => {
@@ -306,7 +313,10 @@ describe("AC-CATALOG-021 — search AND category", () => {
   it("builds a where clause carrying BOTH filters (the real repository's output)", async () => {
     await listBody("?search=denim&category=tops");
 
+    // SPEC-ADMIN-002 REQ-ADMIN-034 — three ANDed siblings now, not two; the
+    // search AND category composition this test guards is unchanged.
     expect(lastWhere()).toEqual({
+      isActive: true,
       categoryId: "cat-tops",
       name: { contains: "denim", mode: "insensitive" },
     });
@@ -402,7 +412,8 @@ describe("AC-CATALOG-025 — a term matching nothing is an empty 200", () => {
 
 describe("AC-CATALOG-028 — the detail endpoint ignores search", () => {
   it("answers 200 and the same body whether or not ?search= is appended", async () => {
-    findUnique.mockResolvedValue({
+    // SPEC-ADMIN-002 REQ-ADMIN-035 — the detail read is findFirst now.
+    findFirst.mockResolvedValue({
       id: "p-shirt",
       name: "Denim Shirt",
       price: 49000,
@@ -426,7 +437,10 @@ describe("AC-CATALOG-028 — the detail endpoint ignores search", () => {
     expect(withSearch.status).toBe(200);
     expect(await withSearch.json()).toEqual(await plain.json());
     // The lookup key stays the route segment; the query string never reaches it.
-    expect(findUnique.mock.calls.at(-1)![0].where).toEqual({ id: "p-shirt" });
+    // SPEC-ADMIN-002 REQ-ADMIN-035 — the id is now joined by the sellability
+    // scope, which is what makes a suspended product read as not-found. The
+    // property this test guards is unchanged: `search` never reaches the where.
+    expect(findFirst.mock.calls.at(-1)![0].where).toEqual({ id: "p-shirt", isActive: true });
   });
 });
 
@@ -454,12 +468,16 @@ describe("AC-CATALOG-029 — SPEC-CATALOG-001 request shapes are unchanged", () 
 
     // Byte-identical to what SPEC-CATALOG-001 produced — adding the search
     // capability must not alter the query for a request that omits it.
-    expect(lastWhere()).toEqual({ categoryId: "cat-tops" });
+    // SPEC-ADMIN-002 REQ-ADMIN-034 — isActive joins the clause; the property
+    // this test guards (no NAME filter when search is absent) is unchanged.
+    expect(lastWhere()).toEqual({ isActive: true, categoryId: "cat-tops" });
   });
 
   it("issues a completely empty where clause for an unparameterised request", async () => {
     await listBody("");
 
-    expect(lastWhere()).toEqual({});
+    // SPEC-ADMIN-002 REQ-ADMIN-034 — "empty" now means "no caller-supplied
+    // filter": the sellability scope is unconditional and is not a caller option.
+    expect(lastWhere()).toEqual({ isActive: true });
   });
 });

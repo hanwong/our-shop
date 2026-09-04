@@ -111,6 +111,13 @@ model Product {
   description String
   images      String[] // image URLs; array order is display order (plan.md §2.3)
   stock       Int      @default(0)
+  // SPEC-ADMIN-002 M1 — REQ-ADMIN-019. Sellability, not existence: `false`
+  // means an admin has suspended the product (soft delete). @default(true)
+  // keeps every row that predates this column sellable, so the migration
+  // needs no backfill. The FK directions below are deliberately unchanged
+  // (REQ-ADMIN-020) — soft delete means `product.delete` is never called, so
+  // CartItem's Cascade never fires and OrderItem's Restrict never blocks.
+  isActive    Boolean  @default(true)
   categoryId  String
   category    Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   createdAt   DateTime @default(now())

@@ -95,7 +95,15 @@ export async function findProductsPage({
   // (REQ-CATALOG-018). Prisma binds the term as a parameter, so wildcards and
   // quotes inside it are matched literally rather than interpreted — and the
   // GIN trigram index added in M1 is what keeps that scan off the table.
+  //
+  // SPEC-ADMIN-002 REQ-ADMIN-034 — `isActive: true` is UNCONDITIONAL, not a
+  // caller option. An `includeInactive?` escape hatch was rejected (that SPEC's
+  // design.md §3): the admin side runs its own queries, so no consumer would
+  // use it, and an unconditional scope is one a future call site cannot forget
+  // to apply. Because it feeds BOTH queries below, totalCount keeps describing
+  // the same sellable population the rows are drawn from (AC-ADMIN-034).
   const where: Prisma.ProductWhereInput = {
+    isActive: true,
     ...(categoryId ? { categoryId } : {}),
     ...(search ? { name: { contains: search, mode: "insensitive" } } : {}),
   };
@@ -114,7 +122,17 @@ export async function findProductsPage({
   return { rows, totalCount };
 }
 
-/** Reads a single product, or null when no row carries that id (REQ-CATALOG-014). */
+/**
+ * Reads a single product, or null when no row carries that id (REQ-CATALOG-014).
+ *
+ * SPEC-ADMIN-002 REQ-ADMIN-035 — a suspended product reads as "not found"
+ * rather than returning its detail, which is why the lookup carries
+ * `isActive: true`. That forces `findFirst` over `findUnique`: `findUnique`
+ * accepts only unique fields in its where, and `isActive` is not one. `id` is
+ * still the primary key, so this remains a single indexed read with an
+ * unchanged return type — the call site in product-service.ts is untouched
+ * (REQ-ADMIN-036). admin-session.ts:63 uses findFirst for the same reason.
+ */
 export async function findProductById(id: string): Promise<ProductDetailRow | null> {
-  return prisma.product.findUnique({ where: { id }, select: DETAIL_SELECT });
+  return prisma.product.findFirst({ where: { id, isActive: true }, select: DETAIL_SELECT });
 }

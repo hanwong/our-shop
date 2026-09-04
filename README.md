@@ -14,6 +14,7 @@ A TypeScript / Next.js e-commerce backend. This repository currently implements:
 - **SPEC-PAYMENT-001** — Toss Payments PG integration: payment-window trigger, confirm callback, and payment/cancellation webhook processing (guest-only).
 - **SPEC-ORDER-003** — guest order revisit lookup: order-number + phone lookup, a cookie-only bypass entry, and order-status display, with rate limiting and response redaction.
 - **SPEC-ADMIN-001** — this repository's first admin (back-office) surface: `/staff/login`, `/staff/orders` list, `/staff/orders/{orderId}` detail, and admin-triggered order cancellation.
+- **SPEC-ADMIN-002** — the admin product back-office: `/staff/products` list, create/edit forms, and suspend/restore (soft delete via `Product.isActive`), with the customer-facing catalog scoped to sellable products only.
 
 ## Stack
 
@@ -90,6 +91,8 @@ Key security properties (see `.moai/specs/SPEC-AUTH-001/` for the full spec/acce
 |---|---|---|
 | `/api/products` | GET | 키워드 검색·카테고리 필터·정렬을 지원하는 페이지네이션 상품 목록 |
 | `/api/products/[productId]` | GET | 상품 상세 전체; 존재하지 않는 id는 404 |
+
+두 엔드포인트 모두 **판매 가능한 상품만** 반환한다(SPEC-ADMIN-002). 관리자가 판매 중단한 상품은 목록에서 빠지고(`totalCount`도 같은 조건으로 계산된다) 상세 조회는 404로 처리되며, 판매 가능 여부 자체는 고객 응답에 노출되지 않는다.
 
 목록 쿼리 파라미터는 아래 5개가 전부다. 인식하는 집합은 닫혀 있어 `q`·`keyword`·`query` 같은 별칭은 읽지 않으며, 이 폐쇄성은 화이트리스트 테스트가 보장한다.
 
