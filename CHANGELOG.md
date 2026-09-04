@@ -14,7 +14,7 @@ All notable changes to this project are documented here. Format loosely follows 
 - `tests/unit/components/product-card.test.tsx` · `product-grid.test.tsx` · `tests/unit/app/home-page.test.tsx`(신규 3종, 21건) — 표시·링크 대상·placeholder·빈 상태·순서 보존·접근성(`alt`에 상품명, Tab 포커스 도달)을 덮는다. 여기에 **정적 소스 검사** 두 건이 붙는다: 페이지네이션/정렬/필터/검색 UI가 없다는 것과 `fetch(`/`useEffect`/`"use client"`가 0건이라는 것 — 둘 다 "오늘 없다"가 아니라 "들어오면 실패한다"로 고정하기 위한 것이다.
 - `tests/unit/app/shell.test.tsx` — `HomePage stub` describe 블록만 교체했다. 같은 파일의 `RootLayout` 블록(`AC-STOREFRONT-001`/`002` 소유)은 **한 줄도 건드리지 않았다**.
 
-**의도적으로 만들지 않은 것.** 페이지네이션·정렬·필터·검색 UI, 카드 위의 담기 버튼, 헤더·전역 내비게이션, 공유 포맷 유틸 추출이 전부 범위 밖이다. 특히 가격 포맷(`formatWon`)은 이 저장소에서 이미 7개 파일이 각자 정의하고 있는데, 이 SPEC도 **여덟 번째 지역 정의를 택했다** — 중복 제거를 위한 공유 유틸 추출은 별개의 결정이고, 이 SPEC의 봉투 안에서 남의 파일 7개를 건드리며 할 일이 아니다.
+**의도적으로 만들지 않은 것.** 페이지네이션·정렬·필터·검색 UI, 카드 위의 담기 버튼, 헤더·전역 내비게이션, 공유 포맷 유틸 추출이 전부 범위 밖이다. 특히 가격 포맷(`formatWon`)은 이 저장소에서 이미 8개 파일이 각자 정의하고 있는데, 이 SPEC도 **아홉 번째 지역 정의를 택했다** — 중복 제거를 위한 공유 유틸 추출은 별개의 결정이고, 이 SPEC의 봉투 안에서 남의 파일 7개를 건드리며 할 일이 아니다.
 
 인수 기준 11건(AC-STOREFRONT-031~041, 요구사항 11건 REQ-STOREFRONT-031~041에 대응) 전부 PASS. `npx tsc --noEmit` exit 0, `npm run lint` 신규 이슈 0건, 신규 파일 3종 커버리지 100%.
 
