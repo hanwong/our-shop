@@ -4,6 +4,29 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+### 추가 — SPEC-STOREFRONT-003: 홈 화면 상품 목록 그리드
+
+**`/`가 드디어 상품을 보여준다.** `SPEC-STOREFRONT-001`이 남긴 한 줄짜리 스텁 — 상세 화면으로 들어가는 링크 하나가 전부였던 홈 — 을 실제 상품 그리드로 교체했다. 그 SPEC이 "홈 콘텐츠 설계는 범위 밖"이라며 명시적으로 이월한 결정을 이 SPEC(백로그 카드 `t34`)이 받아 닫는다. 소비하는 계약은 전부 기존 것이다: `SPEC-CATALOG-001`의 `listProducts`/`ProductListItem`/`PaginatedProducts`를 그대로 쓰고, 스키마·API·백엔드 변경은 0건이다.
+
+- `src/components/product/ProductCard.tsx`(신규, 67줄) — 그리드 한 칸. **카드 전체가 링크다**: 이미지·이름·가격이 모두 하나의 `<a href="/products/{id}">` 안에 들어가므로 클릭 대상이 넓고, 브라우저가 포커스 링·Enter 활성화·새 탭 열기를 그대로 준다. `next/link`가 아니라 평범한 `<a>`를 쓰는 것은 `EmptyCart.tsx`/`CartView.tsx`가 내부 이동에 이미 택한 관례를 따른 것이다. 이미지가 없는 상품은 `ProductGallery.tsx`와 **같은** placeholder 처리(`aspect-square` + `bg-neutral-100` + "이미지 준비 중")를 받는데, 패턴을 공유 모듈로 뽑지 않고 다시 구현했다 — `ProductGallery`는 썸네일 선택 상태를 가진 클라이언트 컴포넌트라 서버 컴포넌트인 이 카드가 그대로 가져올 수 없고, 이 저장소는 공유 UI 라이브러리를 두지 않는다는 결정을 유지했다.
+- `src/components/product/ProductGrid.tsx`(신규, 25줄) — 카드들의 반응형 그리드(2열 → `sm` 3열 → `lg` 4열). `<div>`가 아니라 `<ul>`/`<li>`인 것은 이것이 실제로 상품의 목록이기 때문이며, `ProductGallery`의 썸네일 스트립과 `CartView`의 품목 목록이 이미 같은 선택을 했다. **정렬·필터·페이지네이션 prop을 아예 받지 않는다** — 나중에 붙이기 쉽게 자리를 비워 두는 대신, 이 SPEC이 그 기능들을 범위 밖으로 확정했다는 사실을 타입으로 고정했다.
+- `src/app/page.tsx`(전체 교체) — 홈 라우트. `listProducts(new URLSearchParams())`를 **빈 쿼리로** 호출한다: `parseListQuery`가 부재한 파라미터마다 자기 기본값(`page=1`/`pageSize=20`/`sort="newest"`)으로 되돌아가고 그것이 이 화면이 원하는 첫 페이지와 정확히 일치하므로, 쿼리 객체를 손으로 조립하지 않았다. 상품이 하나도 없으면 그리드 대신 안내 문구("아직 등록된 상품이 없습니다.")를 낸다. `"use client"`가 없고 `fetch`도 `useEffect`도 없다 — 서버가 데이터를 직접 읽어 HTML에 채워 보낸다(자기 API를 HTTP로 되부르지 않는 `SPEC-STOREFRONT-001`의 관례 유지).
+- `tests/unit/components/product-card.test.tsx` · `product-grid.test.tsx` · `tests/unit/app/home-page.test.tsx`(신규 3종, 21건) — 표시·링크 대상·placeholder·빈 상태·순서 보존·접근성(`alt`에 상품명, Tab 포커스 도달)을 덮는다. 여기에 **정적 소스 검사** 두 건이 붙는다: 페이지네이션/정렬/필터/검색 UI가 없다는 것과 `fetch(`/`useEffect`/`"use client"`가 0건이라는 것 — 둘 다 "오늘 없다"가 아니라 "들어오면 실패한다"로 고정하기 위한 것이다.
+- `tests/unit/app/shell.test.tsx` — `HomePage stub` describe 블록만 교체했다. 같은 파일의 `RootLayout` 블록(`AC-STOREFRONT-001`/`002` 소유)은 **한 줄도 건드리지 않았다**.
+
+**의도적으로 만들지 않은 것.** 페이지네이션·정렬·필터·검색 UI, 카드 위의 담기 버튼, 헤더·전역 내비게이션, 공유 포맷 유틸 추출이 전부 범위 밖이다. 특히 가격 포맷(`formatWon`)은 이 저장소에서 이미 8개 파일이 각자 정의하고 있는데, 이 SPEC도 **아홉 번째 지역 정의를 택했다** — 중복 제거를 위한 공유 유틸 추출은 별개의 결정이고, 이 SPEC의 봉투 안에서 남의 파일 7개를 건드리며 할 일이 아니다.
+
+인수 기준 11건(AC-STOREFRONT-031~041, 요구사항 11건 REQ-STOREFRONT-031~041에 대응) 전부 PASS. `npx tsc --noEmit` exit 0, `npm run lint` 신규 이슈 0건, 신규 파일 3종 커버리지 100%.
+
+**pre-commit 게이트 우회 공개.** 이 SPEC의 run-phase 커밋은 게이트 우회로 이루어졌다. 원인은 `SPEC-ADMIN-002`/`SPEC-ADMIN-003`과 **동일**하다 — 백로그 카드 `t20`의 타이밍 플레이크(`tests/integration/auth/login.test.ts`의 `AC-AUTH-005`, `SPEC-AUTH-001` 소유)가 해소되기 전까지 이 저장소의 어떤 커밋도 우회 없이 전역 게이트를 통과하지 못한다. **이 SPEC이 만든 실패는 0건이다**: 전체 스위트 1417건 중 실패 1건이 위 플레이크뿐이며, 격리 실행하면 통과한다.
+
+### 알려진 한계 — SPEC-STOREFRONT-003
+
+- **홈은 첫 20개에서 끝난다** — 21번째 상품부터는 도달할 방법이 없다. 페이지네이션이 범위 밖이므로 `listProducts`의 `totalCount`는 읽지만 화면에 쓰지 않으며, 상품이 20개를 넘어가는 순간 이 화면은 카탈로그의 일부만 보여주는 화면이 된다. 후속 SPEC 대상이다.
+- **`/products` 목록 라우트는 여전히 없다** — 이 SPEC은 홈(`/`)을 채웠을 뿐 별도의 목록 경로를 만들지 않았다. `EmptyCart`의 "상품 목록으로 이동" 링크가 `/`를 가리키는 `SPEC-STOREFRONT-002`의 보정은 그대로 유효하다.
+- **뷰포트 실측은 하지 않았다** — 2/3/4열 전환은 Tailwind 브레이크포인트 클래스의 존재로만 검증했고, 실제 브라우저에서 폭 375px 가로 스크롤 여부는 `SPEC-STOREFRONT-001`과 마찬가지로 아직 아무도 보지 않았다. E2E 하네스가 없어 자동 판정이 불가능한 수동 확인 항목이다.
+- **이미지 호스트는 여전히 임시다** — `next.config.ts`의 `images.remotePatterns`에 등록된 `picsum.photos` 하나뿐이며 이 SPEC은 그 파일을 건드리지 않았다. 실제 이미지 URL을 데이터에 넣으려면 그 목록을 먼저 갱신해야 한다.
+
 ### 수정 — SPEC-ADMIN-003: 관리자 쓰기 API가 저장되지 않은 변경을 "저장됨"으로 보고하던 결함
 
 **관리자 화면이 성공했다고 말하는 동안 아무것도 저장되지 않고 있었다.** 관리자 쓰기 API 4개가 `src/middleware.ts`의 `/admin/:path*` 매처 뒤에 놓여 있어 핸들러가 **아예 실행되지 않았다**. 미들웨어는 4xx가 아니라 **307 리다이렉트**를 돌려주고, 브라우저 `fetch()`의 기본값 `redirect: "follow"`가 그것을 따라가며, 307은 메서드를 보존하므로 호출부는 결국 `/`에서 **200**을 받는다 — `response.ok`가 `true`다. 상품 등록·수정·판매중단·주문 취소가 전부 이 경로였다. 실패가 조용했다는 것이 이 결함의 본질이다: 쓰기는 사라지고, 화면은 성공을 표시하고, 테스트는 한 건도 깨지지 않았다. `SPEC-ADMIN-002`의 sync-audit이 라이브 서버 프로브로 실측해 Critical로 지목한 결함(F1)이며, 이 SPEC(백로그 카드 `t28`)이 그것을 닫는다.

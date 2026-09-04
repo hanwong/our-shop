@@ -1,0 +1,150 @@
+---
+id: SPEC-STOREFRONT-003
+status: completed
+updated: 2026-09-04
+tier: M
+---
+
+# Progress: SPEC-STOREFRONT-003 — 홈 화면 상품 목록 그리드
+
+## §E.1 Plan-phase Audit-Ready Signal
+
+plan_complete_at: 2026-09-04
+plan_status: audit-ready
+
+plan-phase 산출물 4종(spec.md, plan.md, acceptance.md, spec-compact.md) 작성 완료. Tier M.
+
+**SPEC ID 검사**: 정규식 검사를 Bash로 실행해 관측했다.
+
+```
+$ ID="SPEC-STOREFRONT-003"; [[ "$ID" =~ ^SPEC(-[A-Z][A-Z0-9]*)+-[0-9]{3}$ ]] && echo PASS || echo FAIL
+PASS
+```
+
+동일 ID 부재도 확인했다 — 생성 직전 `ls .moai/specs/ | grep -c "^SPEC-STOREFRONT-003$"` → `0`, `grep -rl "SPEC-STOREFRONT-003" .moai/specs/` → `0`건(자기 자신 제외).
+
+**프론트매터**: 정본 12필드 전부 존재(`id`/`title`/`version`/`status`/`created`/`updated`/`author`/`priority`/`phase`/`module`/`lifecycle`/`tags`) + 선택 필드 `tier: M`·`depends_on`·`related_specs`. `phase: "v0.2.0 target"`(SPEC-STOREFRONT-002와 동일한 최신 미출시 릴리스 타깃 표기), `status: draft`.
+
+**REQ/AC 대응**: REQ 11건(REQ-STOREFRONT-031 ~ 041) / AC 11건(AC-STOREFRONT-031 ~ 041), acceptance.md §4 매핑 표로 1:다 대응까지 명시(예: REQ-STOREFRONT-033 → AC-033/039/041). Tier M 상한(REQ 16 / AC 16) 이내, 각각 여유 5건.
+
+**번호 이어받기**: `STOREFRONT` 도메인 기존 번호를 잇는다 — SPEC-STOREFRONT-002가 REQ/AC 030까지 사용했음을 직접 확인했다(`grep -oE "REQ-STOREFRONT-[0-9]+" .moai/specs/SPEC-STOREFRONT-002/spec.md | sort -u | tail -3` → `028/029/030`, `grep -oE "AC-STOREFRONT-[0-9]+" .moai/specs/SPEC-STOREFRONT-002/acceptance.md | sort -u | tail -5` → `026~030`). 이 SPEC은 REQ/AC 031부터 시작한다.
+
+**범위 축소 결정 반영 확인**: 사용자가 착수 전 이미 승인한 두 결정(페이지네이션/정렬/필터 UI 제외, `next/image` 사용)을 spec.md §1 "확정된 범위 축소 결정"에 원문 그대로 기록하고, §3 Out of Scope에 "다음 SPEC으로 이월" 항목으로 명시했다. `[NEEDS CLARIFICATION]` 마커는 없음 — plan.md/research.md 어디에도 미해결 질문이 없다(research.md는 Tier M이라 별도 생성하지 않음).
+
+**depends_on 근거**: 2개 SPEC 모두 `status: completed`를 각 SPEC의 spec.md 프론트매터를 직접 grep해 확인했다.
+
+```
+$ for s in STOREFRONT-001 CATALOG-001; do echo -n "$s: "; grep "^status:" .moai/specs/SPEC-$s/spec.md; done
+STOREFRONT-001: status: completed
+CATALOG-001: status: completed
+```
+
+- `SPEC-STOREFRONT-001` — 이 SPEC이 이어받는 "목록 화면" 이월 결정(spec.md §3/§4)과 루트 문서 셸·Tailwind v4·`next/image`+`picsum.photos` 허용 목록·`ProductGallery` placeholder 패턴의 출처.
+- `SPEC-CATALOG-001` — 이 SPEC이 소비하는 `listProducts`/`ProductListItem`/`PaginatedProducts` 계약의 출처.
+
+**Tier 판정**: M. 파일 수(약 5~6, plan.md §G) · LOC(약 150~300, Tier S 상단~M 하단 경계) · REQ/AC(각 11건) 모두 Tier M 가이드 이내다. 경계에 가깝지만, 사용자가 명시적으로 `acceptance.md`를 별도 산출물로 요구했고(Tier S는 AC를 spec.md §3에 인라인함) Conditional Design Route가 적용되어 design phase가 시각 세부를 이어받는다는 두 근거로 M을 유지했다(plan.md §G에 상세 기록).
+
+**Conditional Design Route**: 적용됨(`plan → design → run`) — `acceptance.md`가 화면(`/`)과 프런트엔드 컴포넌트(`ProductGrid`/`ProductCard`)를 명시적 산출물로 검증하므로 두 갈래 판정 기준의 첫 번째가 만족된다(plan.md §G). SPEC-STOREFRONT-001/002가 동일 기준으로 이미 이 경로를 적용한 선례를 따랐다. 이 plan-phase에서는 판정만 기록했고 design phase 자체는 실행하지 않았다.
+
+**grounding 검증**: 사용자가 제공한 조사 사실(재사용 가능한 ProductGrid/ProductCard 컴포넌트 부재, `formatWon`이 이미 8개 파일에 의도적으로 중복 정의됨, `src/app/page.tsx`/`ProductGallery.tsx`/`EmptyCart.tsx`/`product-service.ts`/`product.ts` 현재 내용) 전부를 Read/Bash로 직접 재확인한 뒤 spec.md·plan.md에 반영했다 — 사용자 제공 사실을 그대로 받아쓰지 않고 근거 파일을 직접 읽어 검증했다.
+
+**plan-audit 결과 (iteration 1/3, 2026-09-04)**: **PASS**, 종합 점수 **0.93** (Tier M 통과선 0.80 이상). 독립 감사자(plan-auditor)가 전체 must-pass 7종(MP-1~MP-7) 전부 PASS 또는 N/A로 판정했고, `product-service.ts`/`product.ts`/`page.tsx`/`ProductGallery.tsx`/`EmptyCart.tsx`/`CartView.tsx`/`next.config.ts`/`middleware.ts`/`shell.test.tsx`를 직접 재확인해 SPEC의 모든 코드 인용과 "현재 상태" 전제(스텁 교체 전제 포함)에서 불일치 0건을 확인했다. 두 확정 범위 축소 결정(페이지네이션/정렬/필터 UI 제외, `next/image` 사용)도 spec.md/plan.md/acceptance.md 전반에 일관되게 반영되어 있음을 확인했다. 선택적(optional, non-blocking) 결함 2건만 기록됨 — D1(`next/image` happy-path를 검증하는 AC 부재, minor), D2(REQ-031/032/037의 shall/shall-not 복합 절, minor). 둘 다 must-pass 실패가 아니며 PASS 판정을 막지 않는다. 상세 보고서: `.moai/reports/plan-audit/SPEC-STOREFRONT-003-review-1.md`.
+
+**run-phase 진입을 막는 항목은 이제 Implementation Kickoff Approval(사용자 승인) 하나뿐이다.** plan-audit 게이트는 통과했다.
+
+## §E.2 Run-phase Evidence
+
+TDD로 M1~M5 전부 구현 완료. `design-notes.md`를 그대로 구현 청사진으로 따랐다.
+
+**신규/수정 파일**: `src/components/product/ProductCard.tsx`(신규), `src/components/product/ProductGrid.tsx`(신규), `src/app/page.tsx`(전체 교체), `tests/unit/app/shell.test.tsx`(`HomePage stub` describe 블록만 교체, `RootLayout` 블록은 무수정), `tests/unit/app/home-page.test.tsx`(신규), `tests/unit/components/product-card.test.tsx`(신규), `tests/unit/components/product-grid.test.tsx`(신규).
+
+**AC PASS/FAIL 매트릭스** (AC-STOREFRONT-031~041, 11건 전부 PASS):
+
+```
+$ npx vitest run tests/unit/components/product-card.test.tsx tests/unit/components/product-grid.test.tsx tests/unit/app/home-page.test.tsx tests/unit/app/shell.test.tsx
+ ✓ tests/unit/components/product-grid.test.tsx (4 tests)
+ ✓ tests/unit/components/product-card.test.tsx (9 tests)
+ ✓ tests/unit/app/shell.test.tsx (4 tests)
+ ✓ tests/unit/app/home-page.test.tsx (8 tests)
+ Test Files  4 passed (4) / Tests  25 passed (25)
+```
+
+- AC-031/032 — `home-page.test.tsx`: 서버 렌더 + `listProducts` 직접 호출, `/api/products` 재호출 없음 — PASS
+- AC-033/034/035/041 — `product-card.test.tsx`: 카드 표시(이미지/이름/가격/링크), 링크 대상, D1 보강(`next/image` import 소스 스캔) — PASS
+- AC-STOREFRONT-034 — `home-page.test.tsx`: `totalCount===0` 빈 상태 문구 — PASS
+- AC-STOREFRONT-035 — `product-card.test.tsx`: 이미지 없음 placeholder(`product-card-placeholder`, "이미지 준비 중"), throw 없음 — PASS
+- AC-STOREFRONT-036 — `home-page.test.tsx` 정적 소스 스캔: 페이지네이션/정렬/필터/검색 UI 부재 — PASS
+- AC-STOREFRONT-037 — `home-page.test.tsx` 정적 소스 스캔: `fetch(`/`useEffect` 0건, `"use client"` 없음 — PASS
+- AC-STOREFRONT-038(카드 필드 제한) — `product-card.test.tsx`: 설명/재고/카테고리 텍스트 미노출 — PASS
+- AC-STOREFRONT-039(다중 카드) — `product-grid.test.tsx`: 카드 3개, 서로 다른 링크, 순서 보존 — PASS
+- AC-040(a11y) — `product-card.test.tsx`+`home-page.test.tsx`: alt에 상품명 포함, Tab 포커스 도달 — PASS
+- AC-041(순수 표시 계층) — `product-grid.test.tsx`+`product-card.test.tsx`: 서비스 모킹 없이 props-in/DOM-out — PASS
+
+**독립 재검증**(오케스트레이터가 직접 재실행, `.claude/worktrees/t34`에서):
+```
+$ npx tsc --noEmit          → exit 0, 출력 없음
+$ npm run lint              → exit 0, 신규 이슈 0건
+$ npx vitest run --coverage tests/unit/components/product-card.test.tsx tests/unit/components/product-grid.test.tsx tests/unit/app/home-page.test.tsx tests/unit/app/shell.test.tsx --coverage.include='src/components/product/ProductCard.tsx' --coverage.include='src/components/product/ProductGrid.tsx' --coverage.include='src/app/page.tsx'
+  ProductCard.tsx / ProductGrid.tsx / page.tsx  → 100% stmts/branch/funcs/lines
+$ npm test (전체 스위트)
+  Test Files  1 failed | 101 passed (102) / Tests  1 failed | 1416 passed (1417)
+  유일한 실패: tests/integration/auth/login.test.ts AC-AUTH-005 (백로그 t20, 이 SPEC과 무관한 기존 플레이크)
+```
+
+**subagent 경계 grep**: `grep -rn 'AskUserQuestion' src/components/product src/app/page.tsx` → 매치 0건.
+
+**환경 이슈 기록**: 이 SPEC의 run-phase manager-develop 위임 도중, 세션이 워크트리(`t34`)에 있는 상태에서 `Agent()`로 서브에이전트를 띄우면 그 서브에이전트가 자신만의 별도 워크트리(`agent-<id>`)에 격리되어 `t34`에 git 명령을 실행할 수 없는 현상을 확인함(파일 Write/비-git Bash는 가능). 최종적으로 구현은 별도 격리 워크트리(`agent-ab813abb7e874dcee`, base `a3a47de`)에서 이뤄졌고, `page.tsx`/`shell.test.tsx`가 두 워크트리 base 사이에 무변경임을 확인한 뒤 오케스트레이터가 파일을 `t34`로 직접 복사·재검증·커밋함. Claude Code에 버그 리포트 제출함(세션 내부, 사용자 승인 대기).
+
+## §E.3 Run-phase Audit-Ready Signal
+
+run_status: audit-ready
+
+- M1~M5 전부 완료, AC-STOREFRONT-031~041 11건 전부 PASS
+- `npx tsc --noEmit` exit 0 / `npm run lint` exit 0 신규 이슈 0건 / 신규 파일 3종 커버리지 100%
+- 전체 스위트 1416/1417 통과, 유일한 실패는 이 SPEC과 무관한 기존 플레이크(t20)
+- PRESERVE 준수: `src/features/catalog/**`, `EmptyCart.tsx`, `next.config.ts` 무변경, `shell.test.tsx`의 `RootLayout` describe 블록 무변경(정확히 `HomePage stub` 블록만 교체)
+- plan.md §J 안티패턴(공유 유틸 추출, 방어적 props, 담기 버튼, `ProductGallery` 재사용, 헤더/내비 추가) 전부 미범함
+- sync-phase 진입을 막는 항목 없음
+
+## §E.4 Sync-phase Audit-Ready Signal
+
+```yaml
+sync_complete_at: 2026-09-04
+sync_commit_sha: c6269279f5708ba0bacf08ccbaa11d643075364b
+sync_status: audit-ready
+b12_self_test_a: "grep -c 'STOREFRONT-003' CHANGELOG.md → 0 (append 안전, 중복 없음)"
+b12_self_test_b: "AC 개수 11건 — acceptance.md(SSOT) 직접 대조. grep -oE 'AC-([A-Z0-9]+-)*[0-9]+' → 12건 매치이나 그중 AC-STOREFRONT-001은 §0 서문·§3의 선행 SPEC 상호참조 문구일 뿐 정의된 AC가 아님(2줄 모두 육안 확인). 자체 정의 AC는 AC-STOREFRONT-031~041 11건."
+b12_self_test_c: "CHANGELOG/README에 인용한 7개 경로 전부 ls 실측 확인 — ProductCard.tsx, ProductGrid.tsx, page.tsx, home-page.test.tsx, product-card.test.tsx, product-grid.test.tsx, shell.test.tsx"
+changelog_entry_position: "CHANGELOG.md [Unreleased] 최상단 — 기존 'SPEC-ADMIN-003' 항목 바로 앞"
+frontmatter_status_transitions:
+  spec_md: "in-progress → completed"
+  plan_md: "draft → completed (run-phase에서 draft로 남아 있던 것을 sync 커밋이 함께 정리)"
+  acceptance_md: "전이 없음 — 이 파일은 프론트매터 블록 자체가 없다(Gap, 아래 참조)"
+  progress_md: "in-progress → completed"
+mx_tag_validation:
+  result: "추가 의무 없음"
+  fan_in: "ProductCard 프로덕션 호출자 1건(ProductGrid), ProductGrid 1건(page.tsx) — 둘 다 @MX:ANCHOR 의무선(3건) 미만"
+  danger_patterns: "고루틴/동시성/복잡도 위험 패턴 0건. 세 파일 모두 'use client'·fetch·useEffect 부재(정적 검사로 이미 AC-039가 고정)"
+  note: "형제 컴포넌트(ProductDetailView.tsx, ProductGallery.tsx)는 @MX:NOTE를 달고 있어 관례상 신규 2파일에도 @MX:NOTE가 어울리나, 이번 sync 위임의 파일 범위(CHANGELOG/README/SPEC 아티팩트)에 src 파일이 포함되지 않아 추가하지 않았다 — 후속 조치 후보로 남긴다"
+```
+
+**sync-phase 산출물 diff 요약**
+
+- `CHANGELOG.md` — `[Unreleased]` 최상단에 `### 추가 — SPEC-STOREFRONT-003: 홈 화면 상품 목록 그리드` 절과 `### 알려진 한계 — SPEC-STOREFRONT-003` 절 신규 추가. 기존 항목은 무변경.
+- `README.md` — `## 홈 화면 상품 그리드 (SPEC-STOREFRONT-003)` 절을 `## 장바구니 화면·담기 UI (SPEC-STOREFRONT-002)`와 `## 주문/체크아웃 (SPEC-ORDER-001)` 사이에 신규 추가. 더불어 `## 스토어프론트 화면 (SPEC-STOREFRONT-001)` 표의 `/` 행이 이제 사실과 다르므로("상세 화면 진입 링크 한 줄짜리 스텁") 당시 상태였음을 밝히고 이 SPEC이 교체했음을 덧붙였다 — 1행 수정.
+- SPEC 아티팩트 4종 프론트매터 — 위 `frontmatter_status_transitions` 참조. 본문(§A~§H)은 전부 무변경.
+
+**미검증(Gap)**
+
+- `acceptance.md`에는 YAML 프론트매터 블록이 애초에 없어 `status:`/`updated:` 전이를 수행하지 못했다. 없는 블록을 새로 만드는 것은 프론트매터 갱신이 아니라 본문 추가이므로 manager-docs의 권한(`status:`/`updated:` 한정) 밖이며, 임의로 하지 않고 여기에 기록해 sync-auditor 판단에 넘긴다. `design-notes.md`도 동일하게 프론트매터가 없다(Tier M 정본 3종 밖의 design-phase 산출물).
+- `sync_commit_sha`는 이 커밋 자신의 해시라 커밋 시점에 알 수 없어 `pending-backfill-sync` 자리표시자로 두었다(spec-frontmatter-schema.md § SHA placeholder backfill exemption). → 후속 커밋에서 실제 해시 `c6269279f5708ba0bacf08ccbaa11d643075364b`로 채웠다.
+- 이번 sync-phase에서 타입체크·린트는 재실행하지 않았다. §E.2/§E.3의 run-phase 실측을 인용하며, 그 이후 이 브랜치에 코드 변경이 없다는 것이 근거다(이번 커밋은 문서와 프론트매터만 건드린다).
+- 전체 테스트 스위트는 sync 커밋의 pre-commit 게이트가 실제로 재실행했고 결과를 관측했다: `Test Files 1 failed | 101 passed (102) / Tests 1 failed | 1416 passed (1417)`, 유일한 실패는 `tests/integration/auth/login.test.ts`의 `AC-AUTH-005`(30초 타임아웃, 백로그 `t20` 플레이크, `SPEC-AUTH-001` 소유). 이 SPEC 소유 테스트 25건은 전부 통과했다 — `product-card.test.tsx` 9건, `product-grid.test.tsx` 4건, `home-page.test.tsx` 8건, `shell.test.tsx` 4건. run-phase 관측치와 동일한 숫자다.
+
+**sync-audit 결과와 후속 조치**
+
+sync-auditor가 sync 커밋 `c626927`을 독립 검토해 **PASS-WITH-DEBT (89.7/100)** 판정을 냈다(보고서: `.moai/reports/sync-audit/SPEC-STOREFRONT-003-2026-09-04.md`). must-fix 2건은 이 후속 커밋에서 처리했다 — **F1**: `formatWon` 중복 정의 개수를 7개/여덟 번째로 적었으나 `git grep -c "function formatWon" origin/main -- src/` 실측은 8개이고 이 브랜치가 1개를 더해 9개이므로, README·CHANGELOG·progress.md §E.1 세 곳을 8개/아홉 번째로 정정했다. **F2**: 위 §E.2 AC 매트릭스의 5개 행이 AC 번호가 아니라 REQ 번호(`AC-036`~`AC-040`)를 달고 있어 `acceptance.md`(SSOT) 기준 `AC-STOREFRONT-034`~`AC-STOREFRONT-038`로 정정했다(내용·PASS 상태는 무변경). 이 정정으로 기존에 `AC-039`/`AC-040`이 각각 두 번씩 등장하던 중복도 함께 해소됐다.
+
+나머지 지적(F3~F8)은 이 SHA 백필 외에는 감사자가 명시적으로 자동 수정하지 말 것을 지시한 advisory 항목이므로 이번 커밋에서 손대지 않고 유예 상태로 남긴다. 이 커밋은 문서 전용이며 `src/`·`tests/` 변경은 0건이라 재테스트 대상이 아니다.
+
+**pre-commit 게이트 우회 공개**: 위 실패 1건 때문에 이 sync 커밋은 `SKIP_MOAI_PRECOMMIT=1`(저장소가 게이트 출력에서 직접 안내하는 공식 우회 경로, `--no-verify` 아님)로 이루어졌다. `SPEC-ADMIN-002`/`SPEC-ADMIN-003`과 동일한 사유이며, 이 SPEC이 만든 실패는 0건이다.
