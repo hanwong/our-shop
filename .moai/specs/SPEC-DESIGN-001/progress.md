@@ -1316,31 +1316,271 @@ M4 2 — `staff/products/page.tsx`는 `Button`만 소비, `FormField` 아님).
 plan.md §H가 M5에서 최종 확정하기로 한 항목이므로 이번 마일스톤에서도
 프리미티브 자체의 `@MX:ANCHOR` 주석은 수정하지 않았다.
 
+### M5 — 검증 마감 (FINAL milestone, 코드 신규 작성 없음)
+
+cycle_type: 검증 전용(코드 신규 작성 없음, `@MX` 주석 갱신만). 워크트리
+복구 경로(A.0)를 탔다 — 초기 `HEAD`(`0be83c5f182819fb58599cd9089abe7dc0842f05`)가
+기대값(`aeca5633d2713e36588883ca3470ad686a8b474c`, M4 병합 커밋)과 달라
+`m5-final-verify` 브랜치를 후자에서 새로 분기했다. 분기 직후
+`src/app/staff/login/page.tsx`가 M4의 FormField/Button 마이그레이션을
+반영하고 있음을 확인한 뒤 `npm install`을 실행했다.
+
+**E0 — 워크트리 케이스**: A.0 경로 B(불일치)를 탔다. 위 문단 참조.
+
+**Section C 프리플라이트** (독립 재실행, M4 산출물을 그대로 신뢰하지 않고
+직접 재확인):
+
+```
+$ npx tsc --noEmit
+(exit 0, no output)
+
+$ npm run lint
+(exit 0, no output)
+
+$ npm test
+ Test Files  115 passed (115)
+      Tests  1517 passed (1517)
+  Duration  23.05s
+
+$ npx next build
+✓ Generating static pages (29/29)
+(exit 0 — 29개 라우트 전부 정적/동적 생성 성공, M1 이후 재실행되지 않았던
+빌드 체크를 M2-M4 변경 반영 후 처음으로 재확인)
+```
+
+M4 베이스라인(115 파일/1517 테스트)과 정확히 일치. `next build`가 M2-M4
+전체 반영분에 대해 처음 재실행되어 통과함을 확인했다(M1 이후 미실행 상태였음
+— 착수 지시 Section C가 명시적으로 요구한 재확인).
+
+**E1 — AC-DESIGN-001~016 최종 통합 PASS/FAIL/N-A 매트릭스**:
+
+| AC | 핵심 내용 | 검증 명령/방법 (이번 실행에서 직접 재수행) | 결과 |
+|---|---|---|---|
+| AC-DESIGN-001 | `@theme` 블록 + Classical 값 축자 일치 | `grep -E "4\.6px|#f3f2f2|#b68235|Cormorant Garamond|Lora" src/app/globals.css` → 전부 존재, 정수 반올림 없음 | **PASS** |
+| AC-DESIGN-002 | 낡은 "No `@theme` block" 주석 제거 | `grep -c "No \`@theme\` block" src/app/globals.css` → 0 | **PASS** |
+| AC-DESIGN-003 | (a) 원천 명시 (b) 폰트 로딩 동작 (c) 낡은 주석 제거 | (a) `globals.css` 헤더 주석이 "Classical (plan.md §D.1)" 명시 확인; (b) `layout.tsx`에 `next/font/google` import + 적용 확인; (c) `grep -c "rather than" src/app/layout.tsx` → 1건이나, 내용 확인 결과 10행의 무관한 산문("a prerequisite ... rather than a side task")이며 옛 폰트 주석과 무관 — 옛 주석 자체는 부재 확인 | **PASS** |
+| AC-DESIGN-004 | 프리미티브 디렉터리 + 구성 | `ls src/components/ui/` → `Button.tsx`, `FormField.tsx` | **PASS** |
+| AC-DESIGN-005(a) | 프리미티브가 토큰 역할만 참조 | `grep -rn "neutral-900\|neutral-300\|#[0-9a-fA-F]{6}" src/components/ui/` → 0건 | **PASS** |
+| AC-DESIGN-005(b) | Classical `:focus-visible`+`outline`+`outline-offset` 규칙 | `grep -n "focus-visible:outline" src/components/ui/Button.tsx src/components/ui/FormField.tsx src/components/product/ProductCard.tsx` → 3곳 전부 존재 | **PASS** |
+| AC-DESIGN-005(c) | `ProductCard.tsx:40`의 `ring-*` 제거 | `grep -rn "focus-visible:ring" src/` → 0건(repo 전체) | **PASS** (M3에서 해소, 이번 재확인) |
+| AC-DESIGN-006 | 신규 의존성 0건 | `git diff --stat main -- package.json package-lock.json` → 빈 출력(SPEC 전체 기준) | **PASS** |
+| AC-DESIGN-007 | LogoutButton 구체 결함 수정 | import 확인(`@/components/ui/Button`) + `npx vitest run tests/unit/components/logout-button.test.tsx` → 5/5 통과 | **PASS** |
+| AC-DESIGN-008(a) | 버튼 복제 문자열 소거 | `grep -rl "rounded-md bg-neutral-900" src/ \| grep -v "src/components/ui/"` → 0건(repo 전체) | **PASS** |
+| AC-DESIGN-008(b) | 버튼 프리미티브가 아웃라인 렌더 | `Button.tsx` 소스 확인 — `bg-transparent` + `border-accent` + `text-accent`; `ui-button.test.tsx`(M1, 무변경) 11건 단언 | **PASS** |
+| AC-DESIGN-008(c) | accent 솔리드 채움 0건(3형태) | `grep -rnE 'bg-(accent\|surface\|bg\|text\|neutral)(-[0-9]{3})?\b\|bg-\[var\(--color-\|background(-color)?:\s*var\(--color-' src/components/ui/ \| grep -v 'bg-transparent'` → 0건 | **PASS** |
+| AC-DESIGN-009 | 폼 필드 복제 문자열 소거 | `grep -rl "w-full rounded-md border border-neutral-300" src/ \| grep -v "src/components/ui/"` → 0건(repo 전체) | **PASS** |
+| AC-DESIGN-010 | 15개 페이지 전수 커버 | 아래 §E.2 M5 15-페이지 표(독립 재조사) | **PASS**(15/15, N/A 명시 4건) |
+| AC-DESIGN-011 | 동작 불변 | 전체 스위트 1517/1517 통과, 접근성/폼 제출/라우팅 단언 재실행 결과 실패 0건 | **PASS** |
+| AC-DESIGN-012 | 테스트 베이스라인 대비 무회귀 | 아래 §E.2 M5 베이스라인 대조 절 | **PASS** |
+| AC-DESIGN-013 | DesignSync 부재에도 design phase 진행 가능 | `progress.md` §G(D1-D5 증거) 재확인 — (a)(b)(c) 3항목 전부 기록됨, `.mcp.json`에 DesignSync 재부재 확인(`grep -c "DesignSync" .mcp.json` → 0) | **PASS** |
+| AC-DESIGN-014 | 재검증 결과 기록 | DesignSync가 이번 실행에서도 접근 불가(위 확인) → **해당 없음(AC-DESIGN-013 경로)** | **N/A** (명시) |
+| AC-DESIGN-015 | 스태프 코로케이션 보존 + 부분집합 판정 | `git diff --name-only main -- src/app/staff/` → 3개 파일, §C.2 7개 허용 목록의 부분집합(아래 §E.4 표) | **PASS** |
+| AC-DESIGN-016 | 프리미티브 @MX 주석 | fan-in 재측정(Button=14, FormField=9, 둘 다 ≥3) → 둘 다 `@MX:ANCHOR`+`@MX:REASON` 보유(아래 §E.5) | **PASS** |
+
+**16/16 항목 전부 판정 완료 — PASS 15건, 명시적 N/A 1건(AC-DESIGN-014),
+누락 0건.**
+
+**E2 — AC-DESIGN-010 15페이지 전수 감사표** (독립 재조사, M3/M4의 주장을
+인용만 하지 않고 이번 세션에서 직접 grep/Read로 재확인):
+
+| # | 페이지 | 이 SPEC 범위 요소 보유? | 프리미티브 경유 확인 | 판정 |
+|---|---|---|---|---|
+| 1 | `(shop)/page.tsx`(홈) | 아니오 — `ProductGrid`→`ProductCard`만 렌더, 버튼/폼 0건(grep 확인) | — | **해당 없음** |
+| 2 | `(shop)/products/[productId]/page.tsx` | 예 — `ProductDetailView`가 `AddToCartButton`+`ReviewForm` 조립 | `AddToCartButton`(Button 소비)·`ReviewForm`(FormField 소비) import 확인 | **PASS**(하위 컴포넌트 경유) |
+| 3 | `(shop)/cart/page.tsx` | 예 — `CartView`/`EmptyCart`의 "결제하기"/"상품 목록으로 이동" CTA | `CartView.tsx`가 `buttonClassName` import, `<a href>`에 적용 확인. 수량 스테퍼(+/−)·삭제 링크는 13파일 수렴과 무관한 보조 컨트롤(plan.md §D.2, 이번 세션 재확인 — `bg-neutral-900`/`w-full rounded-md border-neutral-300` 어느 패턴에도 불일치) | **PASS**(버튼만, 폼 해당 없음) |
+| 4 | `(shop)/checkout/page.tsx` | 예 — `CheckoutInteractive`(쿠폰) + `CheckoutForm`(배송정보 5필드+제출) | 두 컴포넌트 모두 `FormField`/`Button` 또는 그 빌더 함수 import 확인 | **PASS** |
+| 5 | `(shop)/checkout/complete/[orderId]/page.tsx` | 예 — `PayButton`(조건부 렌더) | `PayButton.tsx`가 `Button` import 확인 | **PASS**(버튼만) |
+| 6 | `(shop)/login/page.tsx` | 예 — 이메일/비밀번호 `FormField` 2개 + 제출 `Button` | 페이지 소스에서 `<FormField>`×2, `<Button type="submit">` 직접 확인 | **PASS** |
+| 7 | `(shop)/signup/page.tsx` | 예 — 이메일/비밀번호 `FormField` 2개 + 제출 `Button` | 페이지 소스에서 `<FormField>`×2, `<Button type="submit">` 직접 확인 | **PASS** |
+| 8 | `(shop)/orders/lookup/page.tsx` | 예 — `OrderLookupForm`(주문번호/연락처 2필드+제출) | `OrderLookupForm.tsx` import 확인(M3 소관, 무변경 재확인) | **PASS**(하위 컴포넌트 경유) |
+| 9 | `(shop)/orders/lookup/[orderNumber]/page.tsx` | 아니오 — `OrderLookupResultView`에 버튼/입력/텍스트영역/셀렉트 0건(grep 확인) | — | **해당 없음** |
+| 10 | `staff/login/page.tsx` | 예 — 이메일/비밀번호 `FormField` 2개 + 제출 `Button` | 페이지 소스에서 `<FormField>`×2, `<Button type="submit">` 직접 확인(M4 마이그레이션) | **PASS** |
+| 11 | `staff/products/page.tsx` | 예 — "새 상품 등록" 링크형 버튼(`buttonClassName`); 검색 필터(`<input>`/`<select>`/`<button>`)는 이미 아웃라인 스타일(`border-neutral-300`)이라 13/8파일 수렴 문자열 어디에도 불일치 확인(grep 재확인, 범위 밖 정상) | `<a href="/staff/products/new" className={buttonClassName()}>` 직접 확인 | **PASS**(범위 내 버튼 1건 경유, 검색 폼은 이 SPEC 수렴 대상 아님) |
+| 12 | `staff/products/new/page.tsx` | 아니오(페이지 자체는 "상품 목록으로 돌아가기" 텍스트 링크만) — 폼은 `ProductForm` 소유 | `ProductForm`이 `Button`/`FormField` import 확인(하위 컴포넌트 경유로 PASS 귀속) | **PASS**(하위 컴포넌트 경유), 페이지 자체 직접 요소는 **해당 없음** |
+| 13 | `staff/products/[productId]/page.tsx` | 12번과 동일 구조 | 12번과 동일 | **PASS**(하위 컴포넌트 경유), 페이지 자체 직접 요소는 **해당 없음** |
+| 14 | `staff/orders/page.tsx` | 아니오 — grep 결과 `<form>`/`<select>`/`<input>` 0건, 페이지네이션·상태 필터 전부 순수 텍스트 `<a>` 링크 | — | **해당 없음** |
+| 15 | `staff/orders/[orderId]/page.tsx` | 아니오 — 페이지 자체에 `<button>`/`<input>`/`<a>` 0건(grep 확인), `CancelOrderButton`(위험 변형, 명시적 범위 밖)만 렌더 | — | **해당 없음** |
+
+**15/15 페이지 전수 확인.** 명시적 "해당 없음" 6건(#1, #9, #14, #15 전체 +
+#12/#13의 "페이지 자체 직접 요소" 하위 판정) — 누락과 구분해 전부 기록했다.
+타이포·배경 상속(`--font-heading`/`--font-body`/`--color-bg`)은
+`src/app/layout.tsx`의 `<html className={...font 클래스}>` +
+`<body className="bg-bg text-text antialiased">`가 유일한 상속 지점이며,
+루트 레이아웃이므로 15개 페이지 전부(스태프 포함 — AUTH-004 결정에 따라
+루트 레이아웃을 직접 상속)에 무조건 적용됨을 `layout.tsx` 소스로 확인했다.
+
+**E3 — AC-DESIGN-012 베이스라인 대조**:
+
+| 시점 | 파일 수 | 테스트 수 | 상태 |
+|---|---|---|---|
+| M0 베이스라인(첫 편집 이전, `progress.md` M0절) | 113 | 1493 | 전부 통과 |
+| M5 현재(이번 세션 직접 재실행) | 115 | 1517 | 전부 통과 |
+| 델타 | +2 | +24 | 신규 실패 0건 |
+
++2 파일 = M1이 추가한 `ui-button.test.tsx`/`ui-form-field.test.tsx`(이후
+마일스톤에서 신규/삭제 파일 없음). +24 테스트 = M1(+20) + M2(+1) +
+M3(+3, `pay-button.test.tsx` 1건 적응 포함 — 삭제 아님) + M4(+0) + M5(+0).
+**신규 실패 0건, 카운트 역행 0건 — AC-DESIGN-012 PASS.**
+
+알려진 플레이크 식별: `tests/integration/auth/login.test.ts`의
+`AC-AUTH-005`(로그인 응답시간 유사성, 통계적 타이밍 테스트)는 이번 실행에서
+`diff=14.98ms tolerance=48.83ms`로 **통과**했다. 이 SPEC 착수 지시가 명시한
+"알려진 플레이크"이며 SPEC-DESIGN-001의 변경과 무관(로그인 페이지의 스타일만
+바뀌었을 뿐 `login/route.ts`의 타이밍 로직은 이 SPEC이 건드리지 않음) —
+이번 실행에서는 통과했으므로 신규 실패 판정에 영향 없음.
+
+**E4 — AC-DESIGN-015 파일 목록 + 허용 목록 교차 확인**:
+
+```
+$ git diff --name-only main -- src/app/staff/
+src/app/staff/login/page.tsx
+src/app/staff/products/ProductForm.tsx
+src/app/staff/products/page.tsx
+```
+
+| # | plan.md §C.2 허용 목록(7개) | 수정 예상 | 실제 diff에 존재? |
+|---|---|---|---|
+| 1 | `staff/login/page.tsx` | 예 | 예 |
+| 2 | `staff/products/page.tsx` | 예 | 예 |
+| 3 | `staff/products/ProductForm.tsx` | 예 | 예 |
+| 4 | `staff/products/new/page.tsx` | 아니오(0건 대상) | 아니오 — 이번 세션 재확인: `grep -nE "rounded-md bg-neutral-900|w-full rounded-md border border-neutral-300|<button|<input|<textarea" "src/app/staff/products/new/page.tsx"` → 빈 출력 |
+| 5 | `staff/products/[productId]/page.tsx` | 아니오(0건 대상) | 아니오 — 동일 grep 빈 출력 |
+| 6 | `staff/orders/page.tsx` | 아니오(0건 대상) | 아니오 — 동일 grep 빈 출력 |
+| 7 | `staff/orders/[orderId]/page.tsx` | 아니오(0건 대상) | 아니오 — 동일 grep 빈 출력(`CancelOrderButton`은 범위 밖) |
+
+**실제 diff(3개)가 허용 목록(7개)의 정확한 부분집합** — 목록 밖 파일 수정
+0건. 목록에 있으나 변경되지 않은 4개 파일은 이번 세션에서 독립
+재확인했으며 정상 결과다(acceptance.md AC-DESIGN-015 요건 충족).
+
+**E5 — @MX 태그 최종 보고**:
+
+- `Button.tsx` fan-in: `grep -rl 'from "@/components/ui/Button"' src/ | wc -l` → **14**
+  (login/signup×2, staff/login, ProductForm, staff/products/page, CartView,
+  EmptyCart, CheckoutForm, CheckoutInteractive, PayButton, LogoutButton,
+  OrderLookupForm, AddToCartButton, ReviewForm). fan_in ≥ 3 → `@MX:ANCHOR`
+  필수(CLAUDE.md § MX Tag Quality Gates) — 이미 M1에서 부여되어 있었으므로,
+  이번 M5에서 **본문을 "projects/Actual fan-in is 0"(예상치)에서 "M5 final
+  measurement: fan-in is 14"(실측 확정치)로 갱신**했다.
+- `FormField.tsx` fan-in: `grep -rl 'from "@/components/ui/FormField"' src/ | wc -l` → **9**
+  (login/signup×2, staff/login, ProductForm, CheckoutForm,
+  CheckoutInteractive, OrderLookupForm, AddToCartButton, ReviewForm).
+  fan_in ≥ 3 → `@MX:ANCHOR` 필수 — 동일하게 실측 확정치로 갱신.
+- `globals.css` `@theme` 블록: 원천/재동기화 조건 설명 주석이 M1부터 존재함을
+  재확인(`grep -n "Classical" src/app/globals.css` → 9곳, 헤더 3-15행에
+  SSOT 근거 명시) — **손대지 않았다**(plan.md §H "존재 확인만" 지시 준수).
+- `LogoutButton.tsx`: 기존 `@MX:NOTE`(CSRF 유틸 비추출 결정) 무변경 확인
+  (`git diff main -- src/components/layout/LogoutButton.tsx` — import 1줄 +
+  요소 치환 2줄만, MX 주석 라인은 diff에 등장하지 않음). fan-in 재측정 —
+  `grep -rln "LogoutButton" src/ --include="*.tsx"`에서 실제 렌더 소비자는
+  `SiteHeader.tsx` **1개뿐**(Button.tsx 히트는 이번 M5가 추가한 프로즈
+  주석의 문자열 언급 — 실제 import/렌더 아님, 오탐 확인).
+- 페이지 파일(`page.tsx`)에 `@MX:` 태그 신규 추가 0건 —
+  `grep -rln "@MX:" src/app --include="page.tsx"` → 빈 출력(exit 1),
+  plan.md §H가 페이지 레벨 태그를 요구하지 않는다는 지시와 일치.
+
+**`grep -rn "@MX:" src/components/ui/` 최종 verbatim 출력**:
+
+```
+src/components/ui/FormField.tsx:13: * @MX:ANCHOR fan-in target — plan.md §H projected 8+ call sites once M3/M4
+src/components/ui/FormField.tsx:26: * @MX:REASON this is the site's single definition point for form fields
+src/components/ui/Button.tsx:14: * @MX:ANCHOR fan-in target — plan.md §H projected 13+ call sites once M2-M4
+src/components/ui/Button.tsx:23: * @MX:REASON this is the site's single definition point for the
+```
+
+**E6 — 정적 검증 최종 재확인** (MX 주석 편집 후 재실행, 위 "Section C
+프리플라이트"와 별도로 편집 후 재수행):
+
+```
+$ npx tsc --noEmit
+(exit 0, no output)
+
+$ npm run lint
+> our-shop@0.1.0 lint
+> eslint .
+(exit 0, no output)
+
+$ npm test
+ Test Files  115 passed (115)
+      Tests  1517 passed (1517)
+  Duration  18.86s
+```
+
+MX 주석은 순수 문서 편집(JSDoc 블록 내부 텍스트만 변경, 코드 로직 무변경)
+이므로 파일 수/테스트 수 변동 없음을 확인 — 재확인 결과 M4/프리플라이트와
+정확히 일치.
+
+`npx next build`는 편집 전 Section C 프리플라이트에서 이미 확인했고(29개
+라우트 정적/동적 생성 성공, exit 0), 이후 코드 변경이 없었으므로(주석
+전용 편집) 재실행하지 않았다 — 재실행이 새 정보를 제공하지 않는다.
+
+**E7 — 완료 정의(Definition of Done, acceptance.md §D) 체크리스트**:
+
+- [x] AC-DESIGN-001 ~ 016 전부 PASS 또는 명시적 "해당 없음" 판정(누락 없음) — 위 E1 매트릭스(15 PASS + 1 N/A, 16/16 완주)
+- [x] `npx tsc --noEmit` exit 0 — 위 Section C 프리플라이트 + E6 재확인
+- [x] `npm run lint` 신규 이슈 0건 — 위 Section C 프리플라이트 + E6 재확인(출력 0줄)
+- [x] AC-DESIGN-012 베이스라인 대비 신규 실패 0건 — 위 E3(113/1493 → 115/1517, 델타 전부 신규 추가 테스트, 실패 0)
+- [x] 실제 스태프 diff가 plan.md §C.2 허용 목록의 **부분집합**(목록 밖 파일 수정 0건) — 위 E4
+
+**5/5 항목 전부 충족.**
+
+**E8 — 브랜치/푸시 상태**: 브랜치 `m5-final-verify`(base
+`aeca5633d2713e36588883ca3470ad686a8b474c`, M4 병합 커밋). 이번 세션의
+diff는 `@MX` 주석 갱신 2개 파일뿐이다(아래 "실제 diff 범위" 참조). 커밋 후
+`git push origin m5-final-verify` 예정 — 오케스트레이터가 병합.
+
+**E9 — 블로커 없음 / Section D 안티패턴 준수**: 이번 M5 감사에서 M0-M4가
+주장한 어떤 AC도 재검증 결과 실제로 어긋난 것이 없었다 — "이전 마일스톤의
+잘못된 주장을 발견"한 사례는 0건이다. 유일하게 수행한 수정은 두 프리미티브의
+`@MX:ANCHOR` 주석을 예상치(M1 시점 "0, 예상 13+/8+")에서 실측 확정치("14"/
+"9")로 갱신한 것뿐이며, 이는 plan.md §H가 M5의 임무로 명시적으로 지시한
+작업이다(코드 로직 무변경, JSDoc 텍스트만 편집, 1개 파일 이내 범위,
+접근성/동작 표면 무관 — Section D의 "사소하고 명백히 안전한 1줄 수정" 기준에
+부합해 별도 블로커 보고 없이 직접 반영했다).
+
+**실제 diff 범위** (scope discipline 준수 확인):
+
+```
+$ git status --short
+ M src/components/ui/Button.tsx
+ M src/components/ui/FormField.tsx
+```
+
+`globals.css`, 페이지 파일, 다른 컴포넌트, 테스트 파일, `package.json`은
+전혀 건드리지 않았다 — M5 범위(검증 + `@MX` 주석 확정)와 정확히 일치.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 ```yaml
-run_milestone: M4
-next_milestone: M5
-run_status: in-progress
+run_milestone: M5
+next_milestone: none — all milestones complete, run-phase done
+run_status: complete
 m0_status: complete
 m0_fallback_taken: false
 m1_status: complete
 m2_status: complete
 m3_status: complete
 m4_status: complete
+m5_status: complete
+ac_design_001_through_016_status: "16/16 accounted for — 15 PASS, 1 explicit N/A (AC-DESIGN-014, DesignSync unavailable this run per AC-DESIGN-013 path); 0 omissions (see §E.2 M5 E1 matrix)"
 ac_design_007_status: PASS
-ac_design_005c_status: PASS (resolved in M3, was deferred-from-M1)
-ac_design_008_status: PASS (a/b/c all verified against full src/ tree, repo-wide, no staff exceptions remaining as of M4)
-ac_design_009_status: PASS (repo-wide, no staff exceptions remaining as of M4)
-ac_design_010_status: PASS (9/9 customer pages, 3 explicit N/A — unchanged from M3, M4 is staff-side)
-ac_design_015_status: PASS (staff diff is exact subset of plan.md §C.2's 3 expected-to-change files; 4 zero-target files independently re-verified untouched)
+ac_design_005c_status: PASS (resolved in M3, was deferred-from-M1; re-verified M5 — repo-wide grep 0 hits)
+ac_design_008_status: PASS (a/b/c all verified against full src/ tree, repo-wide, no staff exceptions remaining; re-verified M5)
+ac_design_009_status: PASS (repo-wide, no staff exceptions remaining; re-verified M5)
+ac_design_010_status: PASS (15/15 pages independently re-audited M5 — 9 customer + 6 staff, 6 explicit N/A rows, 0 omissions)
+ac_design_012_status: PASS (baseline 113 files/1493 tests -> M5 current 115 files/1517 tests, all passing, 0 new failures, 0 regressions; known AC-AUTH-005 timing flake passed this run, unrelated to this SPEC)
+ac_design_013_status: PASS (DesignSync re-confirmed unavailable this run — .mcp.json has 0 DesignSync entries — offline SSOT path per REQ-DESIGN-010 holds)
+ac_design_014_status: "N/A (explicit — AC-DESIGN-013 path taken, no live DesignSync re-verification occurred)"
+ac_design_015_status: PASS (staff diff is exact subset of plan.md §C.2's 3 expected-to-change files; 4 zero-target files independently re-verified untouched, re-confirmed M5)
+ac_design_016_status: PASS (Button.tsx fan-in=14, FormField.tsx fan-in=9, both >=3 -> both carry @MX:ANCHOR + @MX:REASON; M5 updated the ANCHOR body from M1's projected/0-actual wording to the final measured fan-in numbers)
 ac_design_012_baseline: "113 files / 1493 tests passed (npm test, pre-M0-edit)"
-ac_design_012_post_change: "115 files / 1517 tests passed (npm test, post-M4-edit) — 0 regressions, 0 new/removed/adapted test files or cases (no className-literal assertions existed in the 3 touched files' test suites, so no adaptation was needed, unlike M3's pay-button.test.tsx)"
+ac_design_012_post_change: "115 files / 1517 tests passed (npm test, M5 final re-run) — 0 regressions, 0 new failures, delta is +2 test files (M1) + 24 tests (M1 +20, M2 +1, M3 +3 incl. 1 adaptation, M4 +0, M5 +0)"
 new_warnings_or_lints_introduced: 0
-package_json_diff: empty
-cross_platform_build: not re-run this milestone (no platform-sensitive change; M1's npm run build pass still holds for the primitive layer)
-cascade_follow_up: none this milestone
-m1_to_mN_commit_strategy: single feature branch per milestone (m4-staff-pages), orchestrator merges per milestone
+package_json_diff: empty (whole-SPEC re-confirmed: git diff --stat main -- package.json package-lock.json empty)
+cross_platform_build: "re-run this milestone (npx next build, first full re-run since M1) — exit 0, 29/29 routes generated successfully, covers M2-M4's accumulated changes"
+cascade_follow_up: "none this milestone — only @MX:ANCHOR comment body updated on Button.tsx/FormField.tsx (M1-planned M5 task per plan.md §H), no source-logic changes"
+m1_to_mN_commit_strategy: single feature branch per milestone (m5-final-verify), orchestrator merges from t47
+m5_definition_of_done: "5/5 acceptance.md §D checklist items satisfied — see §E.2 M5 E7"
+m5_blocker_report: "none — no prior-milestone AC claim was found to be incorrect on re-verification"
 ```
 
 ## §E.4 Sync-phase Audit-Ready Signal
