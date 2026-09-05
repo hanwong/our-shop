@@ -18,6 +18,7 @@ import {
   createSpikeOrder,
   deleteSpikeOrder,
   disconnectSpikeOrderClient,
+  stubSuccessPaymentKey,
 } from "./support/order-fixture";
 
 test.describe("M2 — Toss stub SDK payment path", () => {
@@ -52,7 +53,13 @@ test.describe("M2 — Toss stub SDK payment path", () => {
 
       const url = new URL(request.url());
       expect(url.pathname).toBe("/api/payments/confirm");
-      expect(url.searchParams.get("paymentKey")).toBeTruthy();
+      // SPEC-E2E-001 M5 (REQ-E2E-015) — pinned to the derived-per-order
+      // format (order-fixture.ts stubSuccessPaymentKey()), not merely
+      // "truthy": this is the regression check that a future edit to
+      // toss-sdk-stub.js cannot silently reintroduce a shared literal key
+      // that lets two different orders' confirm writes collide (the P2002
+      // defect this milestone fixed — progress.md §E.2 M5).
+      expect(url.searchParams.get("paymentKey")).toBe(stubSuccessPaymentKey(order.orderId));
       expect(url.searchParams.get("orderId")).toBe(order.orderId);
       expect(url.searchParams.get("amount")).toBe(String(order.totalAmount));
 

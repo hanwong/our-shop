@@ -107,32 +107,38 @@ export async function getSeededProduct(): Promise<SeededProductHandle> {
 }
 
 /**
- * SPEC-E2E-001 M3 — the literal success-mode paymentKey `toss-sdk-stub.js`
- * hardcodes (plan.md §D's concept script: `paymentKey", "e2e_stub_payment_key"`).
- * Exported here, not re-typed at each call site, so the M3 scenario and this
- * fixture's own cleanup helper below can never disagree on the value.
+ * SPEC-E2E-001 M5 (REQ-E2E-015) — mirrors `toss-sdk-stub.js`'s success-mode
+ * paymentKey derivation EXACTLY (`"e2e_stub_payment_key_" + options.orderId`)
+ * so any scenario or fixture that needs to know a given order's stub-issued
+ * key never has to re-type the template and risk drifting from it.
+ *
+ * Superseded (M5): a single shared literal constant used to fill this role
+ * (`STUB_SUCCESS_PAYMENT_KEY = "e2e_stub_payment_key"`) — every scenario that
+ * completed a payment in success mode drove the SAME value through
+ * `confirmTossPayment()`, and `Order.paymentKey` carries a DB-level unique
+ * constraint (`prisma/schema.prisma`). Because a scenario's server-side
+ * confirm write can still be in flight when a LATER scenario's own confirm
+ * call landed (progress.md §E.2 M2 residual-risk note — M2's own success
+ * scenario does not await its triggered navigation settling before
+ * returning), two DIFFERENT orders could momentarily race to claim the SAME
+ * literal key, tripping Prisma P2002 on `markOrderPaid()`'s `updateMany()`.
+ * Deriving the key from each order's own id — always unique, since every
+ * order is a fresh Prisma row — removes the collision at its source: no two
+ * scenarios' keys can ever coincide, regardless of write timing.
  */
-export const STUB_SUCCESS_PAYMENT_KEY = "e2e_stub_payment_key";
+export function stubSuccessPaymentKey(orderId: string): string {
+  return `e2e_stub_payment_key_${orderId}`;
+}
 
 /**
- * SPEC-E2E-001 M3 — narrow, scenario-scoped defensive cleanup for a known
- * residual risk (progress.md §E.2 M2): every scenario that completes a
- * payment in success mode drives the SAME literal paymentKey through
- * `confirmTossPayment()`, and `Order.paymentKey` carries a DB-level unique
- * constraint (`prisma/schema.prisma`). M2's own success scenario does not
- * wait for its triggered navigation to fully settle before the test
- * function returns (it only awaits the initial request), so the
- * server-side confirm write it triggers can still be in flight when a
- * LATER scenario's own confirm call targets the same literal key — tripping
- * Prisma P2002 on `markOrderPaid()`'s `updateMany()` and turning that
- * confirm redirect into an unhandled 500 instead of the paid-state PASS the
- * scenario expects.
- *
- * Nulling out any row still holding the key immediately before a scenario's
- * own payment step closes exactly that window. This is deliberately NOT the
- * general seed/isolation cleanup deferred to M5 (plan.md §F) — it touches
- * only the one column this suite's shared stub literal can collide on, and
- * only a stale value, never a row's other fields.
+ * SPEC-E2E-001 M3 — narrow, scenario-scoped defensive cleanup, retained as a
+ * belt-and-suspenders guard after the M5 per-order key derivation above
+ * removed the actual cross-scenario collision source. Nulls out any row that
+ * still holds a given paymentKey (e.g. a leftover from a prior interrupted
+ * run reusing the exact same order id, or an in-flight retry) immediately
+ * before a scenario's own payment step. Callers now pass their OWN order's
+ * derived key (`stubSuccessPaymentKey(orderId)`), not a value shared with
+ * every other scenario in the suite.
  */
 export async function clearStalePaymentKey(paymentKey: string): Promise<void> {
   await prisma.order.updateMany({

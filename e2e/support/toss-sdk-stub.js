@@ -24,6 +24,17 @@
 // Mode switching: `window.__E2E_PAYMENT_MODE__`, set via `page.addInitScript()`
 // per-scenario (e2e/support/toss-stub-fixture.ts). Defaults to "success" when
 // unset, matching plan.md §D's stub sketch.
+//
+// SPEC-E2E-001 M5 (REQ-E2E-015) — the success-mode `paymentKey` is DERIVED
+// from `options.orderId` (real orders created by real Prisma rows, always
+// unique) rather than a single shared literal. `Order.paymentKey` carries a
+// DB-level unique constraint (prisma/schema.prisma), so two scenarios whose
+// server-side confirm writes overlap in wall-clock time (progress.md §E.2 M2
+// residual-risk note — a scenario that does not await its own confirm
+// navigation settling before returning) can never target the same value
+// again, by construction. This replaces the narrow per-scenario
+// `clearStalePaymentKey()` guard M3/M4 each added as the actual fix, at the
+// actual source of the collision, rather than papering over it downstream.
 window.TossPayments = function (clientKey) {
   return {
     payment: function (_paymentOptions) {
@@ -37,7 +48,7 @@ window.TossPayments = function (clientKey) {
               return;
             }
             var u = new URL(options.successUrl);
-            u.searchParams.set("paymentKey", "e2e_stub_payment_key");
+            u.searchParams.set("paymentKey", "e2e_stub_payment_key_" + options.orderId);
             u.searchParams.set("orderId", options.orderId);
             u.searchParams.set("amount", String(options.amount.value));
             window.location.assign(u.toString());
