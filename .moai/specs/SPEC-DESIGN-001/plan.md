@@ -1,6 +1,6 @@
 ---
 id: SPEC-DESIGN-001
-status: draft
+status: in-progress
 updated: 2026-09-05
 tier: M
 ---
