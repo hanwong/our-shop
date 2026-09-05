@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Cormorant_Garamond, Lora } from "next/font/google";
 
 import "./globals.css";
 
@@ -36,18 +37,41 @@ import "./globals.css";
  */
 
 /*
- * Typography comes from the system font stack in globals.css rather than
- * `next/font/google`.
+ * SPEC-DESIGN-001 M0 — `next/font/google` loads the Classical design
+ * system's serif pairing (plan.md §D.1): Cormorant Garamond for headings,
+ * Lora for body text.
  *
- * plan.md §A named next/font/google, with §K R7 recording the build-time
- * network fetch it introduces and pre-authorizing the system stack as the
- * reversible alternative that still satisfies REQ-STOREFRONT-001's "basic
- * typography". That fallback is taken here, for a second reason R7 did not
- * anticipate: `next/font` needs the Next.js SWC font loader, which vitest does
- * not run, so importing it made this shell untestable ("Inter is not a
- * function"). The system stack keeps the requirement satisfied, keeps the
- * shell testable, and removes the offline/CI build dependency R7 flagged.
+ * SPEC-STOREFRONT-001 previously tried `next/font/google` here and reverted
+ * to the system font stack, for two reasons (plan.md §K R7, this file's
+ * prior revision): (a) the build-time network fetch it introduces, and (b)
+ * `next/font` needs the Next.js SWC font loader, which vitest does not run,
+ * so importing it made this shell untestable (`<FontName> is not a
+ * function`).
+ *
+ * That prior tradeoff does not hold here. Reason (a) is not a cost unique to
+ * this approach — `next/font` self-hosts at build time specifically to
+ * remove the *runtime* network request the alternative (`globals.css`
+ * `@import`, Classical's own loading method) would carry instead. Reason (b)
+ * is resolved, not avoided: `vitest.config.ts` aliases `next/font/google` to
+ * a stub (`tests/mocks/next-font-google.ts`) so this shell stays testable
+ * with the real import in place (SPEC-DESIGN-001 plan.md §B.5, §F M0).
+ *
+ * The deciding difference from SPEC-STOREFRONT-001: that SPEC only needed
+ * "basic typography", so the system stack satisfied its requirement.  This
+ * SPEC's requirement is a specific serif pairing (Cormorant Garamond + Lora)
+ * — the system stack is not an option that satisfies it, so the tradeoff
+ * that favored reverting there does not apply here.
  */
+const cormorantGaramond = Cormorant_Garamond({
+  subsets: ["latin"],
+  weight: ["400", "600"],
+  display: "swap",
+});
+const lora = Lora({
+  subsets: ["latin"],
+  weight: ["400", "600"],
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "our-shop",
@@ -56,7 +80,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ko">
+    <html lang="ko" className={`${cormorantGaramond.className} ${lora.className}`}>
       <body className="bg-white text-neutral-900 antialiased">
         {children}
       </body>

@@ -2,7 +2,7 @@
 id: SPEC-DESIGN-001
 title: "공통 디자인 토큰 체계 수립과 전체 사이트 반영"
 version: "0.2.0"
-status: draft
+status: in-progress
 created: 2026-09-05
 updated: 2026-09-05
 author: snake
