@@ -220,7 +220,7 @@
 
 수치가 1526보다 작으면 재작성 과정에서 단언을 옮긴 것이 아니라 잃은 것이며, 그 자체가 실패다.
 
-**And** 재작성 대상 3개 파일 7건이 전부 **존재하되 새 동작을 검증**한다 — `tests/unit/api/orders/route.test.ts`(5건), `tests/integration/orders/create-order.test.ts`(1건), `tests/unit/orders/scope-boundaries.test.ts`(1건, `:237`). 삭제된 `it` 블록이 없다.
+**And** 재작성 대상 6개 파일 12건이 전부 **존재하되 새 동작을 검증**한다(`research.md` §2, 2026-09-05 정정: `grep -rln "schema.prisma" tests/` 9파일 전수 재실행으로 스키마 단언 4파일 6건을 추가 확인) — `tests/unit/api/orders/route.test.ts`(5건), `tests/integration/orders/create-order.test.ts`(1건), `tests/unit/orders/scope-boundaries.test.ts`(1건, `:237`), `tests/unit/orders/schema.test.ts`(3건, `:63`/`:71`/`:138`), `tests/unit/payments/guest-only-scope.test.ts`(1건, `:55`), `tests/unit/payments/schema.test.ts`(1건, `:44`의 `guestId` 스팟체크). 삭제된 `it` 블록이 없다.
 
 **And** `git diff --stat`으로 `src/lib/auth/`·`src/middleware.ts`·`src/app/api/cart/`·`src/features/cart/services/`의 변경 라인이 0이고, `src/features/cart/` 아래 변경 파일이 `cart-repository.ts` 하나다.
 

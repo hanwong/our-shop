@@ -75,9 +75,11 @@ prisma/migrations/
 
 ---
 
-## §2. 다시 써야 할 기존 테스트 — 3개 파일 7건
+## §2. 다시 써야 할 기존 테스트 — 6개 파일 12건
 
-브리프는 2개 파일 6건이라고 했다. 세 번째 파일이 있다(§5 정정 2).
+브리프는 2개 파일 6건이라고 했다. 세 번째 파일이 있다(§5 정정 2) — 여기까지가 §2.1~§2.3의 **행동 단언 3건**(M2~M5 착지 후에 깨진다)이다.
+
+**추가 정정(2026-09-05, 위임-오케스트레이터 교차검증)**: 위 3파일 7건은 M6의 절반일 뿐이었다. `grep -rln "schema.prisma" tests/`로 스키마 참조 테스트를 전수 스캔하고 9개 파일을 전부 재실행한 결과, M1(스키마)이 착지한 현재 트리에서 **이미** 4개 파일 6건이 실패하고 있었다 — 그중 `scope-boundaries.test.ts:237`은 위 3파일에 이미 포함되어 있었지만, 나머지 3파일 5건(`orders/schema.test.ts` 3건, `payments/guest-only-scope.test.ts` 1건, `payments/schema.test.ts` 1건)은 이 SPEC의 M6 계획에 전혀 반영되어 있지 않았다. 이 3파일은 **스키마 단언**이므로 M2~M5를 기다릴 필요 없이 지금 이미 깨져 있다(§2.6~§2.8). 합집합은 **행동 단언 2파일 6건 + 스키마 단언 4파일 6건 = 6파일 12건**이며, `scope-boundaries.test.ts`의 1건이 두 갈래 모두에서 언급되므로 파일 수는 3+3이 아니라 6이다(behavior 2 + schema 4 = file union 6; scope-boundaries는 schema 갈래에 속하고 behavior 갈래(route/create-order)와는 겹치지 않는다).
 
 ### §2.1 `tests/unit/api/orders/route.test.ts` — 5건
 
@@ -204,7 +206,68 @@ const SPEC_MERGE_HEAD = "733e320";
 
 여섯 단언 전부 **"모든 주문 쓰기가 트랜잭션 안에서 일어나고, 실패는 롤백된다"는 실제 안전 속성**을 지킨다(AC-ORDER-012). 소유자 dispatch를 헬퍼로 감싸면 정규식이 깨지는데, 그때 올바른 대응은 정규식을 완화하는 것이 아니라 **호출 형태를 그대로 두는 것**이다. 게스트 분기는 `findCartByGuestId(guestId, tx)` 문자열을 유지하고, 회원 분기를 명시적 `if`로 나란히 두며, 두 분기 모두 거부를 `throw new OrderAbort`로 낸다.
 
-이 여섯 단언은 재작성 7건에 포함되지 않는다 — **바뀌지 않아야 하는 것**이고, 통과 유지 자체가 검증 항목이다.
+이 여섯 단언은 재작성 12건에 포함되지 않는다 — **바뀌지 않아야 하는 것**이고, 통과 유지 자체가 검증 항목이다.
+
+### §2.6 `tests/unit/orders/schema.test.ts` — 3건 (M1 착지만으로 이미 깨짐, 브리프 미포함)
+
+`§2.3`과 같은 파일군(스키마 테스트)이지만 다른 파일이다. `npx vitest run tests/unit/orders/schema.test.ts`로 확인(2026-09-05) — `Test Files 1 failed`, 3개 단언 실패.
+
+```ts
+// :63-69
+it("attributes an order to a NON-NULLABLE guest identity", () => {
+  const body = modelBody("Order");
+  expect(body).toMatch(/^\s*guestId\s+String\s/m);
+  expect(body).not.toMatch(/^\s*guestId\s+String\?/m);
+});
+
+// :71-76
+it("declares NO member attribution at all (AC-ORDER-001 (b))", () => {
+  const body = modelBody("Order");
+  expect(body).not.toMatch(/^\s*userId\b/m);
+  expect(body).not.toMatch(/^\s*user\s+User/m);
+  expect(body).not.toContain("@@index([userId])");
+});
+
+// :138-146 (describe "the preserved models (plan.md §4)")
+it("leaves User completely untouched — no orders back-relation (AC-ORDER-001 (c))", () => { ... });
+```
+
+이 세 단언은 SPEC-ORDER-001이 남긴 것으로, 정확히 이 SPEC이 뒤집으려는 전제("게스트 신원은 non-nullable", "회원 귀속 없음", "User는 orders를 모른다")를 검사한다. `§2.3`의 단언과 성격이 같다 — **확실히 깨진다**, 대체 방향도 같다: `guestId`는 이제 nullable, `userId`가 새로 생기고 non-unique 인덱스를 가지며, `User.orders`가 존재한다.
+
+**대체**: `:63`은 `guestId String?`로 뒤집는다(§1.4의 XOR 판별 유니온 근거). `:71`은 `userId String?` + `@@index([userId])` + `user User?` 존재를 확인하는 단언으로 뒤집는다. `:138`은 `§2.3`의 대체 단언과 같은 사실(`User.orders Order[]` 존재)을 다른 `describe` 블록에서 검사하므로 중복이 아니라 — PRESERVE 목록(§4)에 대한 별도 회귀 가드로 남긴다.
+
+### §2.7 `tests/unit/payments/guest-only-scope.test.ts` — 1건 (M1 착지만으로 이미 깨짐, PAYMENT-001 소유)
+
+```ts
+// :55-57
+it("adds no userId column to the Order model", () => {
+  expect(modelBody("Order")).not.toMatch(/\buserId\b/);
+});
+```
+
+SPEC-PAYMENT-001이 자신의 게스트 전용 범위 가드로 박아 둔 단언이다 — "Order에 회원 컬럼이 생기지 않는다"는 PAYMENT-001 자신의 불변식이 아니라, **당시 사실이던 ORDER-001의 스키마를 전제로 삼은 회귀 가드**였다. 이 SPEC이 `Order.userId`를 추가하는 순간 기계적으로 깨진다 — PAYMENT-001의 결제 로직에는 아무 영향이 없다(§2.6의 판정과 같은 논리: 결제 도메인 소스 트리 자체는 `userId`를 참조하지 않는다 — `:46`/`:50`의 같은 `describe` 블록 안 두 단언은 계속 통과한다).
+
+**대체**: 이 단언은 더 이상 참일 수 없는 전제를 검사하므로 **삭제가 아니라 재작성**한다 — "Order.userId는 이제 존재하되, 결제 도메인 소스 트리(`PAYMENT_SRC_PATHS`)는 여전히 `userId`를 참조하지 않는다(게스트 전용 결제 로직은 불변)"는 형태로 옮긴다. 옆의 `PaymentAuditLog` 단언(`:59`)은 이 SPEC이 `PaymentAuditLog`를 건드리지 않으므로 무영향 — 재작성 대상 아님.
+
+### §2.8 `tests/unit/payments/schema.test.ts` — 1건 (M1 착지만으로 이미 깨짐, PAYMENT-001 소유)
+
+```ts
+// :44-53
+it("adds the PaymentAuditLog back-relation without touching any existing Order field", () => {
+  const body = modelBody("Order");
+  expect(body).toMatch(/^\s*auditLogs\s+PaymentAuditLog\[\]/m);
+  // PRESERVE spot-check — SPEC-ORDER-001's existing fields are untouched.
+  expect(body).toMatch(/^\s*orderNumber\s+String\s+@unique/m);
+  expect(body).toMatch(/^\s*status\s+OrderStatus\s+@default\(pending_payment\)/m);
+  expect(body).toMatch(/^\s*guestId\s+String\s/m);   // ← 이 줄만 깨진다
+  expect(body).toMatch(/^\s*idempotencyKey\s+String\s+@unique/m);
+  expect(body).toContain("@@index([guestId])");
+});
+```
+
+이름과 달리 이 단언 하나가 6개의 소단언을 묶고 있고, 그중 `guestId String`(non-nullable) 스팟체크 한 줄만 깨진다 — `guestId`가 `String?`로 바뀌기 때문이다. 나머지 5개 소단언(`auditLogs`, `orderNumber`, `status`, `idempotencyKey`, `@@index([guestId])`)은 이 SPEC이 손대지 않으므로 계속 통과한다.
+
+**대체**: 단언 전체를 다시 쓰지 않는다 — `guestId` 스팟체크 한 줄만 `String?`로 고친다. PAYMENT-001이 "ORDER-001의 필드가 보존됐는지" 확인하려던 의도(PRESERVE 스팟체크)는 그대로 유효하다 — 다만 보존 대상 필드 자체(`guestId`의 nullability)가 이 SPEC에서 합법적으로 바뀌었을 뿐이다.
 
 ---
 
@@ -224,7 +287,7 @@ $ npx vitest run --reporter=dot
 - 측정 일자: 2026-09-05
 - 실패·건너뜀 없음
 
-이 수치가 AC-ORDER-072(전체 스위트 기준선 대조)의 기준이며, 게스트 경로 무회귀는 AC-ORDER-071이 별도로 다룬다. 재작성 7건은 **파일 수를 늘리지 않고 테스트 수를 유지하거나 늘린다**(단언을 지우는 것이 아니라 옮기므로). 최종 수치가 1526보다 **작으면** 어딘가에서 커버리지를 잃은 것이고, 그 자체가 실패 신호다.
+이 수치가 AC-ORDER-072(전체 스위트 기준선 대조)의 기준이며, 게스트 경로 무회귀는 AC-ORDER-071이 별도로 다룬다. 재작성 12건은 **새 테스트 파일을 추가하지 않고 기존 6개 파일 안에서 테스트 수를 유지하거나 늘린다**(단언을 지우는 것이 아니라 옮기므로). 최종 수치가 1526보다 **작으면** 어딘가에서 커버리지를 잃은 것이고, 그 자체가 실패 신호다.
 
 ---
 

@@ -4,7 +4,7 @@
 
 `Order`에 회원 소유 차원을 추가하고, `POST /api/orders`의 회원 거부를 제거하며, 신원 해석을 `resolveSession()` 쿠키 방식으로 옮긴다. 개발 방식은 `quality.yaml`의 `development_mode: tdd` — RED-GREEN-REFACTOR.
 
-읽는 순서: `spec.md` §1.4(정찰 정정 세 건) → `design.md` §1.2(Cart와 기수가 다르다) → `research.md` §2(재작성 대상 7건).
+읽는 순서: `spec.md` §1.4(정찰 정정 세 건) → `design.md` §1.2(Cart와 기수가 다르다) → `research.md` §2(재작성 대상 12건).
 
 **밀스톤은 되돌리기 어려운 결정부터 배치했다.** M1(스키마)과 M2(신원·CSRF)가 이 SPEC에서 가장 바꾸기 힘든 두 결정이고, M7(안내 문구)이 가장 쉽다. 검토 시간을 앞쪽에 쓰는 것이 맞다. 전체 순서는 M1 스키마 → M2 신원·CSRF → M3 저장소 → M4 서비스 → M5 화면 → M6 테스트 재작성 → M7 문구다(§F).
 
@@ -191,16 +191,24 @@ CSRF를 맨 앞에 두는 것은 **불가능하다**: 회원 경로에만 CSRF�
 - [ ] 회원이 남의 주문 id로 완료 화면을 열면 `notFound()`
 - [ ] 게스트 경로 두 화면 무변경 동작
 
-### M6 — 기존 테스트 7건 재작성 (가장 기계적)
+### M6 — 기존 테스트 12건 재작성 (가장 기계적)
 
-`research.md` §2의 표를 그대로 따른다. **삭제가 아니라 재작성**이다.
+`research.md` §2의 표를 그대로 따른다. **삭제가 아니라 재작성**이다. 대상은 두 갈래다 — M2~M5(신원·CSRF·저장소·서비스·화면)가 착지해야 깨지는 **행동 단언** 3건과, M1(스키마) 착지만으로 이미 깨지는 **스키마 단언** 3건이 있고 후자는 이미 현재 트리에서 관측 가능하다(`research.md` §2.6~§2.8).
 
+**행동 단언 — M2~M5 착지 후에 깨진다(현재는 통과, 47/47 확인)**
 - `tests/unit/api/orders/route.test.ts` 5건 — `submitAsMember()` 헬퍼를 Bearer가 아니라 세션 쿠키 기반으로 다시 쓴다.
 - `tests/integration/orders/create-order.test.ts` 1건 — 201 + 저장된 행의 XOR 관측.
+
+**스키마 단언 — M1 착지만으로 이미 깨진다(현재 4파일 6건 실패, `npx vitest run --reporter=dot` 재확인)**
 - `tests/unit/orders/scope-boundaries.test.ts` 1건(`:237`) — 단언을 뒤집고 `@unique` 부재까지 확인(B2).
+- `tests/unit/orders/schema.test.ts` 3건(`:63`, `:71`, `:138`) — `guestId` non-nullable 단언, "회원 귀속 없음" 단언, `User.orders` 부재 단언이 전부 뒤집힌다(§2.6).
+- `tests/unit/payments/guest-only-scope.test.ts` 1건(`:55`) — "Order에 userId 컬럼 없음" 단언이 뒤집힌다. `Order` 모델 자체에 `userId`가 생기므로 SPEC-PAYMENT-001의 게스트 전용 범위 가드가 이 SPEC의 스키마 변경을 직접 맞는다(§2.7).
+- `tests/unit/payments/schema.test.ts` 1건(`:44`의 `guestId String` non-nullable 스팟체크) — SPEC-PAYMENT-001이 SPEC-ORDER-001의 필드를 보존 확인하려고 박아 둔 스팟체크가, `guestId`가 nullable로 바뀌면서 함께 깨진다(§2.8).
+
+마지막 두 항목은 SPEC-PAYMENT-001이 소유한 테스트 파일이지만, 이 SPEC의 스키마 변경(`guestId` nullable화 + `userId` 추가)이 기계적으로 깨뜨리는 결과이므로 — 새 PAYMENT-001 기능이 아니라 이 SPEC 자신의 변경에 대한 후속 수정이므로 — M6 범위에 포함한다.
 
 **DoD**
-- [ ] `describe` 제목이 SPEC-ORDER-004를 참조하도록 갱신
+- [ ] `describe` 제목이 SPEC-ORDER-004를 참조하도록 갱신(스키마 단언 4건은 원 SPEC-ORDER-001/PAYMENT-001 제목을 유지해도 무방 — 실제로 다시 쓰는 것은 단언 본문이다)
 - [ ] 각 재작성 단언이 원래 단언이 지키던 **속성**을 계승한다(예: `:136`의 "게스트로 조용히 강등하지 않는다"는 이제 `findCartByUserId` 호출 + `findCartByGuestId` 미호출로 표현)
 - [ ] 전체 스위트 통과, 테스트 수 ≥ 1526
 
@@ -234,7 +242,7 @@ CSRF를 맨 앞에 두는 것은 **불가능하다**: 회원 경로에만 CSRF�
 
 - `spec.md` §1.1(전제 분할), §1.4(정찰 정정), §3(범위 경계)
 - `design.md` §1.2(기수 함정), §3.3(CSRF 위협 분석), §4(멱등성 소유자 대조), §6.3(정규식 제약)
-- `research.md` §2(재작성 7건), §3(기준선), §5(브리프 정정)
+- `research.md` §2(재작성 12건), §3(기준선), §5(브리프 정정)
 - `acceptance.md` — AC-ORDER-050 ~ 073
 - `SPEC-ORDER-001/spec.md:127`(인계 항목), `:129`(재현하면 안 되는 결함)
 - `SPEC-AUTH-003/spec.md` §1.2(읽기/쓰기 분할 표)
