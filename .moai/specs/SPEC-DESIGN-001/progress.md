@@ -1125,29 +1125,222 @@ M3 10개), `FormField` → 7개 파일(M3 전부). plan.md §H가 M5에서 확�
 한 항목이므로 이번 마일스톤에서 프리미티브 자체의 `@MX:ANCHOR` 주석은
 수정하지 않았다(M1 원문 유지).
 
+### M4 — 스태프 화면 3장(실제 대상 보유) + `ProductForm.tsx`
+
+cycle_type: tdd. 워크트리 복구 경로(A.0)를 탔다 — 초기 `HEAD`
+(`0be83c5f182819fb58599cd9089abe7dc0842f05`)가 기대값
+(`bc5a2ab007445b6105fe92a202f2696f690423f9`, M3 병합 커밋)과 달라
+`m4-staff-pages` 브랜치를 후자에서 새로 분기했다. 분기 직후
+`src/components/ui/Button.tsx`/`FormField.tsx` 존재를 확인한 뒤
+`npm install`을 실행했다.
+
+**E1 — 워크트리 케이스**: A.0 경로 B(불일치)를 탔다. 위 문단 참조.
+
+**사전 확인 (Section C pre-flight)** — 편집 이전:
+
+```
+$ npx tsc --noEmit
+(exit 0, no output)
+
+$ npm run lint
+(exit 0, no output)
+
+$ npm test
+ Test Files  115 passed (115)
+      Tests  1517 passed (1517)
+
+$ grep -n "rounded-md bg-neutral-900\|w-full rounded-md border border-neutral-300" src/app/staff/products/page.tsx src/app/staff/products/ProductForm.tsx src/app/staff/login/page.tsx
+src/app/staff/products/page.tsx:137:          className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white"
+src/app/staff/products/ProductForm.tsx:206,220,243,260,287: (5건, w-full rounded-md border border-neutral-300)
+src/app/staff/products/ProductForm.tsx:341:          className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+src/app/staff/login/page.tsx:86,101: (2건, w-full rounded-md border border-neutral-300)
+src/app/staff/login/page.tsx:114:        className="w-full rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+```
+
+M3 베이스라인(115 파일/1517 테스트)과 정확히 일치. plan.md §C.2 표의
+"버튼 1 + 폼 입력 2(login) / 버튼 1(products) / 버튼 1 + 폼 입력 5(ProductForm)"과
+grep 실측이 1:1로 일치함을 편집 전 확인했다.
+
+**E2 — 허용 목록 4-7번(0건 대상) 독립 확인** — 표를 그대로 신뢰하지 않고
+직접 grep으로 재확인했다(verification-claim-integrity 원칙):
+
+```
+$ grep -nE "rounded-md bg-neutral-900|w-full rounded-md border border-neutral-300|<button|<input|<textarea" src/app/staff/products/new/page.tsx
+(빈 출력 — 0건)
+
+$ grep -nE "rounded-md bg-neutral-900|w-full rounded-md border border-neutral-300|<button|<input|<textarea" "src/app/staff/products/[productId]/page.tsx"
+(빈 출력 — 0건)
+
+$ grep -nE "rounded-md bg-neutral-900|w-full rounded-md border border-neutral-300|<button|<input|<textarea" src/app/staff/orders/page.tsx
+(빈 출력 — 0건)
+
+$ grep -nE "rounded-md bg-neutral-900|w-full rounded-md border border-neutral-300|<button|<input|<textarea" "src/app/staff/orders/[orderId]/page.tsx"
+(빈 출력 — 0건)
+```
+
+4개 파일 전부 확인. 추가로 `<a>`/`className=` 전수 확인 결과, 4/5번은
+"상품 목록으로 돌아가기" 순수 텍스트 링크(버튼 스타일 없음)만 갖고, 6번은
+상태 필터/페이지네이션 텍스트 링크만, 7번은 `CancelOrderButton`(위험 변형,
+명시적 범위 밖)만 렌더한다. 표의 "0건" 판정이 실측과 일치함을 확인 —
+**미변경으로 남긴 4개 파일은 정상 결과다.**
+
+**M3 대비 테스트 전략 차이**: 이 마일스톤이 건드리는 3개 파일의 기존 테스트
+(`staff-login-page.test.tsx`, `staff-products-page.test.tsx`,
+`staff-product-form.test.tsx`, `accessibility.test.tsx`)를 전수 확인한 결과
+className 리터럴을 단언하는 테스트가 **0건**이었다(M3의 `pay-button.test.tsx`와
+달리 적응이 필요한 테스트가 없음). 대신 `staff-product-form.test.tsx`가
+필드별 오류에 `role="alert"`를 요구하는 테스트 4건
+(`getAllByRole("alert").length`)을 갖고 있어, `FormField`의 내장 `error` prop
+(내부적으로 `role="alert"` 없는 `<p>`를 렌더함, `FormField.tsx:98-102`)을 그대로
+쓰면 이 테스트들이 깨진다는 것을 편집 전에 파악했다. 그래서 `ProductForm.tsx`는
+`FormField`에 `error` prop을 넘기지 않고 기존 `fieldError()` 헬퍼(`role="alert"`
+포함)를 형제 요소로 유지하는 방식을 택했다 — 순수 스타일 교체이며 동작 변경이
+아니다(§G 안티패턴 위반 아님, `aria-describedby`는 `FormField`의 rest-prop
+오버라이드 경로로 그대로 전달).
+
+**`<select>` 처리**: `categoryId` 필드는 `<select>`라 `FormField`의
+input/textarea 판별 범위 밖이다. `ReviewForm.tsx`의 평점 `<select>`가 세운
+선례(`fieldInputClassName()`/`fieldLabelClassName()` 직접 적용)를 그대로
+따랐다.
+
+**RED 증거**: 이 마일스톤은 순수 스타일 교체이며 신규 동작이 없다 — M3의
+login/signup 페이지(직접 마이그레이션) 선례와 동일하게, 기존 동작 테스트가
+안전망이고 grep(E3/E4)이 AC 검증 메커니즘이다. `Button`/`FormField` 프리미티브
+자체는 M1에서 이미 RED-GREEN을 거쳐 테스트됐다(`ui-button.test.tsx`,
+`ui-form-field.test.tsx`, 편집 없이 그대로 재사용). 신규 테스트 파일/케이스는
+추가하지 않았다 — M3가 login/signup에 대해 취한 것과 동일한 판단이다.
+
+**구현 내역**:
+
+1. `src/app/staff/login/page.tsx` — 이메일/비밀번호 `<FormField>` 2개, 제출
+   `<Button fullWidth>` 1개. `(shop)/login/page.tsx`(M3)와 구조적으로 동일한
+   교체(성공 리다이렉트 대상만 다름, 원래부터 그랬음).
+2. `src/app/staff/products/page.tsx` — "새 상품 등록" 링크형 버튼을
+   `buttonClassName()`으로 교체(`CartView.tsx`/`EmptyCart.tsx`의 `<a>`-as-button
+   선례 재사용). **범위 밖으로 남긴 것**: "검색" `<button>`(기존에 이미
+   `border-neutral-300` 아웃라인 스타일이라 `bg-neutral-900` 수렴 대상이
+   아님 — grep 미매치, plan.md 표의 "버튼 1"에 포함되지 않음).
+3. `src/app/staff/products/ProductForm.tsx` — `name`/`price`/`description`
+   3개 필드를 `<FormField>`로, `categoryId` `<select>`를
+   `fieldInputClassName()`/`fieldLabelClassName()`으로, `stock` 필드를
+   `<FormField>`(기존 `stock-hint` id 병합 유지)로, 저장 `<button>`을
+   `<Button>`으로 교체. **범위 밖으로 남긴 것**: 이미지 URL 추가/제거
+   버튼(기존 아웃라인 스타일, `bg-neutral-900` 미매치), 판매 중단/재개
+   토글(`bg-red-600`/`bg-green-700` 위험·상태 변형, spec.md §3 범위 밖).
+   CSRF 파싱(`readCsrfToken`)·제출 로직·주석 전부 무수정(§C.3/§G 안티패턴 1).
+
+**E3 — AC-DESIGN-008(a) grep, repo-wide**:
+```
+$ grep -rl "rounded-md bg-neutral-900" src/ | grep -v "src/components/ui/"
+(빈 출력 — 0건, repo 전체. M3 시점 스태프 3건 잔존 → 이번 마일스톤에서 전부 소거)
+```
+
+**E4 — AC-DESIGN-009 grep, repo-wide**:
+```
+$ grep -rl "w-full rounded-md border border-neutral-300" src/ | grep -v "src/components/ui/"
+(빈 출력 — 0건, repo 전체. M3 시점 스태프 2건 잔존 → 이번 마일스톤에서 전부 소거)
+```
+
+**AC-DESIGN-008/009는 이제 스태프 예외 없이 완전히, repo-wide로 PASS다** —
+M3가 명시적으로 남겨 둔 이연(deferral)이 이 마일스톤에서 정확히 닫혔다.
+
+**E5 — AC-DESIGN-015 (부분집합 검사, 정확 일치 아님)**:
+```
+$ git diff --name-only -- src/app/staff/
+src/app/staff/login/page.tsx
+src/app/staff/products/ProductForm.tsx
+src/app/staff/products/page.tsx
+```
+3개 전부 §C.2 허용 목록(7개)의 "수정 예상(예)" 3개와 정확히 일치. 목록 밖
+파일 0건. 4-7번(수정 예상 없음)은 실제로 미변경 — E2에서 독립 재확인한 대로
+정상 결과다.
+
+**E6 — tsc/lint**:
+```
+$ npx tsc --noEmit
+(exit 0, no output)
+
+$ npm run lint
+> our-shop@0.1.0 lint
+> eslint .
+(exit 0, no output)
+```
+
+**E7 — 전체 회귀** (M3 베이스라인 115 파일/1517 테스트 대비):
+```
+$ npm test
+ Test Files  115 passed (115)
+      Tests  1517 passed (1517)
+  Duration  17.92s
+```
+115 파일 = M3와 완전히 동일(신규 테스트 파일 0건). 1517 테스트 = M3와 완전히
+동일(신규/삭제/적응 테스트 0건 — className 단언 테스트가 애초에 없었으므로
+적응할 대상이 없었다). 기존 테스트 실패 0건, 신규 실패 0건. 대상 4개 테스트
+파일(`staff-login-page`/`staff-products-page`/`staff-product-form`/
+`accessibility`, 총 67개 테스트) 단독 재실행으로도 전부 통과 확인.
+
+**E8 — `CancelOrderButton.tsx` 무변경**:
+```
+$ git diff --stat -- src/app/staff/orders/\[orderId\]/CancelOrderButton.tsx
+(빈 출력)
+```
+
+**E9 — 브랜치/푸시 상태**: 브랜치 `m4-staff-pages`(base
+`bc5a2ab007445b6105fe92a202f2696f690423f9`, M3 병합 커밋). 커밋 후
+`git push origin m4-staff-pages` 예정 — 오케스트레이터가 병합.
+
+**E10 — 블로커**: 없음. 판단이 필요했던 지점 2건 — (a) `ProductForm.tsx`
+필드 오류의 `role="alert"` 보존을 위해 `FormField`의 `error` prop을 쓰지
+않고 기존 `fieldError()`를 유지한 결정, (b) "검색"/이미지 추가·제거/판매
+중단·재개 버튼을 범위 밖으로 판단한 근거 — 둘 다 위 "구현 내역"/"M3 대비
+테스트 전략 차이" 절에 투명하게 기록했다.
+
+**실제 diff 범위** (scope discipline 준수 확인):
+```
+$ git status --short
+ M src/app/staff/login/page.tsx
+ M src/app/staff/products/ProductForm.tsx
+ M src/app/staff/products/page.tsx
+```
+3개 파일 — 착수 지시 Section D가 지목한 정확히 그 3개(실제 대상을 가진
+파일). 테스트 파일 0건(적응 불필요), `package.json` 무변경(신규 의존성
+0건), `src/app/staff/products/new/page.tsx`·
+`src/app/staff/products/[productId]/page.tsx`·`src/app/staff/orders/page.tsx`·
+`src/app/staff/orders/[orderId]/page.tsx`·`CancelOrderButton.tsx` 전부
+무변경.
+
+MX 태그: `Button`/`FormField` fan-in 재실측 —
+`grep -rl 'from "@/components/ui/Button"' src/` → 14개 파일(M2 1 + M3 10 +
+M4 3), `grep -rl 'from "@/components/ui/FormField"' src/` → 9개 파일(M3 7 +
+M4 2 — `staff/products/page.tsx`는 `Button`만 소비, `FormField` 아님).
+plan.md §H가 M5에서 최종 확정하기로 한 항목이므로 이번 마일스톤에서도
+프리미티브 자체의 `@MX:ANCHOR` 주석은 수정하지 않았다.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 ```yaml
-run_milestone: M3
-next_milestone: M4
+run_milestone: M4
+next_milestone: M5
 run_status: in-progress
 m0_status: complete
 m0_fallback_taken: false
 m1_status: complete
 m2_status: complete
 m3_status: complete
+m4_status: complete
 ac_design_007_status: PASS
 ac_design_005c_status: PASS (resolved in M3, was deferred-from-M1)
-ac_design_008_status: PASS (a/b/c all verified against full src/ tree)
-ac_design_009_status: PASS
-ac_design_010_status: PASS (9/9 customer pages, 3 explicit N/A)
+ac_design_008_status: PASS (a/b/c all verified against full src/ tree, repo-wide, no staff exceptions remaining as of M4)
+ac_design_009_status: PASS (repo-wide, no staff exceptions remaining as of M4)
+ac_design_010_status: PASS (9/9 customer pages, 3 explicit N/A — unchanged from M3, M4 is staff-side)
+ac_design_015_status: PASS (staff diff is exact subset of plan.md §C.2's 3 expected-to-change files; 4 zero-target files independently re-verified untouched)
 ac_design_012_baseline: "113 files / 1493 tests passed (npm test, pre-M0-edit)"
-ac_design_012_post_change: "115 files / 1517 tests passed (npm test, post-M3-edit) — 0 regressions, +0 files/+3 tests (2 new ProductCard style assertions + 1 new SiteHeader style assertion), 1 existing test adapted (pay-button.test.tsx literal-className assertion → shared-primitive-import assertion, SPEC-DESIGN-001-mandated per §1.1)"
+ac_design_012_post_change: "115 files / 1517 tests passed (npm test, post-M4-edit) — 0 regressions, 0 new/removed/adapted test files or cases (no className-literal assertions existed in the 3 touched files' test suites, so no adaptation was needed, unlike M3's pay-button.test.tsx)"
 new_warnings_or_lints_introduced: 0
 package_json_diff: empty
 cross_platform_build: not re-run this milestone (no platform-sensitive change; M1's npm run build pass still holds for the primitive layer)
-cascade_follow_up: "src/app/layout.tsx body className bg-white/text-neutral-900 -> bg-bg/text-text (plan.md §D.1b explicit value mapping, required for AC-DESIGN-010's background-inheritance claim; not in Section D's literal M3 file list but within the SPEC's declared scope envelope per L46 attribution)"
-m1_to_mN_commit_strategy: single feature branch per milestone (m3-customer-pages), orchestrator merges per milestone
+cascade_follow_up: none this milestone
+m1_to_mN_commit_strategy: single feature branch per milestone (m4-staff-pages), orchestrator merges per milestone
 ```
 
 ## §E.4 Sync-phase Audit-Ready Signal
