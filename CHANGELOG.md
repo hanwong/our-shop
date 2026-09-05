@@ -4,6 +4,19 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+### 추가 — SPEC-E2E-001: 결제·주문 경로 E2E 테스트 시나리오 (게스트 전용)
+
+**이 저장소에 브라우저 E2E가 전무했던 공백을 채웠다.** `SPEC-STOREFRONT-001/002/003`·`SPEC-AUTH-002`가 각자 "브라우저 E2E 하네스 부재로 확인하지 않았다"고 이월해 둔 항목들의 원인이던 그 공백이다. Playwright(Chromium 전용)로 게스트 장바구니 담기 → `/checkout` → 결제 → `/checkout/complete/{orderId}`까지 하나의 실제 브라우저·실제 Next.js 서버·실제 PostgreSQL을 태우는 9개 시나리오를 구축했다(`e2e/`, `npm run test:e2e`, `AC-E2E-001~015`, 005a/005b 분기 포함 16항목 전부 PASS). **`src/` 프로덕션 소스는 0줄도 바뀌지 않았다** — 전 milestone에 걸쳐 `git diff --stat <base>... -- src/lib/payment/toss-server.ts`가 매번 빈 출력이었음을 반복 확인했다.
+
+- **결제 모킹, 두 개의 프로세스 경계.** 브라우저 쪽(Toss SDK 스크립트 로드)은 Playwright `page.route()`로 가로챈다. 서버 쪽(`confirmTossPayment()`/`queryTossPayment()`가 내는 실제 아웃바운드 `fetch()`)은 `page.route()`가 볼 수 없는 별도 프로세스 요청이라, undici `setGlobalDispatcher`로 프로세스 전역 `MockAgent`를 심어(`e2e/support/mock-toss-api.mjs`, `NODE_OPTIONS='--import'`로 로드) 가로챘다 — 베이스 URL 환경 변수 이음매는 검토 후 기각했다(2026-09-05 사용자 결정). M1의 4단계 스파이크로 이 경로가 Next.js dev 서버의 다수 워커 프로세스 실행 컨텍스트에 실제로 도달함을 관측으로 확인했다.
+- **실제 결함 발견·수정 — P2002 paymentKey 충돌.** M2가 성공 모드 결제마다 공유 리터럴 `paymentKey`("e2e_stub_payment_key")를 하드코딩해 두었는데, `Order.paymentKey`의 DB `@unique` 제약과 구조적으로 충돌할 수 있었다. 재현 스펙(임시, 커밋 안 됨)으로 두 주문에 동일 키를 동시(`Promise.all`) confirm 요청해 500×2 + 서버 로그 `Prisma P2002`를 확정 재현한 뒤, `options.orderId`로부터 키를 파생하도록 근본 수정했다(`e2e/support/toss-sdk-stub.js`, `order-fixture.ts`의 `stubSuccessPaymentKey(orderId)`) — 두 시나리오가 서로 다른 주문을 쓰는 한 결코 같은 키를 가질 수 없도록 구조적으로 봉쇄했고, M2 성공 시나리오의 단언도 "truthy"에서 "정확한 파생값 일치"로 강화해 회귀를 잡는다. 정순 3회 연속 + 역순 1회, 매번 P2002 0건으로 재확인했다.
+- `e2e/`(신설, 5개 스펙 파일 + `support/` 픽스처·스텁) — 하네스 뼈대(M1), Toss 스텁 SDK(M2), 해피 패스 여정(M3), 실패·재시도·빈 장바구니·필수 필드 누락·쿠폰 적용 엣지 경로(M4), 시드·격리 정리(M5), `e2e/README.md`(M6, 환경 변수·DB 전제·실행 방법·CI 미포함 사유·아키텍처 노트).
+- `package.json`(+3줄, `@playwright/test` devDependency + `test:e2e` 스크립트), `playwright.config.ts`(신설, 전용 포트 3100 — 일반 dev 포트 3000과 충돌 방지), `.gitignore`(E2E 산출물 무시 패턴).
+- **알려진 한계.** (1) M6 문서 전용 milestone의 4회 연속 실행 중 1회차만 재시도 시나리오가 timeout으로 실패했다 — 새로 처음 `npm install`+`next dev`를 구동한 워크트리의 콜드 스타트(최초 라우트 컴파일) 경합으로 판단하며, 2~4회차는 모두 9/9 GREEN이었다(이 milestone은 테스트·애플리케이션 코드를 전혀 바꾸지 않았으므로 문서 변경이 유발했을 원인은 구조적으로 없다). (2) CSS 선택자 예외 2건 — `e2e/m4-edge-cases.spec.ts`의 쿠폰 시나리오가 `OrderSummary.tsx`의 순수 `<dl><dt>/<dd>` 정의 목록을 조회하는데, 이 구조엔 `dt`/`dd`를 하나의 접근 가능한 이름으로 연결하는 표준 ARIA 메커니즘이 없다 — 테스트만을 위한 마크업 변경을 하지 않기로 하고 두 선택자만 예외로 남겼다(그 외 9개 시나리오의 모든 선택자는 `getByRole`/`getByLabel`/`getByText` 기반). (3) `AC-E2E-015`(동시 행위자 부재 확인)는 이 SPEC 소유가 아니라 REQ-E2E-016 자체가 `SPEC-ORDER-002` 소유이며, 이 스위트에 애초에 2개 이상 동시 행위자 시나리오가 없다는 사실을 재확인하는 형태로 공허하게(vacuously) 성립한다.
+- **CI 미통합은 의도된 결정이다.** `.github/workflows/ci.yml`은 이 SPEC에서 수정하지 않는다 — CI의 `DATABASE_URL`은 여전히 루프백 자리표시자이고 (`SPEC-CI-001`이 이미 `status: completed`로 닫히며 CD·라이브 DB를 명시적으로 범위 밖에 뒀다), 이 스위트는 실제 시드된 PostgreSQL을 전제하므로 CI에서 도달 가능한 DB가 생기기 전까지는 로컬 전용이다.
+
+인수 기준 16건(`AC-E2E-001~015`, 005a/005b 분기 포함) 전부 PASS. 기존 Vitest 스위트 불변(110 files/1478 tests, 회귀 0건), `npm run typecheck`·`npm run lint` 전부 exit 0. sync-audit 독립 재검증 PASS(Functionality 98/Security 96/Craft 90/Consistency 95, `.moai/reports/sync-audit/SPEC-E2E-001-2026-09-05.md`) — `npm run test:e2e`를 별도로 2회 재실행해 9/9 확인, `npm audit`이 이 SPEC 이전과 동일한 기존 취약점 9건(신규 0건)임을 재확인했다.
+
 ### 수정 — AC-AUTH-021 로그인 rate-limit 테스트가 전체 스위트 실행 시 간헐 실패하던 플레이크 (백로그 카드 `t33`)
 
 **t20(AC-AUTH-005)과는 별개의 두 번째 플레이크였고, 원인도 달랐다.** `tests/unit/api/auth/login.test.ts`의 `AC-AUTH-021` 테스트("returns 429 after more than 5 requests/60s ...")가 전체 스위트 실행에서 간헐 실패해 왔다(t20의 자체 조사에서도 같은 고부하 조건에서 두 번 다 재현된 바 있음 — `.moai/reports/fix/t20-auth-timing-flake.md` §5). 원인 미확정 결함(Class B)으로 접수되어 SPEC 없이 진행했으며, 전체 증거는 `.moai/reports/fix/t33-auth-ratelimit-flake.md`에 있다.

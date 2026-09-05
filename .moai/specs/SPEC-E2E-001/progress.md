@@ -312,7 +312,25 @@ next_milestone: none — all milestones complete
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+sync_complete_at: 2026-09-05
+sync_commit_sha: pending-backfill-sync-phase-artifacts   # 자기참조 해시 — 이 커밋 자신은 자기 SHA를 알 수 없음(D3 SHA 자리표시자 백필 예외). 다음 후속 커밋에서 실제 SHA로 백필한다.
+sync_status: audit-passed
+sync_auditor_verdict: PASS
+sync_auditor_scores:
+  functionality: 98
+  security: 96
+  craft: 90
+  consistency: 95
+sync_auditor_report: .moai/reports/sync-audit/SPEC-E2E-001-2026-09-05.md
+b12_self_test_a: "grep -c 'SPEC-E2E-001' CHANGELOG.md → 0 (사전 확인, 본 커밋 작성 전)"
+b12_self_test_b: "acceptance.md 내 고유 AC-E2E-* 식별자 16개(005a/005b 분기 포함) — grep -oE 'AC-E2E-[0-9]+[a-z]?' acceptance.md | sort -u | wc -l → 16"
+b12_self_test_c: "CHANGELOG 엔트리가 인용하는 모든 경로(e2e/, e2e/README.md, playwright.config.ts, package.json)를 ls로 실재 확인"
+changelog_entry_position: "[Unreleased] 섹션 최상단(가장 최근 항목) — SPEC-REVIEW-001 항목보다 위"
+frontmatter_status_transitions:
+  spec_md: "in-progress → completed (updated: 2026-09-05) — plan.md/acceptance.md는 frontmatter 없음(spec.md만 소유)"
+canary_compliance_check: n/a   # 이 SPEC은 forward-looking 정책을 자체 테스트하지 않음
+```
 
 ## §F Phase 4 Mode Selection
 

@@ -2,7 +2,7 @@
 id: SPEC-E2E-001
 title: "결제·주문 경로 E2E 테스트 시나리오 (게스트 전용)"
 version: "0.1.0"
-status: in-progress
+status: completed
 created: 2026-09-05
 updated: 2026-09-05
 author: snake
