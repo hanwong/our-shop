@@ -15,12 +15,9 @@ import { clearCallLog } from "./e2e/support/call-log";
  * `defineConfig` is even evaluated, so a missing value fails the whole run
  * before Playwright starts the webServer or any scenario.
  *
- * @MX:TODO — this suite is LOCAL-ONLY; no CI workflow runs `test:e2e`
- * (spec.md §3 explicitly scopes CI integration out). Resolve once a future
- * SPEC stands up a CI database this suite can run against (plan.md §I cites
- * SPEC-CI-001 for why CI has none today). Anchored here rather than
- * `e2e/README.md` (plan.md §H) because M6, which creates that file, has not
- * run yet — move this note there once it exists.
+ * CI non-integration note (this suite is LOCAL-ONLY) now lives in
+ * `e2e/README.md` (plan.md §H) — moved there in M6, now that the file
+ * exists.
  */
 assertRequiredEnvVars(
   ["DATABASE_URL", "NEXT_PUBLIC_PG_CLIENT_KEY", "PG_SECRET_KEY"],

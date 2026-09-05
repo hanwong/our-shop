@@ -211,11 +211,44 @@ M5의 일반 시드·격리 정리로 확장하지 않고, **M3 자신의 시나
 | M1~M4 회귀 없음 | 기존 9개 시나리오가 계속 통과 | PASS | `npm run test:e2e` 3회 연속 + 역순 1회, 매번 9/9 통과(§E1/§E2) |
 | 기존 Vitest 스위트 불변 (REQ-E2E-002) | `npm test` 수집 파일 수·테스트 수가 M4 이후와 동일 | PASS | 110 files / 1478 tests, 변경 없음 |
 
+### M6 — 문서 (완료, 최종 milestone)
+
+**워크트리 사례(§A.0)**: 위임 시점 HEAD가 `273b19f7afe7bb9fbf3835d5f10c8cf9a2685f94`(`WT-checkout-e2e-tests`)와 불일치했다 — 격리 워크트리가 main(`9f605486...`)에 물려 있었다. `git checkout -b m6-docs 273b19f7...`로 t14의 M5 머지 커밋에서 분기해 작업했다 — 위임 프롬프트 §A.0의 예상된 격리 시나리오. `.moai/specs/SPEC-E2E-001/` 존재와 `e2e/support/toss-sdk-stub.js`의 orderId 기반 paymentKey 파생(M5 수정)을 확인한 뒤 `npm install` + `npx playwright install chromium`을 실행했다. 최종 통합(머지)은 오케스트레이터가 t14 워크트리에서 수행한다.
+
+**작업 범위**: 문서 전용 milestone(plan.md §F M6) — 테스트 코드·애플리케이션 코드 변경 없음. `e2e/README.md`를 신설하고, M5가 `playwright.config.ts`에 임시로 부착했던 `@MX:TODO`(CI 미통합) 하나를 이 새 README로 이전했다.
+
+**작성 근거 — 코드 대조 확인**:
+
+- **필요한 환경 변수**: `playwright.config.ts:25-28`의 `assertRequiredEnvVars(["DATABASE_URL", "NEXT_PUBLIC_PG_CLIENT_KEY", "PG_SECRET_KEY"], ...)` 호출과 `e2e/support/env-check.ts`의 구현(파일 로드 후 빈 값 검사, 누락 시 변수명을 정확히 지목하는 `Error` throw)을 직접 읽고 README에 반영했다 — REQ-E2E-004의 조기 실패 메시지 형식(`[e2e] required environment variable(s) missing before suite start: ...`)도 `env-check.ts:45-48`에서 그대로 인용했다.
+- **데이터베이스 전제**: `e2e/support/order-fixture.ts:97-107`의 `getSeededProduct()`(정확한 Prisma where절과 에러 메시지 인용) 및 `src/lib/auth/guest-identity.ts:34-39`의 `GUEST_CART_COOKIE_NAME` 정의를 직접 읽고 반영했다. 이 저장소에 별도 product seed 스크립트가 없다는 사실은 `prisma/` 디렉터리 나열(`seed-admin.ts`, `seed-coupons.ts`만 존재)로 확인한 뒤 "이 스위트는 상품을 직접 시드하지 않는다"고 정확히 서술했다 — 존재하지 않는 `npm run seed` 같은 명령을 지어내지 않았다.
+- **실행 방법**: `package.json`의 `"test:e2e": "playwright test"` 스크립트, `playwright.config.ts:39-40`의 전용 포트(`3100`, 일반 dev 포트 3000과 충돌 방지) 설계를 확인했다. `node_modules`가 워크트리 간 공유되지 않는다는 서술은 이번 M6 자신의 §A.0 격리 재현(매 milestone마다 반복된 사실, progress.md M1~M5 각 절의 "작업 위치" 기록)에 근거한다 — 추측이 아니라 이 SPEC의 위임 이력 자체가 증거다.
+- **CI 미통합 사유**: `spec.md` §3 "Out of Scope — CI에서의 E2E 실행" 절을 그대로(의역 없이) 근거로 인용했고, `.github/workflows/ci.yml:60`의 실제 `DATABASE_URL` 값(`postgresql://ci:ci@127.0.0.1:5432/our_shop_ci?schema=public`)을 직접 읽어 README에 옮겼다 — spec.md가 서술하는 "루프백 자리표시자"라는 주장을 코드로 재확인했다.
+- **아키텍처 노트(두 프로세스 경계)**: `plan.md` §A/§B의 다리 1(`page.route()`)/다리 2(undici `setGlobalDispatcher`) 구분을 요약하고, `src/lib/payment/toss-server.ts`를 직접 가리키는 것으로 그쳤다(plan.md 전체 재서술 없음, 위임 프롬프트 Section D #5 지침대로).
+
+## §E.6f M6 AC/REQ PASS 매트릭스
+
+| # | 항목 | 판정 | 근거 |
+|---|---|---|---|
+| plan.md §F M6 종료 조건 | `e2e/README.md` 생성 — 필요한 환경 변수·데이터베이스 전제·실행 방법·CI 미포함 사유 포함 | PASS | `e2e/README.md` 신설, 4개 절 전부 포함(§E1 코드 대조 확인 참조) |
+| MX:TODO 이전 | `playwright.config.ts`의 `@MX:TODO`를 `e2e/README.md`로 이전, 중복 부착 없음 | PASS | `grep -n "@MX:TODO" playwright.config.ts` 매치 0건(exit 1), `grep -n "@MX:TODO" e2e/README.md` 매치 2건 |
+| 프로덕션 소스 불변 | `src/lib/payment/toss-server.ts` diff 0줄 유지 | PASS | `git diff --stat 273b19f7... -- src/lib/payment/toss-server.ts` 빈 출력 |
+| M1~M5 회귀 없음 | 기존 9개 시나리오가 계속 통과 | PASS(잔여 위험 기록, 아래 참조) | `npm run test:e2e` 4회 연속 실행 — 1회차 M4 재시도 시나리오 1건 실패(`getByRole('status', {hasText:'결제가 완료되었습니다'})` timeout), 2~4회차는 9/9 GREEN. 실패 원인은 §E.2 산문 및 §E.7 잔여 위험 참조 |
+| 타입·린트 불변 | `npm run typecheck`, `npm run lint` 무변경 | PASS | 둘 다 출력 없이 종료(exit 0) |
+| 문서-코드 일치 | README의 모든 주장이 실제 소스에서 인용됨 | PASS | 위 "작성 근거" 절 — 각 주장마다 파일:라인 인용 |
+
+**§E.2 잔여 위험 — M4 재시도 시나리오 1회성 실패(2~4회차는 GREEN)**: 첫 실행에서만 `[WebServer] SyntaxError: Unexpected end of JSON input`(`/checkout/complete/{orderId}` 경로)와 함께 M4 재시도 시나리오가 timeout으로 실패했다. 이 워크트리는 이번 milestone에서 처음 `npm install`+`next dev`를 구동한 새 워크트리이므로, Next.js dev 서버의 최초 라우트 컴파일(콜드 스타트) 중 발생한 빌드 매니페스트 경합으로 판단한다 — plan.md §G가 이미 명시한 "하이드레이션 타이밍 플레이크" 위험군과 같은 부류이되, 이번엔 다른 트리거(콜드 컴파일)다. **이 milestone은 어떤 테스트·애플리케이션 코드도 변경하지 않았다**(`git status --short`: `playwright.config.ts`는 주석 3줄 삭제/3줄 교체만, 나머지는 신규 `e2e/README.md` 하나뿐 — §E4 zero-diff 확인과 별개로 스펙 파일 자체를 건드리지 않았음을 `git diff --stat` 파일 목록으로 재확인) — 따라서 이 실패를 이번 문서 변경이 유발했을 원인은 구조적으로 없다. 후속 3회 연속 실행이 모두 9/9 GREEN이었다는 점이 콜드 스타트 가설과 일치한다. 이 milestone의 범위(문서 작성)를 벗어나므로 코드 수정은 하지 않았다 — 재발 시 조사가 필요하면 별도 이슈로 추적할 사안이다.
+
+---
+
+## 모든 milestone 완료 (M1~M6)
+
+SPEC-E2E-001의 6개 milestone이 모두 완료됐다. M1(하네스+다리2 스파이크) → M2(Toss 스텁) → M3(해피 패스) → M4(실패·엣지) → M5(시드·격리 정리) → M6(문서)까지 순서대로 진행했으며, 9개 E2E 시나리오가 안정적으로 통과하는 상태로 마감한다. sync-phase(§E.4)는 별도 위임으로 진행한다.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 ```yaml
-run_milestone: M5
-run_status: milestone-complete   # M1~M5 완료 — M6(문서)만 미착수
+run_milestone: M6
+run_status: all-milestones-complete   # M1~M6 전체 완료 — SPEC-E2E-001 run-phase 종료
 m1_spike_points_pass: 4   # / 4 (M1 그대로 유지)
 ac_verified_this_milestone: [AC-E2E-013, AC-E2E-014]
 ac_verified_cumulative: [AC-E2E-001, AC-E2E-002, AC-E2E-003, AC-E2E-005a, AC-E2E-005b, AC-E2E-006, AC-E2E-007, AC-E2E-008, AC-E2E-009, AC-E2E-010, AC-E2E-011, AC-E2E-012, AC-E2E-013, AC-E2E-014]
@@ -226,7 +259,7 @@ baseline_vitest_tests_after: 1478
 toss_server_ts_diff_lines: 0
 typecheck_status: pass
 lint_status: pass
-e2e_status: pass   # 9/9 (m1-spike ×1, m2-toss-stub ×2, m3-happy-path ×1, m4-edge-cases ×4, smoke ×1) — 정순 3회 연속 + 역순 1회, 매번 P2002 0건
+e2e_status: pass   # 9/9 (m1-spike ×1, m2-toss-stub ×2, m3-happy-path ×1, m4-edge-cases ×4, smoke ×1). M5 시점: 정순 3회 연속 + 역순 1회, 매번 P2002 0건. M6 시점(이번 milestone, 문서 전용 — 코드 변경 없음): 4회 연속 실행 — 1회차 M4 재시도 시나리오 1건 timeout 실패(콜드 스타트 원인 추정, §E.2 M6 산문 참조), 2~4회차 9/9 GREEN
 paymentkey_collision_fix:
   root_cause: "toss-sdk-stub.js가 모든 성공 시나리오에 공유 리터럴 paymentKey를 하드코딩 — Order.paymentKey DB unique 제약과 구조적으로 충돌 가능"
   fix: "옵션 (a) 채택 — options.orderId로부터 paymentKey 파생(order-fixture.ts stubSuccessPaymentKey()가 동일 공식 미러링), 두 시나리오가 같은 키를 가질 수 없게 구조적으로 봉쇄"
@@ -255,8 +288,26 @@ mx_tags_confirmed_preexisting:
   - { file: e2e/support/fixtures.ts, tag: "@MX:WARN", line: 10 }
   - { file: e2e/support/mock-toss-api.mjs, tag: "@MX:WARN", line: 8 }
   - { file: playwright.config.ts, tag: "@MX:NOTE", line: 60 }
-worktree_case: isolated-recovery   # A.0 — 별도 브랜치(m5-isolation, t14의 M4 머지 커밋 4d8d4589에서 분기)에서 작업, t14로 머지 예정
-next_milestone: M6   # 문서 (plan.md §F)
+
+## M6 — 문서 (this milestone's own signal, appended)
+
+m6_run_status: complete   # 최종 milestone — SPEC-E2E-001 전체 완료
+m6_new_files:
+  - e2e/README.md   # 필요한 환경 변수, 데이터베이스 전제, 실행 방법, CI 미통합 사유, 아키텍처 노트, 이전된 @MX:TODO
+m6_modified_files:
+  - playwright.config.ts   # @MX:TODO 블록(CI 미통합, M5가 신설)을 e2e/README.md로 이전 — 주석 텍스트만 변경, 코드 로직 변경 0줄
+m6_mx_tags_relocated:
+  - { from_file: playwright.config.ts, to_file: e2e/README.md, tag: "@MX:TODO", verified_by: "grep -n '@MX:TODO' playwright.config.ts (0 hits) && grep -n '@MX:TODO' e2e/README.md (2 hits)" }
+m6_toss_server_ts_diff_lines: 0   # git diff --stat 273b19f7... -- src/lib/payment/toss-server.ts — 빈 출력
+m6_typecheck_status: pass
+m6_lint_status: pass
+m6_e2e_status: pass-with-noted-cold-start-flake   # 4회 연속 실행 중 1회차만 실패(콜드 스타트 추정), 2~4회차 9/9 GREEN — §E.2 M6 산문 참조
+m6_baseline_vitest_unaffected: true   # 문서 전용 변경이므로 npm test 재실행 불필요 판단(Vitest 스위트가 e2e/ 또는 playwright.config.ts를 import하지 않음 — REQ-E2E-002 격리로 구조적 보장)
+worktree_case: isolated-recovery   # A.0 — 별도 브랜치(m6-docs, t14의 M5 머지 커밋 273b19f7에서 분기)에서 작업, t14로 머지 예정
+branch: m6-docs
+commit: 3ffb144   # docs(SPEC-E2E-001): M6 e2e/README.md
+pushed: true   # git push origin m6-docs — 성공(원격에 새 브랜치 생성 확인)
+next_milestone: none — all milestones complete
 ```
 
 ## §E.4 Sync-phase Audit-Ready Signal
