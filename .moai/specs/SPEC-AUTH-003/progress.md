@@ -167,3 +167,20 @@ _<pending run-phase>_
 ## §E.4 Sync-phase Audit-Ready Signal
 
 _<pending sync-phase>_
+
+## §F Phase 4 Mode Selection
+
+**Input parameters**: tier=M, scope=7 files (2 new source, 3 new test, 2 modified), domain count=1 (frontend/layout — server + client component pair), file language mix=TypeScript/TSX, concurrency benefit=LOW (coding-heavy, M3 depends on M1+M2 existing).
+
+| Mode | Selected? | Rationale |
+|---|---|---|
+| `direct` | No | Non-trivial: 2 new components + layout wiring + boundary tests |
+| `serial` | **YES** | Coding-heavy, small scope; M1/M2 independent then M3/M4 depend on them |
+| `fanout` | No | Not multi-domain research; single layout/auth-display concern |
+| `sweep` | No | Not mechanical/uniform; new-code work with design judgment already settled in plan-phase |
+
+**Decision: serial**
+
+**Justification**: Coding-heavy implementation of a small, well-specified SPEC (7 files, all design decisions settled in plan-phase per §B.1-B.8). M1(SiteHeader)+M2(LogoutButton) are independent new components with no interdependency, batched into one delegation; M3(layout wiring)+M4(boundary/regression) both depend on M1/M2 existing and are mechanical, batched into a second delegation — 2 serial `Agent()` spawns rather than 4, reducing per-spawn worktree-isolation overhead for a SPEC this small.
+
+**Implementation Kickoff Approval**: user approved 2026-09-05 via AskUserQuestion (option: "지금 시작 (권장)"); progression mode = autonomous ("자동 진행 (권장)").
