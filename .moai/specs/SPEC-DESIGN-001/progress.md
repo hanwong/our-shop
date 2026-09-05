@@ -1626,6 +1626,85 @@ through to `system-ui` rather than erroring, which a static-scan regression
 test cannot detect. This is the same mechanism plan.md §B.5 already commits
 to (M0), not a new risk this fix introduces.
 
+### PR #28 CodeRabbit fix — FormField spread-order (2026-09-05)
+
+CodeRabbit flagged `src/components/ui/FormField.tsx`: `sharedProps` (FormField's
+own computed `id`/`className`/`aria-invalid`/`aria-describedby`) spread BEFORE
+`rest` (caller-passed props), so any overlapping key the caller passed — e.g.
+`aria-describedby` — silently overwrote FormField's own computed value, even a
+real error-linked id string. Verified as a genuine LATENT defect (no current
+consumer simultaneously passes `error=` AND a manual `aria-describedby`), but
+`src/app/staff/products/ProductForm.tsx`'s 5 `<FormField>` call sites (lines
+~199-277) pass a manual `aria-describedby` WITHOUT ever setting `error=`
+(this file renders its own error text via a separate `fieldError()` helper) —
+their current-working behavior depends on `rest`'s `aria-describedby`
+surviving, so a naive spread-order flip was rejected as unsafe.
+
+**Claim**: `sharedProps` now contributes `aria-invalid`/`aria-describedby`
+keys ONLY when `error` is set, and spreads AFTER `rest` — so FormField's own
+computed values win over a caller-passed value when `error` is set (the fix),
+while a caller's own `aria-describedby`/`aria-invalid` passes through
+untouched when `error` is not set (ProductForm.tsx's 5 call sites — zero
+regression). `id`/`className` are unaffected (already destructured out of
+`rest` before this point). No consumer file was touched.
+
+**Evidence**:
+
+- RED (pre-fix `FormField.tsx`, `npx vitest run tests/unit/components/ui-form-field.test.tsx`):
+  ```
+  ❯ tests/unit/components/ui-form-field.test.tsx (15 tests | 2 failed) 40ms
+    × FormField — aria-* spread order (PR #28 CodeRabbit fix) > prefers its own computed aria-describedby over a caller-passed one when error is set
+      → expected 'caller-hint' to be 'x-error' // Object.is equality
+    × FormField — aria-* spread order (PR #28 CodeRabbit fix) > prefers its own computed aria-invalid over a caller-passed one when error is set
+      → expected 'false' to be 'true' // Object.is equality
+  Test Files  1 failed (1)
+       Tests  2 failed | 13 passed (15)
+  ```
+  (The other 4 new tests — ProductForm-preservation passthrough, aria-invalid
+  passthrough, unrelated `placeholder`/`onChange` rest props — already passed
+  pre-fix, confirming no regression risk in those paths.)
+- GREEN (post-fix, same command): `Test Files  1 passed (1)` / `Tests  15 passed (15)`.
+- Full suite (`npx vitest run`): `Test Files  116 passed (116)` / `Tests  1525 passed (1525)`
+  — M5/F1-fix baseline was 116 files/1519 tests (`§E.2` sync-audit F1 fix entry
+  above); delta is exactly +6 tests (this subsection's new regression tests),
+  0 regressions, 0 new failures.
+- `npx tsc --noEmit`: 33 pre-existing `e2e/`/`playwright.config.ts` errors
+  (missing `@playwright/test` type declarations), byte-identical before and
+  after this fix (`git stash` diff confirmed empty) — zero errors attributable
+  to `FormField.tsx` or the test file (`grep -c FormField` on the tsc output
+  → `0`).
+- `npm run lint` (full project): clean, exit 0, no output (ast-grep CLI absent,
+  gracefully skipped, matching the M5/F1-fix precedent).
+- `git diff --stat`: `src/components/ui/FormField.tsx | 7 ++--` /
+  `tests/unit/components/ui-form-field.test.tsx | 58 +++++++++++++++++++++++++++-`
+  — only the 2 intended files.
+- Commit `ab2584c` on branch `WT-design-system-rollout-formfield-fix`.
+
+**Baseline-attribution**: this-run, this-tree. Branch
+`WT-design-system-rollout-formfield-fix` created off
+`3fb8050144920e723608dc414bf9e8b64f005358` (the M5/F1-fix commit this SPEC's
+`§E.3` records as `run_commit_sha`). All commands above were executed in
+worktree `.claude/worktrees/agent-a40295e9e683b6c7b` against the working tree
+at commit `ab2584c` (this fix's commit), not carried over from any prior
+milestone's measurement.
+
+**Gaps**: no browser/visual verification that assistive tech actually reads
+the corrected `aria-describedby` value at runtime (jsdom attribute-presence
+assertion only, matching this SPEC's established testing approach for `aria-*`
+wiring — see the original M1 `ui-form-field.test.tsx` suite). No consumer
+file (`ProductForm.tsx`, `CheckoutForm.tsx`, etc.) was modified or
+re-audited beyond the read-only line-190-285 confirmation already recorded
+above — none needed changes.
+
+**Residual-risk**: this fix changes prop-precedence behavior for any FUTURE
+`<FormField>` consumer that sets `error=` while also manually passing
+`aria-invalid`/`aria-describedby` — that consumer's manual value will now be
+silently overridden by FormField's own computed value (the intended fix
+direction, matching CodeRabbit's finding), which is a behavior change from
+today's "caller always wins" semantics. No current consumer exhibits this
+pattern (confirmed by grep across all 9 fan-in call sites), so no runtime
+behavior changes for any existing page.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 ```yaml

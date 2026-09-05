@@ -88,8 +88,7 @@ export function FormField(props: FormFieldProps) {
   const sharedProps = {
     id,
     className: fieldInputClassName({ className }),
-    "aria-invalid": error ? true : undefined,
-    "aria-describedby": errorId,
+    ...(error ? { "aria-invalid": true as const, "aria-describedby": errorId } : {}),
   };
 
   return (
@@ -98,9 +97,9 @@ export function FormField(props: FormFieldProps) {
         {label}
       </label>
       {multiline ? (
-        <textarea {...sharedProps} {...(rest as Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "id">)} />
+        <textarea {...(rest as Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "id">)} {...sharedProps} />
       ) : (
-        <input {...sharedProps} {...(rest as Omit<InputHTMLAttributes<HTMLInputElement>, "id">)} />
+        <input {...(rest as Omit<InputHTMLAttributes<HTMLInputElement>, "id">)} {...sharedProps} />
       )}
       {error ? (
         <p id={errorId} className={fieldErrorClassName()}>

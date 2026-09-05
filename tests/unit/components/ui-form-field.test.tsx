@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 /**
  * SPEC-DESIGN-001 M1 — src/components/ui/FormField.tsx.
@@ -99,5 +99,61 @@ describe("fieldInputClassName — exported class-string builder", () => {
   it("does not include a raw neutral-900/neutral-300/hex literal", () => {
     const cls = fieldInputClassName();
     expect(cls).not.toMatch(/neutral-900|neutral-300|#[0-9a-fA-F]{6}/);
+  });
+});
+
+/**
+ * PR #28 CodeRabbit fix — spread-order clobbering.
+ *
+ * `sharedProps` (FormField's own computed `id`/`className`/`aria-invalid`/
+ * `aria-describedby`) was spread AFTER `rest` (caller-passed props), so any
+ * overlapping key the caller passed silently overwrote FormField's own
+ * computed value — even a real error-linked id string. Fixed by making
+ * `sharedProps` contribute `aria-invalid`/`aria-describedby` ONLY when
+ * `error` is set, and spreading `rest` BEFORE `sharedProps`.
+ *
+ * The ProductForm-preservation case guards the coupled regression risk: a
+ * naive spread-order flip (with no conditional) would make `sharedProps`'s
+ * `undefined` overwrite `rest`'s real `aria-describedby` on every one of
+ * ProductForm.tsx's 5 call sites, which pass a manual `aria-describedby`
+ * without ever setting FormField's own `error` prop.
+ */
+describe("FormField — aria-* spread order (PR #28 CodeRabbit fix)", () => {
+  it("prefers its own computed aria-describedby over a caller-passed one when error is set", () => {
+    render(<FormField id="x" label="X" error="bad" aria-describedby="caller-hint" />);
+    const input = screen.getByLabelText("X") as HTMLInputElement;
+    expect(input.getAttribute("aria-describedby")).toBe("x-error");
+  });
+
+  it("prefers its own computed aria-invalid over a caller-passed one when error is set", () => {
+    render(<FormField id="x" label="X" error="bad" aria-invalid={false} />);
+    const input = screen.getByLabelText("X") as HTMLInputElement;
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+  });
+
+  it("passes through a caller-supplied aria-describedby untouched when no error is set (ProductForm.tsx preservation)", () => {
+    render(<FormField id="y" label="Y" aria-describedby="stock-hint" />);
+    const input = screen.getByLabelText("Y") as HTMLInputElement;
+    expect(input.getAttribute("aria-describedby")).toBe("stock-hint");
+  });
+
+  it("passes through a caller-supplied aria-invalid untouched when no error is set", () => {
+    render(<FormField id="y" label="Y" aria-invalid={true} />);
+    const input = screen.getByLabelText("Y") as HTMLInputElement;
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+  });
+
+  it("still forwards an unrelated rest prop (placeholder) untouched", () => {
+    render(<FormField id="z" label="Z" error="bad" placeholder="hint text" />);
+    const input = screen.getByLabelText("Z") as HTMLInputElement;
+    expect(input.placeholder).toBe("hint text");
+  });
+
+  it("still forwards onChange from rest untouched", () => {
+    const onChange = vi.fn();
+    render(<FormField id="z" label="Z" error="bad" onChange={onChange} />);
+    const input = screen.getByLabelText("Z") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "hi" } });
+    expect(onChange).toHaveBeenCalled();
   });
 });
