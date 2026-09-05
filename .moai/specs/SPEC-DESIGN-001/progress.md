@@ -1665,7 +1665,7 @@ m5_blocker_report: "none — no prior-milestone AC claim was found to be incorre
 
 ```yaml
 sync_complete_at: 2026-09-05
-sync_commit_sha: pending-backfill-SPEC-DESIGN-001-sync
+sync_commit_sha: 312b8a4
 sync_status: completed
 b12_self_test_a: "grep -c 'SPEC-DESIGN-001' CHANGELOG.md → 0 before write (orchestrator-confirmed pre-flight)"
 b12_self_test_b: "AC count match — acceptance.md carries AC-DESIGN-001..016 (16 distinct IDs); CHANGELOG entry text references the full 16-item AC-DESIGN set via the F1 story (AC-DESIGN-010 / AC-DESIGN-003(b)) and the full 15-page/2-primitive scope narrative — count non-zero and consistent with acceptance.md SSOT"
