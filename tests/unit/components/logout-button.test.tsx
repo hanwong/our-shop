@@ -119,3 +119,23 @@ describe("LogoutButton — AC-AUTH-043", () => {
     expect(screen.getByRole("button", { name: "로그아웃" })).toBeDefined();
   });
 });
+
+// t46 — CodeRabbit follow-up: pairs with t43's try/catch fix. A network-level
+// failure (offline, DNS failure) throws from `await fetch(...)` itself, which
+// is a DIFFERENT failure mode than the non-200-response cases above (those
+// resolve normally; this one rejects). The no-op-on-failure contract
+// (REQ-AUTH-045) must hold here too.
+describe("LogoutButton — t46 (fetch rejects, e.g. network failure)", () => {
+  it("does not throw an unhandled rejection, does not navigate, and keeps the button", async () => {
+    setCsrfCookie("abc123");
+    fetchMock.mockRejectedValue(new Error("network error"));
+
+    render(<LogoutButton />);
+    fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(refresh).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "로그아웃" })).toBeDefined();
+  });
+});
