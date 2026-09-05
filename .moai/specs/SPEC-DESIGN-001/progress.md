@@ -1,0 +1,271 @@
+---
+id: SPEC-DESIGN-001
+status: draft
+updated: 2026-09-05
+tier: M
+---
+
+# Progress: SPEC-DESIGN-001 — 공통 디자인 토큰 체계 수립과 전체 사이트 반영
+
+## §E.1 Plan-phase Audit-Ready Signal
+
+plan_complete_at: 2026-09-05
+plan_status: audit-ready
+
+plan-phase 산출물 4종(spec.md, plan.md, acceptance.md, spec-compact.md) 작성 완료. Tier M.
+
+### Phase 1 SKIP Rationale (사전 조사 재검증)
+
+착수 지시가 사전 조사 결과를 요약해 전달했으나, **무비판적으로 수용하지 않고 전 항목을 직접 재확인했다.** 아래는 실행한 검증과 관측 결과다.
+
+**확인된 항목:**
+
+```
+$ ls .moai/specs/ | grep -i design            → 매치 0건 (SPEC-DESIGN-001 충돌 없음)
+$ grep -rl "SPEC-DESIGN-001" .moai/specs/     → 0건
+$ grep -rn "REQ-DESIGN-\|AC-DESIGN-" .moai/specs/ → 0건 (번호 공간 미사용, 001부터 시작)
+$ find src/app -name "page.tsx" | wc -l        → 15
+$ cat .mcp.json                                → context7 / moai / playwright 3개만. DesignSync 미등록 확인
+$ ls .moai/project/brand/                      → No such file or directory
+$ grep -n interview_on_first_run .moai/config/sections/design.yaml → true (35행)
+```
+
+`src/app/globals.css` 원문 확인 — `@theme` 블록 부재 및 다음 주석 존재를 육안 확인했다: "No `@theme` block: a design-token system is excluded by spec.md §3, and inventing one here would fix project-wide styling decisions this SPEC has no mandate to make."
+
+`src/components/layout/LogoutButton.tsx` 48행 원문 확인 — `<button type="button" onClick={handleLogout}>`, `className` 속성 전무. 조사 내용과 일치.
+
+**조사 대비 정정 2건 (그대로 받아쓰지 않고 실측으로 교정):**
+
+1. **선행 "범위 밖" 선언 건수: 3건(전제) → 2건(1차 정정) → 4건(전수 스캔 후 최종).** 착수 지시는 STOREFRONT-001·STOREFRONT-002·AUTH-002 3건을 전제했다. 1차 확인에서 SPEC-AUTH-002의 Out of Scope 절 7개(`spec.md` 100-119행) 중 디자인 시스템을 지목한 것이 **없음**을 확인했다(제외 대상은 **공통 헤더/내비게이션**, 106-107행). 그러나 그 확인은 **지목된 SPEC만 검증한 한 방향 점검**이었고 전수 조사가 아니었다 — plan-audit D1이 이 점을 지적했다. 전수 스캔으로 2건이 추가 발견됐다:
+
+```
+$ grep -rn "components/ui" .moai/specs/ --include=spec.md
+SPEC-STOREFRONT-001/spec.md:143  SPEC-STOREFRONT-002/spec.md:159
+SPEC-STOREFRONT-003/spec.md:132  SPEC-AUTH-003/spec.md:179
+```
+
+최종 사실: **명시적 제외 4건 + 인접 이연 인용 1건(AUTH-002)**. 특히 **SPEC-AUTH-003**은 이 SPEC의 `depends_on:`에 이미 있고 §C가 그 `plan.md:204`를 인용하므로, **같은 SPEC이 제약의 출처이자 반전 대상**이다 — 한쪽 파일만 읽고 다른 쪽을 놓친 것이 이번 누락의 원인이다. spec.md §1.1 / plan.md §A / spec-compact.md를 4건 기준으로 정정했다.
+
+2. **페이지 고객/스태프 분할: 8+7 → 9+6.** 총계 15는 일치하나 분할이 달랐다. 실측:
+   - 고객 `(shop)/` **9장**: `page.tsx`(홈), `products/[productId]`, `cart`, `checkout`, `checkout/complete/[orderId]`, `login`, `signup`, `orders/lookup`, `orders/lookup/[orderNumber]`
+   - 스태프 **6장**: `staff/login`, `staff/products`, `staff/products/new`, `staff/products/[productId]`, `staff/orders`, `staff/orders/[orderId]`
+   plan.md §F.3/§F.4에 정정된 분할로 열거했다.
+
+**조사보다 강하게 확인된 항목 1건:** 버튼 클래스 수렴은 조사가 "5개 이상 파일 / 10개 이상 인스턴스"로 보수적으로 적었으나, 실측은 **13개 파일**이 `rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white`를 공유한다. 폼 입력은 **정확 일치 7개 파일** + **근접 변형 1개**(`CheckoutInteractive.tsx:138` — 선행 `mt-1` 없음) = 8개 소비자다(plan-audit D4 정정 반영). 오류 텍스트(`text-red-600`/`700`)는 15개 파일 21곳. spec.md §1.2에 실측값으로 기록했다.
+
+이 재검증으로 Phase 1(별도 recon)은 SKIP한다 — 조사 범위가 이미 커버되었고 핵심 주장을 전부 직접 관측했다.
+
+### SPEC ID 검사
+
+정규식 검사를 Bash로 실행해 관측했다.
+
+```
+$ ID="SPEC-DESIGN-001"; [[ "$ID" =~ ^SPEC(-[A-Z][A-Z0-9]*)+-[0-9]{3}$ ]] && echo PASS || echo FAIL
+PASS
+```
+
+### 프론트매터
+
+정본 12필드 전부 존재 — `id`/`title`/`version`/`status`/`created`/`updated`/`author`/`priority`/`phase`/`module`/`lifecycle`/`tags`. 선택 필드 `tier: M`·`depends_on`·`related_specs` 포함. `phase: "v0.3.0 target"`(최신 미출시 릴리스 타깃 — 워크플로 단계명이 아닌 릴리스 타깃 표기), `status: draft`.
+
+`depends_on` 3건은 전부 이 SPEC이 실제로 인용하는 선행 SPEC이다 — STOREFRONT-001/002(반전 대상 Out of Scope 선언의 출처), AUTH-003(PRESERVE 목록과 `LogoutButton` 결함의 출처).
+
+### REQ/AC 대응
+
+REQ 13건(REQ-DESIGN-001 ~ 013) / AC 16건(AC-DESIGN-001 ~ 016). **Tier M 상한(REQ 16 / AC 16) 이내** — REQ 여유 3건, AC 여유 0건(상한 정확히 도달). acceptance.md §C에 REQ↔AC 추적표로 1:다 대응까지 명시했고, 요구사항 13건 전부가 최소 1개 AC로 덮인다(미대응 REQ 0건).
+
+### Tier 판정과 기록된 긴장 (감사자 주목)
+
+**Tier M** — 사용자가 착수 전 확정. 다만 `spec-workflow.md` § SPEC Complexity Tier의 **"Files affected" 축과는 긴장이 있으며, 이를 숨기지 않고 plan.md §E에 표로 명시했다.**
+
+| 축 | M 가이드 | 실측 | 판정 |
+|---|---|---|---|
+| LOC | 300-1000 | className 교체 위주, 1000 미만 예상 | 부합 |
+| Files affected | 5-15 | **약 23** (plan.md §E 내역표) | **초과(L 구간)** |
+| REQ/AC | 각 16 | 13 / 16 | 부합 |
+
+사용자 결정 근거(재논의 대상 아님): 선행 디자인 산출물 SPEC 2건이 모두 Tier M으로 Conditional Design Route를 탔고 Tier L을 요구한 적이 없다는 선례 + 단일 파일 1000 LOC 초과 우려 부재. 완화 성질: 파일 수는 많으나 **파일당 변경이 얕고 균질**(className 참조 → 프리미티브 호출)하여, Tier L 기준이 겨냥하는 "이질적 다중 하위시스템 변경" 위험과 성격이 다르다.
+
+**이 항목은 의도적으로 노출한다** — 놓친 것이 아니라 알고 내린 결정임을 감사자가 확인할 수 있도록.
+
+### Conditional Design Route — 적용됨
+
+**이 SPEC은 UI 노출 SPEC이며 `plan → design → run` 조건부 경로를 탄다.**
+
+판정 근거: `spec-workflow.md` § Conditional Design Route의 UI-surface heuristic 두 갈래 중 **첫 번째**를 만족한다 — "explicit frontend-component / view / page deliverable in `acceptance.md`". `acceptance.md`의 AC-DESIGN-004(프리미티브 컴포넌트), AC-DESIGN-007(`LogoutButton` 렌더), AC-DESIGN-010(15개 페이지 렌더)이 프런트엔드 컴포넌트와 화면을 명시적 산출물로 검증한다. (두 번째 갈래인 `tier: L` 조건은 이 SPEC에 해당하지 않으나, 두 갈래는 OR이므로 무관하다.)
+
+선례: SPEC-STOREFRONT-001/002/003이 동일 기준으로 Tier M에서 이 경로를 적용했다.
+
+**경로 기록(사실 진술)**: 이 SPEC은 Conditional Design Route 대상이며, plan-audit PASS + Implementation Kickoff Approval 이후 run-phase M1 커밋 이전에 design phase를 경유한다. **이 plan-phase에서는 경로 판정만 기록했고 design phase 자체는 실행하지 않았다.**
+
+### design phase의 남은 역할 — 재검증만 (토큰은 이미 확보됨)
+
+**이 절은 이전 판에서 전면 교체됐다.** 이전에는 "design phase가 토큰 값을 확정한다"는 전제로 1차/폴백 두 경로를 기술했으나, **DesignSync 인가로 Classical 실제 토큰을 이미 확보해 `plan.md` §D.1에 원문 고정했다.** 따라서 design phase가 값을 *확보*하는 단계는 이미 끝났고, 남은 역할은 **재검증**뿐이다.
+
+| design phase 실행 시점 조건 | 남은 역할 | 근거 |
+|---|---|---|
+| DesignSync 접근 가능 | §D.1 블록을 라이브 Classical과 대조해 불일치 기록 | REQ-DESIGN-009 / AC-DESIGN-014 |
+| DesignSync 접근 불가 | §D.1을 오프라인 SSOT로 삼아 진행, 라이브 재검증 없었음을 기록 | REQ-DESIGN-010 / AC-DESIGN-013 |
+
+**폐기된 개념 2건** — 이전 판이 상정했던 것들이며 더 이상 이 SPEC에 존재하지 않는다:
+- "로컬 등가물 도출"(STOREFRONT-002/003 선례) — 코드에서 값을 역산할 필요가 없어졌다.
+- "잠정 값 표시 + 사후 재동기화" — 모든 토큰이 실제 Classical 값이므로 잠정 값이 0건이다.
+
+`manager-design.md` § Tool Availability의 graceful-degradation 계약은 여전히 유효하나, 이제 그 degradation이 잃는 것은 **재검증 한 단계**뿐이다. 어느 쪽이든 이 SPEC은 완전히 진행 가능하며, 이는 미해결 질문이 아니라 **양쪽이 정의된 조건 분기**다.
+
+### PRESERVE 상호작용 — 명시 처리
+
+SPEC-AUTH-004 §C의 선례("이름을 대고, 근거를 적고, 조용히 넘어가지 않는다")를 따라 plan.md §C에 전면 정리했다.
+
+- **무관(수정 없음)**: `src/middleware.ts`, `session-resolver.ts`, `csrf.ts`, `cookies.ts`, `logout/route.ts`, `prisma/schema.prisma` — 스타일 표면이 없다.
+- **무변경 유지**: `SiteHeader.tsx` — `LogoutButton`을 렌더할 뿐이며 스타일 변경은 `LogoutButton` 내부에서 일어나므로 이 파일은 diff 0.
+- **스타일 목적 한정 수정**: `src/app/staff/**` 8개 파일(AUTH-003 `plan.md:204` 핀 대상). plan.md §C.2가 파일을 사전 열거했고 **AC-DESIGN-015가 실제 diff를 그 목록의 부분집합으로 요구**한다(정확 일치가 아니다 — D2 정정). 판단 근거: PRESERVE 핀은 그 SPEC의 run-phase 범위 제약이며(AUTH-003이 `git diff --stat`으로 검증한 대상) 영구 동결이 아니다. AUTH-004도 사용자 승인 하에 핀 파일을 이동한 선례가 있다.
+- **유혹 차단**: `LogoutButton.tsx`의 CSRF 파서 공유 유틸 추출은 §C.3/§G 안티패턴 1로 명시 금지했다 — 이 SPEC이 `ProductForm.tsx`를 어차피 열게 되어 "이제 추출해도 되겠다"는 유혹이 생기는 지점이기 때문이다. (plan-audit D3으로 `CancelOrderButton.tsx`가 범위 밖이 되면서 세 번째 소비자 중 하나는 아예 열리지 않게 되어 유혹의 근거가 더 약해졌다.)
+
+### 미해결 명료화 항목
+
+**0건.** 미해결 명료화 마커 없음. 두 범위 결정(Tier M, 단일 패스 전체 사이트)은 착수 전 사용자 라운드에서 확정됐고, DesignSync 가용성은 미해결 질문이 아니라 양쪽 경로가 정의된 조건 분기다.
+
+### 워크플로 경로 — Route B (PR 경유), 사용자 확정
+
+이 SPEC은 **Route B(PR 경로)**로 간다. Tier S/M 기본값은 Route A(Hybrid Trunk main-direct, PR 없음)이며, 이를 **명시적으로 재정의**한 것이다.
+
+- **근거**: 약 23개 파일이 사이트 전역에 걸쳐 변경되고 Classical 적용으로 시각 결과까지 바뀌므로 병합 전 리뷰 단계가 필요하다(사용자 판단 + Classical 반영 후 강화됨).
+- **진입 방법**: `spec-workflow.md` § SPEC Phase Discipline이 규정한 "Tier L **OR** 명시적 `--pr`" 중 **후자**. Tier를 L로 올리지 않고 `--pr`로 Route B에 진입하며, 이는 규칙이 의도한 사용법이다.
+- **발동 시점**: sync-phase에서 `--pr` 플래그 사용. `manager-git`이 PR 생성 담당.
+- **함의**: 단계 전이 트리거가 커밋/푸시가 아니라 **PR 병합**이다.
+
+상세: plan.md §B.1b.
+
+### plan-audit 결과 (iteration 1, 2026-09-05) — **FAIL 0.785**
+
+독립 감사자(plan-auditor)가 **FAIL**, 종합 점수 **0.785**로 판정했다(Tier M 통과선 0.80 — 0.015 미달). 보고서: `.moai/reports/plan-audit/SPEC-DESIGN-001-2026-09-05.md`.
+
+**Tier M 결정 자체는 유지됐다** — 감사자가 파일 수 초과분을 독립 재계산한 결과 명시 상한의 약 1.3-1.5배(이 문서가 최초에 추정한 2배가 아님)였고, "얕고 균질한 변경" 완화 논거도 성립함을 확인했다(15개 페이지 중 13개가 단일 문자열 변환).
+
+**차단성 지적 5건 — 같은 날 전부 수정 완료:**
+
+| ID | 등급 | 내용 | 처리 |
+|---|---|---|---|
+| D1 | major | 선행 제외가 2건이 아니라 **4건**(STOREFRONT-003:132, AUTH-003:179 누락) | spec.md §1.1에 2건 인용 추가, 전 산출물 4건 기준 정정 |
+| D2 | major | AC-DESIGN-015가 **달성 불가능** — §C.2 열거 8개 중 4개는 이 SPEC 범위 대상이 0건 | 정확 일치 → **부분집합** 판정으로 변경 |
+| D3 | major | `CancelOrderButton`은 `bg-red-600` **위험 변형**이라 13개 파일 수렴에 미포함인데 수정 목록에 있었음 | §C.2에서 제거 + `spec.md` §3에 Out of Scope 절 신설 |
+| D4 | minor | 폼 파일 수 **7 vs 8** 불일치(Given은 엄격 7, 검증은 느슨 8) | 정확 7 + 근접 변형 1로 명시 정렬, `CheckoutInteractive.tsx` 차이 기록 |
+| D5 | major | Route A/B 미결정 | **Route B 확정**(사용자), 위 절에 명시 |
+
+**AC 예산**: D3이 위험 변형을 범위 밖으로 밀어내면서 17번째 AC 추가를 회피했다 — AC는 16건(Tier M 상한)을 유지한다.
+
+### plan-audit iteration 2 (2026-09-05) — **PASS 0.936**
+
+iteration 1의 5건(D1-D5) 수정 후 재감사에서 **PASS**, 종합 점수 **0.936**(Tier M 통과선 0.80). Tier M 결정도 유지 — 감사자가 파일 수 초과분을 독립 재계산해 명시 상한의 1.3-1.5배(이 문서의 최초 추정 2배가 아님)임을 확인했고, "얕고 균질" 완화 논거도 성립(15개 페이지 중 13개가 단일 문자열 변환).
+
+**후속 정정 3건(재감사 불요, 수치 오류만)** — 전부 반영 완료:
+
+| ID | 내용 | 처리 |
+|---|---|---|
+| R1 | plan.md §B.1 경고 단락이 "선행 SPEC 2건"으로 남아 있었음(D1은 파일 내 다른 곳에만 반영됨) | 4건으로 정정 |
+| R3 | §C.2 서두가 "코로케이션 컴포넌트 2개"인데 D3으로 표에는 1개(`ProductForm.tsx`)만 남음 | 1개로 정정(§C.2 서두 + M4 제목) |
+| R5 | D5 수정이 새 불일치 유발 — §B.1b는 "약 20개", §E는 "약 25-30" | **약 23**으로 통일 + 내역표 추가. 감사자 재계산 19-22에 Classical 매핑 추가분 2건(`SiteHeader`/`ProductCard`)을 더한 값. 기존 25-30은 버튼·폼 집합을 합집합이 아닌 단순 합산해 중복 계산한 수치였다 |
+
+### Classical 토큰 확보 — 이 SPEC의 전제가 바뀐 지점
+
+**DesignSync 인가로 실제 대상 디자인 시스템("Classical", 편집·서적풍)의 확정 토큰을 확보했다.** 이는 단순한 값 채우기가 아니라 **SPEC의 핵심 프레이밍이 뒤집힌 사건**이므로 별도로 기록한다.
+
+**무엇이 틀렸었나**: 이전 판은 이 SPEC을 "이미 수렴한 값을 토큰으로 승격시키는 기계적 통합(consolidation)"으로 규정했다. 실제 Classical은 현재 코드베이스와 **정반대**다.
+
+| 축 | 현재 코드 | Classical | 관계 |
+|---|---|---|---|
+| 버튼 | `bg-neutral-900` 솔리드 채움 (13개 파일) | **아웃라인**(투명 배경 + accent 테두리·글자) | 정반대 |
+| 타이포 | 시스템 sans 스택 | Cormorant Garamond + Lora 세리프 | 완전 교체 |
+| 배경/전경 | 흰 배경 + neutral | `#f3f2f2` 종이색 + `#201f1d` | 완전 교체 |
+
+Classical readme 원문: *"Do not fill cards or buttons with solid accent color."*
+
+**왜 중요한가**: 이전 프레이밍대로 진행했다면 구현자가 현재의 솔리드 스타일을 그대로 토큰으로 굳혀 놓고도 인수 기준을 통과시킬 수 있었다 — **목표와 정반대인 결과가 "합격"으로 기록되는 상태**. AC-DESIGN-008에 (b) 아웃라인 렌더 단언 + (c) accent 솔리드 채움 0건을 추가해 이 경로를 막았다.
+
+**반영 내역**:
+- `spec.md` §1.2 신설(정정 절), §1.5 재작성(값 확보 완료), REQ-002/005/008/009/010 갱신, Out of Scope 3개 절 수정
+- `plan.md` §D.1에 Classical `:root` 블록 **원문 인용**(SSOT), §D.1b 교체 표, §D.3 컴포넌트 매핑, §D.4 readme 제약 5건
+- AC 갱신: 001(축자 일치), 003(폰트 로딩), 005(포커스 링), 008(아웃라인), 010, 013/014(재검증 축으로 재정의)
+- **AC 총수 16건 유지** — 신규 AC를 만들지 않고 기존 AC 문구에 병합(Tier M 상한, 여유 0)
+
+**부수적으로 확인된 실측 2건**:
+1. `src/components/product/ProductCard.tsx:40`이 포커스 스타일을 하드코딩하고 있다(`focus-visible:ring-2 ring-neutral-900`). Classical의 `:focus-visible` + `outline` 규칙과 충돌하므로 **제거 대상**이다. 저장소에서 포커스 스타일을 가진 유일한 지점임을 grep으로 확인했다(AC-DESIGN-005(c)).
+2. `package.json`에 `lucide-react`가 **없다**(아이콘 라이브러리 전무). Classical readme가 Lucide를 지정하지만, 이 SPEC 범위에 아이콘 사용처가 없고 AC-DESIGN-006이 신규 의존성 0건을 요구하므로 **이월**했다(plan.md §B.6).
+
+**범위 추가 2건**: `SiteHeader.tsx`(무변경 → 수정, Classical `.nav` 1:1 매핑 — §C.4 판정 변경), `ProductCard.tsx`(`.card` + 포커스 링 제거). 파일 수가 약 21 → 약 23이 됐다.
+
+**AC-DESIGN-015 재확인**: 스태프 파일 부분집합 판정은 **영향 없음**. 그 AC는 "어떤 파일이 이 SPEC 범위의 클래스를 갖는가"를 다루며 목표 스타일이 무엇인지와 무관하다. 4개 파일의 대상 0건이라는 실측도 그대로다.
+
+### [해소됨] 폰트 로딩 결정 — 사용자 확정 (2026-09-05)
+
+**결정: `next/font/google` 채택 + M0 vitest 모킹 안전장치, `@import` 폴백 유지.** 사용자가 계획된 내용 그대로 확정했으며 문서 변경 요구는 없었다. 미해결 항목은 이제 **0건**이다.
+
+아래는 그 결정에 이르게 된 근거 기록이다(이력으로 보존).
+
+#### 배경 — 선행 SPEC의 철회 기록과의 충돌
+
+`next/font/google` 채택을 권고받았고 그렇게 결정했으나(plan.md §B.5), **이 저장소에는 그 방식을 한 번 시도했다 철회한 기록이 있다.** `src/app/layout.tsx:38-50` 원문: `next/font`가 Next.js SWC 폰트 로더를 필요로 하는데 vitest가 그것을 실행하지 않아 셸이 테스트 불가능해졌다(`Inter is not a function`). 빌드 타임 네트워크 페치 문제도 함께 기록되어 있다.
+
+권고를 따르되 **그 실패를 해소 가능한 테스트 인프라 문제로 판단**해 M0(vitest 폰트 모킹)를 선행 마일스톤으로 분리하고, 실패 시 `@import` 폴백 경로를 §B.5에 명시했다. 선행 SPEC의 판단을 뒤집는 근거는 전제 차이다 — STOREFRONT-001은 "기본 타이포그래피"만 필요했고, 이 SPEC은 특정 세리프 페어링이 요구사항 자체다.
+
+이 판단은 모킹 실패 시 M0에서 막히고 폴백 전환 비용이 발생하므로 사용자 확인 대상으로 올렸고, **위와 같이 확정됐다.** 잔여 위험(모킹 실패 가능성)은 사라지지 않았으나 §B.5의 폴백 경로가 그것을 흡수한다.
+
+### plan-audit iteration 3 (2026-09-05) — **PASS 0.868**, 최종 감사 라운드
+
+**PASS**, 종합 점수 **0.868**(Tier M 통과선 0.80). 다만 두 신호가 동시에 발생했다:
+
+- **STOP/회귀 신호**: 0.936 → 0.868 하락. 감사자는 이를 품질 저하가 아니라 **내용 분량 증가**(plan.md 330→466행)에 따른 것으로 귀속했다.
+- **3회 감사 상한 도달**: `spec-workflow.md` § SPEC Complexity Tier의 plan-auditor 상한(SPEC당 최대 3회).
+
+**사용자 결정: 6건 수정 후 Implementation Kickoff Approval로 직행 — 4차 감사 라운드 없음.** 이번이 이 SPEC의 마지막 수정 패스다.
+
+#### 감사자 근본 원인 진단 (내재화함)
+
+3회 전 반복에서 **동일한 실패 패턴**이 재발했다 — *바뀐 술어(predicate)를 1차 위치에서는 고쳤으나 문서 다른 곳의 낡은 재진술이 살아남는다*. 계보: D1→R1, D3→R3, D5→R5, D2→I3-3(3곳), 프레이밍 전환→I3-1/2/4/5(여러 곳).
+
+**처방**: 술어/주장을 하나 바꿀 때마다 **5개 산출물 전체에서 그 술어의 모든 재진술을 grep한 뒤에야** 수정 완료를 선언한다. 처음 눈에 띈 곳만 고치지 않는다. 이번 패스는 편집 **이전에** 감사자의 grep(`일치|통합|잠정|두 차례`)을 먼저 돌려 대상 전수를 확보한 뒤 작업했다.
+
+#### iteration 3 지적 6건 — 전부 반영 완료
+
+| ID | 등급 | 내용 | 처리 |
+|---|---|---|---|
+| I3-6 | major | AC-008(c) grep이 **가장 유력한 실제 위반을 놓침** — Tailwind v4는 `@theme` 색상 토큰에서 `bg-accent` 유틸리티를 자동 생성하는데(`tailwindcss ^4.3.3` 실측), 기존 패턴은 `bg-[var(--color-accent)]` 형태만 검사했다 | 패턴을 3형태 전부 거부하도록 교체(자동 생성 유틸리티 / 임의값 CSS 변수 / 직접 CSS 선언), `bg-transparent`만 예외. **패턴 실행 검증 완료** — 현재 코드의 솔리드 채움을 실제로 포착함 |
+| I3-2 | major | plan.md §G 안티패턴 4의 "이 SPEC은 통합이지 재디자인이 아니다"가 §1.2 프레이밍 전환과 정면 충돌. §G는 run-phase가 "하지 말 것"을 읽는 곳이라 구현을 잘못된 스타일 보존 쪽으로 편향시킬 위험 | 경계선을 명시하도록 재작성 — 색·타이포·버튼은 **바뀌고**, 화면 구조만 그대로 |
+| I3-3 | major | "정확 일치" 술어가 D2 수정 후에도 3곳 잔존(acceptance.md DoD, plan.md M5, plan.md §I) | 3곳 전부 부분집합 술어로 교체. **전수 grep으로 감사자가 지목하지 않은 4번째(progress.md:122)를 추가 발견해 함께 수정** |
+| I3-4 | major | progress.md DesignSync 절이 iteration-1 폴백 프레이밍·"잠정 값"·낡은 REQ 번호를 담고 있었고, 오케스트레이터 라우팅 지시가 provenance 기록에 섞여 있었음 | 절 전면 교체 — design phase의 남은 역할을 **재검증 한정**으로 재기술, 폐기 개념 2건(로컬 등가물/잠정 값) 명시, 라우팅 지시를 사실 진술로 전환 |
+| I3-1 | major | HISTORY가 "두 차례"(§1.1은 "네 차례") + 프레이밍 전환 자체에 HISTORY 항목 부재 | "네 차례"로 정정 + **0.2.0 HISTORY 항목 신설**(프레이밍 전환 기록). 프론트매터 `version:`도 0.2.0으로 동반 갱신 — 안 하면 이번 진단이 경고한 바로 그 drift가 새로 생긴다 |
+| I3-5 | minor | spec.md §4가 삭제된 REQ-010의 옛 의미("잠정 토큰 표시")를 참조 | Classical 스냅샷 재동기화 조건으로 교체 + "잠정 값은 없다" 명시 |
+
+#### 자체 검증 (감사자 방법론을 직접 실행)
+
+편집 완료 후 감사자가 사용한 grep을 그대로 재실행해 잔존 0건을 확인했다:
+
+```
+$ grep -rn "일치\|통합\|잠정\|두 차례" .moai/specs/SPEC-DESIGN-001/
+→ 잔존 낡은 진술 0건. 남은 매치는 전부 문맥상 정확:
+  · "축자 일치"(토큰 값 일치 요구) · "정확 일치 7건"(폼 파일 실측, D4)
+  · "정확 일치가 아니다"(부분집합 명시) · "불일치"(재검증 결과)
+  · "기계적 통합이 아니라"(프레이밍 전환 진술문) · "잠정 값은 없다"(부재 선언)
+```
+
+**SPEC은 Implementation Kickoff Approval 준비 완료. 추가 plan-audit 라운드 없음.**
+
+### run-phase 진입 전 남은 게이트
+
+1. ~~plan-audit~~ — **종료**. iteration 3 PASS 0.868로 통과했고, STOP/회귀 신호와 3회 상한이 함께 발생해 사용자가 **"6건 수정 후 직행"**을 선택했다. iteration 3의 6건 전부 반영 완료. **4차 라운드 없음**
+2. Implementation Kickoff Approval (사용자 승인) — 폰트 로딩 결정은 이미 확정됐으므로 별도 확인 불필요
+3. **design phase (manager-design D1-D5)** — Conditional Design Route 판정에 따라 run-phase M1 커밋 이전에 경유. 단 역할이 축소됐다: 토큰은 이미 확보되어 있으므로 design phase는 **재검증**(REQ-DESIGN-009)이며, 접근 불가 시에도 §D.1 오프라인 SSOT로 진행 가능(REQ-DESIGN-010)
+4. run-phase 진입 시 **M0(vitest 폰트 모킹)를 M1보다 먼저** 실행 — 생략하면 셸 테스트가 즉시 깨진다
+
+## §E.2 Run-phase Evidence
+
+_<pending run-phase>_
+
+## §E.3 Run-phase Audit-Ready Signal
+
+_<pending run-phase>_
+
+## §E.4 Sync-phase Audit-Ready Signal
+
+_<pending sync-phase>_
