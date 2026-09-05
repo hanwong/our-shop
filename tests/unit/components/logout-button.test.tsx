@@ -45,6 +45,20 @@ beforeEach(() => {
   setCsrfCookie(null);
 });
 
+describe("LogoutButton — AC-DESIGN-007", () => {
+  it("renders through the shared Button primitive, not with browser-default styling", async () => {
+    setCsrfCookie("abc123");
+    fetchMock.mockResolvedValue(jsonResponse(200));
+
+    render(<LogoutButton />);
+    const button = screen.getByRole("button", { name: "로그아웃" });
+    const classTokens = button.className.split(/\s+/).filter(Boolean);
+
+    expect(classTokens.length).toBeGreaterThan(0);
+    expect(classTokens).toContain("border-accent");
+  });
+});
+
 describe("LogoutButton — AC-AUTH-041", () => {
   it("sends the csrf_token cookie value as the X-CSRF-Token header on a single POST", async () => {
     setCsrfCookie("abc123");

@@ -645,21 +645,186 @@ M1에서 손대지 않았다(착수 지시가 명시적으로 금지). 저장소
 프리미티브에서만 작동 중이며, `ProductCard.tsx`는 M3가 마이그레이션할 때
 비로소 이중 포커스 표시 문제 없이 정리된다.
 
+### M2 — `LogoutButton` 구체 결함 수정
+
+cycle_type: tdd. 워크트리 복구 경로(A.0)를 탔다 — 초기 `HEAD`
+(`0be83c5f182819fb58599cd9089abe7dc0842f05`)가 기대값
+(`0cc391a2f8a50adb5ab789911ba026596ab063fc`)과 달라 `m2-logout-button`
+브랜치를 후자에서 새로 분기해 작업했다. 분기 직후
+`src/components/ui/Button.tsx`(M1 산출물) 존재를 확인한 뒤 `npm install`을
+실행했다.
+
+**E0 — 워크트리 케이스**: A.0 경로 B(불일치)를 탔다. 위 문단 참조.
+
+**사전 확인 (Section C pre-flight)** — 편집 이전:
+
+```
+$ npx tsc --noEmit
+(exit 0, no output)
+
+$ npm run lint
+(exit 0, no output)
+
+$ npm test
+Test Files  115 passed (115)
+     Tests  1513 passed (1513)
+```
+
+M1 베이스라인(115 파일 / 1513 테스트)과 정확히 일치 — 편집 전 상태 확인 완료.
+
+**RED 증거 (E7)** — AC-DESIGN-007이 "렌더 결과에 스타일 클래스가 부여됨을
+단위 테스트로 확인"을 명시적으로 요구하므로, `LogoutButton.tsx`를 원본
+(bare `<button>`) 상태로 둔 채 `tests/unit/components/logout-button.test.tsx`에
+신규 테스트를 먼저 추가하고 실행했다:
+
+```
+$ npx vitest run tests/unit/components/logout-button.test.tsx
+ ❯ tests/unit/components/logout-button.test.tsx (5 tests | 1 failed)
+   × LogoutButton — AC-DESIGN-007 > renders through the shared Button
+     primitive, not with browser-default styling
+AssertionError: expected 0 to be greater than 0
+ ❯ tests/unit/components/logout-button.test.tsx:57:32
+Test Files  1 failed (1)
+     Tests  1 failed | 4 passed (5)
+```
+
+기존 4개(AC-AUTH-041/042/043×2)는 원본 상태에서도 그대로 통과 —
+새 실패는 신규 AC-DESIGN-007 단언 1건뿐임을 확인했다.
+
+**GREEN** — `LogoutButton.tsx` 48행 부근의 `<button type="button"
+onClick={handleLogout}>`을 `@/components/ui/Button`의 `<Button
+type="button" onClick={handleLogout}>`로 교체(import 1줄 추가 + 요소
+치환만):
+
+```
+$ npx vitest run tests/unit/components/logout-button.test.tsx
+ ✓ tests/unit/components/logout-button.test.tsx (5 tests) 139ms
+Test Files  1 passed (1)
+     Tests  5 passed (5)
+```
+
+5개 전부 통과 — 기존 AC-AUTH-041/042/043 단언(요청 형태·refresh/push
+호출·비200 무동작) 문구는 손대지 않았고 값도 변경되지 않았다.
+
+**E1 — AC-DESIGN-007 PASS/FAIL**:
+
+Given `src/components/layout/LogoutButton.tsx:48`의 `<button type="button"
+onClick={handleLogout}>` — `className` 전무 상태,
+When 롤아웃이 끝나면,
+Then 해당 버튼이 공유 버튼 프리미티브를 경유해 렌더되며 브라우저 기본
+버튼 스타일로 남지 않는다.
+
+관측 증거: `LogoutButton.tsx`가 `import { Button } from
+"@/components/ui/Button"`를 통해 프리미티브를 import하고, 렌더 요소가
+`<Button>`이다. 단위 테스트가 렌더 결과 `button.className`을 검사해
+1개 이상의 클래스 토큰과 `border-accent`(Classical 아웃라인 스타일의
+표지 클래스, M1 `buttonClassName`) 존재를 단언하며 GREEN이다.
+
+**결과: PASS.**
+
+| AC | Given-When-Then 핵심 | 검증 명령/방법 | 결과 |
+|---|---|---|---|
+| AC-DESIGN-007 | `LogoutButton.tsx:48` 버튼이 공유 버튼 프리미티브를 경유해 렌더 | import 확인(`@/components/ui/Button`) + 신규 단위 테스트(className 비어있지 않음 + `border-accent` 포함) RED→GREEN | **PASS** |
+
+**E2 — CSRF 코드 무변경 확인**:
+
+```
+$ git diff -- src/components/layout/LogoutButton.tsx
+ "use client";
+
+ import { useRouter } from "next/navigation";
++import { Button } from "@/components/ui/Button";
+
+ /** ... (@MX:NOTE 등 CSRF 관련 주석 — 무수정) ... */
+ function readCsrfToken() { ... }  // 무수정
+
+ export function LogoutButton() {
+   ...
+   async function handleLogout() { ... }  // fetch 호출·CSRF 헤더·
+                                            // router.refresh() 무수정
+   return (
+-    <button type="button" onClick={handleLogout}>
++    <Button type="button" onClick={handleLogout}>
+       로그아웃
+-    </button>
++    </Button>
+   );
+ }
+```
+
+실제 diff는 import 1줄 추가 + `<button>`↔`<Button>` 요소 치환 2줄뿐이다.
+`readCsrfToken()`, `handleLogout()`의 fetch 호출·CSRF 헤더·
+`router.refresh()`/`router.push()` 로직, `@MX:NOTE`를 포함한 모든 주석은
+바이트 단위로 무수정임을 `git diff` 전문으로 확인했다(plan.md §C.3 /
+§G 안티패턴 1 준수).
+
+**E3 — 정적 검증** (편집 후):
+
+```
+$ npx tsc --noEmit
+(exit 0, no output)
+
+$ npm run lint
+> our-shop@0.1.0 lint
+> eslint .
+(exit 0, no output)
+```
+
+**E4 — 전체 회귀** (M1 베이스라인 115 파일/1513 테스트 대비):
+
+```
+$ npm test
+ Test Files  115 passed (115)
+      Tests  1514 passed (1514)
+  Duration  18.59s
+```
+
+115 파일 = M1과 동일(신규 파일 없음, 기존 테스트 파일에 케이스만 추가).
+1514 테스트 = 1513(M1 베이스라인) + 1(신규 AC-DESIGN-007 단언). 기존
+테스트 실패 0건, 신규 실패 0건. 사전 지시가 명시한
+`tests/unit/components/logout-button.test.tsx`(SPEC-AUTH-003 산출)의
+기존 4개 단언(AC-AUTH-041/042/043)이 전부 그대로 통과함을 재확인했다.
+
+**E5 — 브랜치/푸시 상태**: 브랜치 `m2-logout-button`(base
+`0cc391a2f8a50adb5ab789911ba026596ab063fc`). 커밋 후 `git push origin
+m2-logout-button` 예정 — 오케스트레이터가 t47에서 머지.
+
+**E6 — 블로커**: 없음.
+
+**실제 diff 범위** (scope discipline 준수 확인):
+
+```
+$ git status --short
+ M src/components/layout/LogoutButton.tsx
+ M tests/unit/components/logout-button.test.tsx
+```
+
+CSRF 유틸(§C.3), `globals.css`, `src/components/ui/`, 다른 페이지·
+컴포넌트는 전혀 건드리지 않았다 — M2 범위(`LogoutButton.tsx` 버튼 요소 +
+그 검증 테스트 1개)와 정확히 일치.
+
+**E7 — RED 증거 요약**: 위 "RED 증거" 문단 참조. 신규 AC-DESIGN-007
+단언 1건이 원본 상태에서 실패(RED) → 프리미티브 교체 후 통과(GREEN)함을
+확인했다. 기존 4개 단언은 애초에 통과 상태였고 적응(adaptation) 없이
+그대로 유지됐다 — 선택자·값 변경 0건.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 ```yaml
-run_milestone: M1
-next_milestone: M2
+run_milestone: M2
+next_milestone: M3
 run_status: in-progress
 m0_status: complete
 m0_fallback_taken: false
 m1_status: complete
+m2_status: complete
+ac_design_007_status: PASS
 ac_design_012_baseline: "113 files / 1493 tests passed (npm test, pre-M0-edit)"
-ac_design_012_post_change: "115 files / 1513 tests passed (npm test, post-M1-edit) — 0 regressions, +2 files/+20 tests (new primitive suites)"
+ac_design_012_post_change: "115 files / 1514 tests passed (npm test, post-M2-edit) — 0 regressions, +0 files/+1 test (new AC-DESIGN-007 assertion in existing logout-button.test.tsx)"
 ac_design_005c_status: deferred-to-M3 (ProductCard.tsx:40 untouched by design)
 new_warnings_or_lints_introduced: 0
 package_json_diff: empty
-m1_to_mN_commit_strategy: single feature branch (m1-tokens-primitives), orchestrator merges per milestone
+m1_to_mN_commit_strategy: single feature branch per milestone (m2-logout-button), orchestrator merges per milestone
 ```
 
 ## §E.4 Sync-phase Audit-Ready Signal
