@@ -1,6 +1,6 @@
 ---
 id: SPEC-AUTH-004
-status: draft
+status: in-progress
 updated: 2026-09-05
 tier: M
 ---
@@ -124,13 +124,132 @@ SPEC-AUTH-004의 plan-phase 산출물 5종(spec.md, plan.md, acceptance.md, spec
 
 ## §E.2 Run-phase Evidence
 
-_<pending run-phase>_
+### M1 — 레이아웃 경계 확정 (cycle_type=tdd)
+
+#### Claim (주장)
+
+`src/app/(shop)/layout.tsx`를 신규 작성하고 `src/app/layout.tsx`에서 `<SiteHeader />` 렌더·임포트를 제거했다. plan.md §F M1 / §E MX 계획대로 정확히 2개 파일만 변경했다. `src/components/layout/SiteHeader.tsx`는 무변경(REQ-AUTH-058, AC-AUTH-056)이다.
+
+#### Evidence (증거)
+
+**워크트리 복구 (Section A.0)** — 세션이 `main` 기반 새 워크트리로 격리되어 실행됐다(예상된 경우). 복구 절차대로 처리:
+
+```bash
+$ git rev-parse HEAD
+04cb9aa9bc87860f5368085b3a66d3476ee5a40f   # 기대값 5b5db74… 와 불일치 → 복구 절차 실행
+$ git checkout -b m1-shop-layout 5b5db74de39044012b7f8734c0721cab552204d4
+Switched to a new branch 'm1-shop-layout'
+$ ls .moai/specs/SPEC-AUTH-004/   # 확인됨
+acceptance.md plan.md progress.md spec-compact.md spec.md
+$ npm install   # 406 packages
+```
+
+**사전 점검 (Section C)**
+
+```bash
+$ find src/app -name "layout.tsx"
+src/app/layout.tsx   # 정확히 1개 — 이 SPEC이 저장소 최초의 중첩 레이아웃을 만든다는 전제 확인
+$ npx tsc --noEmit    # baseline: 에러 0건 (출력 없음)
+$ npm run lint        # baseline: 경고/에러 0건
+$ npx vitest run --reporter=dot
+Test Files  113 passed (113)
+Tests  1489 passed (1489)   # 기대 baseline과 일치
+```
+
+**변경 (Section D scope 정확히 2개 파일)**
+
+1. `src/app/(shop)/layout.tsx` (신규) — `SiteHeader` 임포트, `{children}` 위 렌더, `@MX:ANCHOR` + `@MX:NOTE` (plan.md §E 문구 그대로).
+2. `src/app/layout.tsx` (수정) — `<SiteHeader />` 렌더·임포트 제거, `@MX:WARN` 신규 추가, 기존 `@MX:NOTE`를 "헤더가 이제 이 파일에 없다"로 갱신.
+
+```bash
+$ git status --short
+ M src/app/layout.tsx
+?? src/app/(shop)/
+$ git diff --stat HEAD
+ src/app/layout.tsx | 35 +++++++++++++++++++++--------------
+ 1 file changed, 21 insertions(+), 14 deletions(-)
+```
+
+#### E1 — `(shop)/layout.tsx` 구조 확인
+
+코드 검사: `SiteHeader` 임포트 후 `<SiteHeader />`를 `{children}` 위에 배치했음을 육안 확인 (파일 전문은 위 변경 내역 참조). `tsc --noEmit` + `npm run lint`가 이 신규 파일을 포함해 통과한 것 자체가 유효한 TSX 컴포넌트임을 나타내는 최소 스모크 검증이다 — 전체 행위 AC 검증(브라우저·통합 테스트)은 M4 소관이다.
+
+#### E2 — SiteHeader.tsx 무변경 (REQ-AUTH-058, AC-AUTH-056)
+
+```bash
+$ git diff --stat 5b5db74de39044012b7f8734c0721cab552204d4 -- src/components/layout/SiteHeader.tsx
+(빈 출력)
+```
+
+zero-diff 확인됨. 파일의 낡은 `@MX:` 주석 3개(plan.md §E 마지막 행, §G 안티패턴 9) 중 하나도 손대지 않았다.
+
+#### E3 — 타입/린트 (변경 후)
+
+```bash
+$ npx tsc --noEmit
+(에러 0건 — npm notice만 출력)
+$ npm run lint
+> our-shop@0.1.0 lint
+> eslint .
+(경고/에러 0건)
+```
+
+#### E4 — 전체 회귀
+
+```bash
+$ npx vitest run --reporter=dot
+Test Files  1 failed | 112 passed (113)
+Tests  1 failed | 1488 passed (1489)
+```
+
+**1건 실패 — 예상되고 plan.md에 이미 문서화된 실패, M1 범위 밖 누출이 아님.**
+
+실패 테스트: `tests/unit/app/shell.test.tsx > RootLayout — AC-STOREFRONT-001 / 002 > places SiteHeader inside body, above children — AC-AUTH-040 (plan.md §B.7 pattern B)` — `expect(first.type).toBe(SiteHeader)`가 루트 레이아웃 body의 첫 자식이 더 이상 `SiteHeader`가 아니므로 실패.
+
+이 테스트는 plan.md §D.3의 "테스트 파일 12개" 표에서 **명시적으로 별도 분류**된 항목이다 — "1개 — 구조 변경(승인됨)": *"`shell.test.tsx` 모듈 임포트 + **구조 단언 이전** — `first.type === SiteHeader`가 루트 레이아웃에서 `(shop)/layout.tsx`로 옮겨진다."* 그 단언 이전은 plan.md §F **M3** 항목 6("`shell.test.tsx` 구조 단언 이전 — 루트 레이아웃은 `SiteHeader`를 렌더하지 않음을, `(shop)/layout.tsx`가 렌더함을 각각 단언")으로 명시적으로 위임돼 있다. M1은 "레이아웃 경계 확정"만 다루고 테스트 파일은 M1 변경 대상에 없다(§F M1 목록 2개 항목 모두 `src/app/*layout.tsx`).
+
+이 실패는 M1의 구조적 결정(헤더를 루트 레이아웃에서 내린다)의 **필연적이고 사전에 문서화된 결과**이며, M1이 손대지 말아야 할 파일을 건드려서 생긴 범위 누출이 아니다 — 실패한 파일이 정확히 plan.md가 지명한 그 파일, 그 단언 한 줄이다. `shell.test.tsx`를 M1에서 고치지 않은 것은 위임 지시("M2-M5는 별도 위임 — 여기서 하지 말 것")를 그대로 지킨 결과다. 이 단언 수정은 M3 위임의 명시적 스코프로 남겨둔다.
+
+#### E5 — 브랜치/푸시 상태
+
+```bash
+$ git branch --show-current
+m1-shop-layout
+```
+
+M1 완료 시점에는 아직 커밋 전. 아래 커밋 후 `git push origin m1-shop-layout` 예정(Section A.0).
+
+#### E6 — 블로커
+
+없음. M1은 완전히 완료됐다. 위 E4의 1건 실패는 blocker가 아니라 plan.md에 이미 승인·문서화된 M3 소관 결과다.
+
+#### E7 — RED 증거 (N/A)
+
+이 마일스톤에 해당 없음. M1은 순수 구조 변경(레이아웃 파일 2개)이며 신규 테스트 파일을 만들지 않는다 — plan.md §F에 따라 신규 회귀 가드(AC-AUTH-048/049/050)는 **M4** 소관이다. RED 단계를 생략한 것이 아니라, 이 마일스톤에 새로 작성할 실패 테스트 자체가 없다.
 
 ---
 
 ## §E.3 Run-phase Audit-Ready Signal
 
-_<pending run-phase>_
+```yaml
+run_milestone: M1
+next_milestone: M2
+m1_files_changed: 2  # src/app/(shop)/layout.tsx (신규), src/app/layout.tsx (수정)
+m1_preserve_zero_diff:
+  - path: src/components/layout/SiteHeader.tsx
+    verified: true
+m1_tsc_errors: 0
+m1_lint_errors: 0
+m1_test_suite:
+  files_total: 113
+  files_failed: 1
+  tests_total: 1489
+  tests_failed: 1
+  failed_test: "tests/unit/app/shell.test.tsx > places SiteHeader inside body, above children — AC-AUTH-040"
+  failure_reason: "expected, plan.md §D.3 item 12 + §F M3 step 6 — structural assertion move owned by M3, not a M1 scope leak"
+m1_branch: m1-shop-layout
+m1_base_sha: 5b5db74de39044012b7f8734c0721cab552204d4
+```
 
 ---
 
