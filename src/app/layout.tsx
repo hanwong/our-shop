@@ -17,6 +17,12 @@ import SiteHeader from "@/components/layout/SiteHeader";
  * remain excluded — that part of spec.md §3 (SPEC-STOREFRONT-001) is
  * unchanged; only the header line of that decision was narrowly amended
  * (spec.md §1.4).
+ *
+ * @MX:NOTE this comment previously stated that header/footer/nav/search/cart
+ * were ALL excluded (SPEC-STOREFRONT-001 §3). That is now only partially
+ * true: SPEC-AUTH-003 narrowly amended the header line of that decision
+ * (spec.md §1.4's 7-row table) — footer, search, category navigation, and
+ * the cart icon remain excluded exactly as before.
  */
 
 /*
