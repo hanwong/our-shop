@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 
 import "./globals.css";
 
+import SiteHeader from "@/components/layout/SiteHeader";
+
 /**
  * SPEC-STOREFRONT-001 M1 — the root document shell (REQ-STOREFRONT-001/002).
  *
@@ -9,10 +11,12 @@ import "./globals.css";
  * this file is a prerequisite of the product detail page rather than a
  * side task (spec.md §1).
  *
- * Minimal on purpose: header, footer, global navigation, search, and the cart
- * icon are all excluded by spec.md §3. This shell declares the document
- * language, the base typography, the global stylesheet, and the site-level
- * metadata — nothing else.
+ * SPEC-AUTH-003 M3 — the previously fully-static shell now also renders the
+ * shared site header (login-state display only) above `{children}` on every
+ * route (REQ-AUTH-041). Footer, global navigation, search, and the cart icon
+ * remain excluded — that part of spec.md §3 (SPEC-STOREFRONT-001) is
+ * unchanged; only the header line of that decision was narrowly amended
+ * (spec.md §1.4).
  */
 
 /*
@@ -37,7 +41,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ko">
-      <body className="bg-white text-neutral-900 antialiased">{children}</body>
+      <body className="bg-white text-neutral-900 antialiased">
+        <SiteHeader />
+        {children}
+      </body>
     </html>
   );
 }
