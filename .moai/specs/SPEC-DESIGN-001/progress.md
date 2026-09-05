@@ -258,6 +258,88 @@ $ grep -rn "일치\|통합\|잠정\|두 차례" .moai/specs/SPEC-DESIGN-001/
 3. **design phase (manager-design D1-D5)** — Conditional Design Route 판정에 따라 run-phase M1 커밋 이전에 경유. 단 역할이 축소됐다: 토큰은 이미 확보되어 있으므로 design phase는 **재검증**(REQ-DESIGN-009)이며, 접근 불가 시에도 §D.1 오프라인 SSOT로 진행 가능(REQ-DESIGN-010)
 4. run-phase 진입 시 **M0(vitest 폰트 모킹)를 M1보다 먼저** 실행 — 생략하면 셸 테스트가 즉시 깨진다
 
+## §G Design-phase Evidence (D1-D5, manager-design)
+
+design_phase_completed_at: 2026-09-05
+design_phase_status: proceeded-offline (REQ-DESIGN-010 path)
+
+이 절은 design phase(D1-D5)의 실행 증거를 기록한다. `progress.md` §E.1 위쪽
+"design phase의 남은 역할 — 재검증만" 절이 이미 기술한 조건 분기(재검증 vs
+오프라인 진행)가 이번 실행에서 어느 쪽으로 실제 귀결됐는지가 이 절의 내용이다.
+
+### DesignSync 가용성 실측 (D1)
+
+이 세션에서 실제로 확인했다:
+
+```
+$ grep -c "DesignSync" .mcp.json
+0
+$ cat .mcp.json  # mcpServers: context7, moai, playwright — DesignSync 미등록
+$ ls .moai/project/brand/
+No such file or directory (예상된 상태 — plan.md §B.4)
+```
+
+이 세션의 에이전트 tool 목록에도 `mcp__DesignSync__*` 도구가 없다. **결론:
+DesignSync는 이번 실행 시점에 가용하지 않다.** 인증 실패나 네트워크 오류가
+아니라 `.mcp.json`에 서버 자체가 등록되지 않은 구조적 부재다.
+
+### 경로 판정 — REQ-DESIGN-010 / AC-DESIGN-013 (오프라인 SSOT)
+
+REQ-DESIGN-009("Where DesignSync가 가용할 때 재검증")의 전제 조건이 거짓이므로
+REQ-DESIGN-009는 발동하지 않는다. REQ-DESIGN-010이 발동한다: `plan.md` §D.1을
+오프라인 SSOT로 삼아 그대로 진행하고, 라이브 재검증이 수행되지 않았음을
+명시적으로 기록한다(AC-DESIGN-013 요구 3항목 충족).
+
+**라이브 대조 자체가 없었으므로 "일치 확인"이 아니라 "대조 미수행"이다** —
+이 둘은 다르다. AC-DESIGN-014("재검증 결과 기록")는 이번 실행에서
+"해당 없음(AC-DESIGN-013 경로)"이다.
+
+### D2/D3 — 실행되지 않음 (이 SPEC의 축소된 역할과 일치)
+
+이 SPEC의 착수 지시가 명시한 대로, design phase의 역할은 토큰 재파생이
+아니라 재검증(또는 오프라인 진행)에 한정된다. Claude Design에 대한 신규
+push(D2 `finalize_plan`/`write_files`)나 신규 캔버스 화면 생성(D3)은
+이번 세션의 범위가 아니었고 수행하지 않았다.
+
+### D4 — 산출물 페이스트 (실제 작업)
+
+`plan.md` §D.1 토큰 블록을 축자 전사해 예약 경로에 페이스트했다:
+
+- `.moai/design/tokens.json` — Classical `:root` 토큰 전체(색상·타이포·간격·
+  라운드·그림자), 도구 가용성 기록 포함
+- `.moai/design/components.json` — `plan.md` §D.2(추출 대상)·§D.3(클래스→
+  컴포넌트 매핑)·§D.4(readme 제약 5건)를 M0-M5가 바로 소비할 수 있는 형태로
+  재포장
+- `.moai/design/brief/BRIEF-DESIGN-001.md` — D1-D5 실행 기록 + 도구 가용성
+  판정 + M0-M5 소비 매핑
+
+**축자 일치 자체 검증**:
+
+```
+$ grep -oE '#[0-9a-fA-F]{6}|4\.6px|9\.2px|13\.8px|18\.4px|27\.6px|36\.8px|Cormorant Garamond|Lora' .moai/specs/SPEC-DESIGN-001/plan.md | sort -u > /tmp/plan_vals
+$ grep -oE '#[0-9a-fA-F]{6}|4\.6px|9\.2px|13\.8px|18\.4px|27\.6px|36\.8px|Cormorant Garamond|Lora' .moai/design/tokens.json | sort -u > /tmp/json_vals
+$ diff /tmp/plan_vals /tmp/json_vals
+(빈 출력 — 완전 일치, 26개 값 전부)
+```
+
+`.moai/design/assets/`는 페이스트하지 않았다 — 이 SPEC은 신규 이미지·아이콘
+자산을 도입하지 않는다(Lucide 아이콘 도입은 명시적으로 이월, spec.md §4).
+
+### D5 — 구현 연결
+
+이 design-phase 세션은 산출물(디자인 SSOT + 검증 기록)만 만든다 —
+manager-develop으로의 H8 Section A-E 재위임 패키지 조립은 오케스트레이터가
+run-phase 진입 시점에 별도로 수행한다. 이 세션에서 애플리케이션 코드
+(`.tsx`/`.css`)는 전혀 수정하지 않았다.
+
+### plan.md 대비 추가 사실 — 없음
+
+명시적으로 기록한다: 이 design phase 실행이 `plan.md`에 없던 새로운 불일치,
+정정, 갱신을 제기하지 않는다. `tokens.json`에 전사된 값은 `plan.md` §D.1과
+바이트 단위로 동일하다(독립 재파생이 아니라 직접 전사로 검증). SPEC 본문
+(spec.md/plan.md/acceptance.md)에 대한 수정 요청도 없다 — REQ-DESIGN-010
+경로는 SPEC 본문 변경 없이 완전히 진행 가능한 경로다.
+
 ## §E.2 Run-phase Evidence
 
 _<pending run-phase>_
