@@ -60,7 +60,12 @@ export default defineConfig({
   webServer: {
     command: `npm run dev -- -p ${E2E_PORT}`,
     url: BASE_URL,
-    reuseExistingServer: !process.env.CI,
+    // t38 — always spawn a fresh server. `env.NODE_OPTIONS` below (the Toss
+    // interceptor) is applied ONLY when Playwright itself starts the
+    // webServer; reusing an already-running local `next dev` server (as
+    // `!process.env.CI` would do) skips that injection entirely, silently
+    // breaking this suite's zero-real-Toss-network-contact safety invariant.
+    reuseExistingServer: false,
     timeout: 60_000,
     env: {
       // plan.md §B — the ONLY place the server-side interceptor is loaded.
