@@ -10,12 +10,19 @@ import type { InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from "rea
  * label + input + error TOGETHER, so the component boundary follows that
  * repeated set rather than the individual elements.
  *
- * @MX:ANCHOR fan-in target — plan.md §H projects 8+ call sites once M3/M4
- * replace every form-field consumer (login/signup ×2, staff/login,
+ * @MX:ANCHOR fan-in target — plan.md §H projected 8+ call sites once M3/M4
+ * replaced every form-field consumer (login/signup ×2, staff/login,
  * ProductForm, CheckoutForm, CheckoutInteractive, OrderLookupForm,
  * ReviewForm — the latter via `multiline`, plan.md §D.3's
- * `.field` + `label` + `textarea.input` mapping). Actual fan-in is 0 as of
- * M1 (no consumer migrated yet); re-measured at M5 per plan.md §H.
+ * `.field` + `label` + `textarea.input` mapping). M5 final measurement:
+ * fan-in is **9** (`grep -rl 'from "@/components/ui/FormField"' src/` —
+ * login/signup ×2, staff/login, ProductForm, CheckoutForm,
+ * CheckoutInteractive, OrderLookupForm, AddToCartButton, ReviewForm;
+ * CheckoutInteractive/AddToCartButton consume the exported class-builder
+ * functions rather than the `<FormField>` component itself, plan.md §D
+ * near-variant handling — the import still counts as a fan-in consumer of
+ * this module), confirming the ANCHOR classification (fan_in >= 3,
+ * CLAUDE.md § MX Tag Quality Gates).
  * @MX:REASON this is the site's single definition point for form fields
  * (REQ-DESIGN-003/004/005) — a regression here changes every form field on
  * the site once consumers are migrated.

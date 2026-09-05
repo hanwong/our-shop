@@ -11,12 +11,15 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
  * §1.2) — this renders transparent background + accent-colour border +
  * accent-colour text.
  *
- * @MX:ANCHOR fan-in target — plan.md §H projects 13+ call sites once M2-M4
- * replace every primary-action button consumer (the 13-file solid-fill
+ * @MX:ANCHOR fan-in target — plan.md §H projected 13+ call sites once M2-M4
+ * replaced every primary-action button consumer (the 13-file solid-fill
  * survey, spec.md §1.3) plus LogoutButton (REQ-DESIGN-006), all with this
- * single definition. Actual fan-in is 0 as of M1 (no consumer has been
- * migrated yet — that is M2-M4's job); this tag anticipates the fan-in
- * plan.md §H already commits to, and is re-measured at M5 per that section.
+ * single definition. M5 final measurement: fan-in is **14**
+ * (`grep -rl 'from "@/components/ui/Button"' src/` — login/signup ×2,
+ * staff/login, ProductForm, staff/products/page, CartView, EmptyCart,
+ * CheckoutForm, CheckoutInteractive, PayButton, LogoutButton,
+ * OrderLookupForm, AddToCartButton, ReviewForm), confirming the ANCHOR
+ * classification (fan_in >= 3, CLAUDE.md § MX Tag Quality Gates).
  * @MX:REASON this is the site's single definition point for the
  * primary-action button (REQ-DESIGN-003/004/005) — a regression here changes
  * every primary-action button on the site once consumers are migrated.
