@@ -83,6 +83,20 @@ plan-auditor 독립 감사(Tier L 임계값 0.85). 통과 후 Implementation Kic
 
 _<pending run-phase>_
 
+## §F Phase 4 Mode Selection
+
+**Input parameters**: tier=L; scope≈15+ files (schema.prisma, 1 migration, order-repository.ts, order-service.ts, cart-service.ts, orders/route.ts, guest-identity.ts, 2 checkout screens, 7 rewritten test files, plus SPEC artifacts); domain count=5 (DB/migration, identity+CSRF security, service/repository layer, frontend screens, test suite); file language mix=TypeScript + Prisma schema/SQL; concurrency benefit=LOW (coding-heavy, ordered milestones with real inter-milestone dependencies — M1 schema must land before M3/M4 consume it).
+
+**Mode evaluation**:
+- `direct` — not selected (far beyond typo/single-line scope).
+- `fanout` — not selected (coding-heavy per Anthropic's coding-task parallelism caveat; milestones are sequentially dependent, not independently parallelizable).
+- `sweep` — not selected (this is semantic/new-code work with 5 different transform rules across domains, not one uniform mechanical transformation).
+- `serial` via `manager-lead` — **selected**. 7 milestones (M1-M7) ≥ 3, ~15+ files ≥ 10, and cross-domain fan-out (DB/security/service/frontend/tests) — meets the manager-lead entry predicate (orchestration-mode-selection.md §G.2). The lead session's own dispatch note flagged this explicitly ("Tier L이라 다마일스톤 조율이 필요하면 manager-lead 경유를 검토해주세요").
+
+**Decision: serial (manager-lead coordination)**
+
+**Justification**: SPEC-ORDER-004 is a 7-milestone Tier L SPEC with a hard sequential dependency chain (M1 schema → M2 identity/CSRF → M3 repository → M4 service → M5 screens → M6 test rewrites → M7 copy) and a security-critical CSRF-ordering decision (D1/D2 from the plan-audit) that benefits from milestone-boundary context folding rather than a single unbounded manager-develop run. Per Anthropic's coding-task parallelism caveat, the work itself stays `serial`-shaped (no independently parallelizable milestones); `manager-lead` is the correct coordination layer for that serial shape at this scope, not a parallel-fan-out mode.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 _<pending run-phase>_
