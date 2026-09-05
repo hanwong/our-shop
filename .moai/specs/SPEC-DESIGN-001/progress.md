@@ -258,6 +258,23 @@ $ grep -rn "일치\|통합\|잠정\|두 차례" .moai/specs/SPEC-DESIGN-001/
 3. **design phase (manager-design D1-D5)** — Conditional Design Route 판정에 따라 run-phase M1 커밋 이전에 경유. 단 역할이 축소됐다: 토큰은 이미 확보되어 있으므로 design phase는 **재검증**(REQ-DESIGN-009)이며, 접근 불가 시에도 §D.1 오프라인 SSOT로 진행 가능(REQ-DESIGN-010)
 4. run-phase 진입 시 **M0(vitest 폰트 모킹)를 M1보다 먼저** 실행 — 생략하면 셸 테스트가 즉시 깨진다
 
+## §F Phase 4 Mode Selection
+
+**Input parameters**: tier=M(문서 산출물 기준; 파일 수 축은 L 초과이나 사용자가 M 유지를 확정), scope≈23 files (버튼·폼 소비 13 + 나머지 페이지 6 + globals.css/layout.tsx 2 + 신규 프리미티브 2 + SiteHeader/ProductCard 2), domain count=1(프런트엔드 디자인 시스템 롤아웃 — 서버/DB/인증 로직 무관), file language mix=TSX/CSS, concurrency benefit=LOW(coding-heavy, M0가 M1을, M1이 M2~M4를 순차적으로 게이트).
+
+| Mode | Selected? | Rationale |
+|---|---|---|
+| `direct` | No | 비자명 — 사이트 전체 시각 결과가 바뀌는 다마일스톤 작업 |
+| `serial` | **YES** | M0(폰트 모킹, 실패 가능성 있는 인프라)가 M1(토큰+프리미티브)을 게이트하고, M1이 M2~M4(프리미티브 소비)를 게이트하는 강한 순차 의존. 마일스톤별로 사용자가 단계 확인을 선택함(자동 진행 아님) |
+| `fanout` | No | 리서치형 다중 도메인 작업이 아님 — 단일 도메인의 코딩 중심 작업 |
+| `sweep` | No | 23개 파일 중 상당수가 클래스명 치환이라는 점에서 기계적 성격이 있으나, M0(인프라)·M2(구체 결함 수정)·M3/M4(매핑 판단이 필요한 시각 전환)가 섞여 있어 "단일 균일 변환 규칙"이 아님. 실패 시 되돌림 경로(§B.5 후보 2)가 있는 M0는 특히 sweep에 부적합 |
+
+**Decision: serial**
+
+**Justification**: M0→M1→{M2,M3,M4}→M5의 강한 순차 의존과, 사용자가 명시적으로 선택한 "단계마다 확인"(세미-자동 진행) 축이 결합해 마일스톤 단위 순차 위임이 맞다. M0는 실패·되돌림 경로가 정의된 인프라 작업이라 독립 확인이 필요하고, 코딩 중심 작업이므로 Anthropic의 coding-task parallelism caveat에 따라 fanout/sweep보다 serial이 안전하다.
+
+**Implementation Kickoff Approval**: user approved 2026-09-05 via AskUserQuestion (option: "지금 시작 (권장)"); progression mode = **semi-autonomous** ("단계마다 확인 (권장)") — 이전 3개 카드(E2E-001, AUTH-003, AUTH-004)와 달리 자동 진행이 아님. 마일스톤마다 결과를 보고하고 다음 진행 여부를 확인받는다.
+
 ## §G Design-phase Evidence (D1-D5, manager-design)
 
 design_phase_completed_at: 2026-09-05
