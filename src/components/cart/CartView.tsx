@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import type { CartDTO, CartItemDTO } from "@/features/cart/types/cart";
 import { EmptyCart } from "@/components/cart/EmptyCart";
+import { buttonClassName } from "@/components/ui/Button";
 
 /**
  * SPEC-STOREFRONT-002 — the client component that owns cart state
@@ -192,10 +193,7 @@ export function CartView({ initialCart }: { initialCart: CartDTO }) {
         <p className="text-neutral-900">{formatWon(cart.subtotal)}</p>
       </div>
 
-      <a
-        href="/checkout"
-        className="mt-6 inline-block rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white"
-      >
+      <a href="/checkout" className={buttonClassName({ className: "mt-6" })}>
         결제하기
       </a>
     </main>

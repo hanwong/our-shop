@@ -4,6 +4,8 @@ import { useId, useState } from "react";
 
 import type { OrderDTO } from "@/features/orders/types/order";
 import { OrderLookupResultView } from "@/components/orders/OrderLookupResultView";
+import { Button } from "@/components/ui/Button";
+import { FormField } from "@/components/ui/FormField";
 
 /**
  * SPEC-ORDER-003 M2 — the guest revisit lookup input screen's form
@@ -75,54 +77,30 @@ export function OrderLookupForm() {
   }
 
   const orderNumberId = `${formId}-orderNumber`;
-  const orderNumberErrorId = `${orderNumberId}-error`;
   const phoneId = `${formId}-recipientPhone`;
-  const phoneErrorId = `${phoneId}-error`;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-      <div>
-        <label htmlFor={orderNumberId} className="block text-sm font-medium text-neutral-800">
-          주문 번호
-        </label>
-        <input
-          id={orderNumberId}
-          name="orderNumber"
-          type="text"
-          value={orderNumber}
-          aria-describedby={fieldErrors.orderNumber ? orderNumberErrorId : undefined}
-          aria-invalid={fieldErrors.orderNumber ? true : undefined}
-          onChange={(event) => setOrderNumber(event.target.value)}
-          className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
-        />
-        {fieldErrors.orderNumber ? (
-          <p id={orderNumberErrorId} className="mt-1 text-sm text-red-600">
-            {fieldErrors.orderNumber}
-          </p>
-        ) : null}
-      </div>
+      <FormField
+        id={orderNumberId}
+        name="orderNumber"
+        type="text"
+        label="주문 번호"
+        value={orderNumber}
+        error={fieldErrors.orderNumber}
+        onChange={(event) => setOrderNumber(event.target.value)}
+      />
 
-      <div>
-        <label htmlFor={phoneId} className="block text-sm font-medium text-neutral-800">
-          연락처
-        </label>
-        <input
-          id={phoneId}
-          name="recipientPhone"
-          type="text"
-          value={recipientPhone}
-          autoComplete="tel"
-          aria-describedby={fieldErrors.recipientPhone ? phoneErrorId : undefined}
-          aria-invalid={fieldErrors.recipientPhone ? true : undefined}
-          onChange={(event) => setRecipientPhone(event.target.value)}
-          className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
-        />
-        {fieldErrors.recipientPhone ? (
-          <p id={phoneErrorId} className="mt-1 text-sm text-red-600">
-            {fieldErrors.recipientPhone}
-          </p>
-        ) : null}
-      </div>
+      <FormField
+        id={phoneId}
+        name="recipientPhone"
+        type="text"
+        label="연락처"
+        value={recipientPhone}
+        autoComplete="tel"
+        error={fieldErrors.recipientPhone}
+        onChange={(event) => setRecipientPhone(event.target.value)}
+      />
 
       {formError ? (
         <p role="alert" className="text-sm text-red-600">
@@ -130,13 +108,9 @@ export function OrderLookupForm() {
         </p>
       ) : null}
 
-      <button
-        type="submit"
-        disabled={submitting}
-        className="w-full rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-      >
+      <Button type="submit" disabled={submitting} fullWidth>
         {submitting ? "조회 중…" : "주문 조회"}
-      </button>
+      </Button>
     </form>
   );
 }

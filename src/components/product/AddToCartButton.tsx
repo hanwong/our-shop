@@ -2,6 +2,9 @@
 
 import { useId, useState } from "react";
 
+import { Button } from "@/components/ui/Button";
+import { fieldInputClassName, fieldLabelClassName } from "@/components/ui/FormField";
+
 /**
  * SPEC-STOREFRONT-002 M4 — the product detail screen's "add to cart"
  * control (REQ-STOREFRONT-024..027, design.md §5).
@@ -68,26 +71,27 @@ export function AddToCartButton({ productId, stock }: { productId: string; stock
     <>
       <div className="mt-6 flex items-end gap-3">
         <div>
-          <label htmlFor={qtyId} className="block text-sm font-medium text-neutral-800">
+          <label htmlFor={qtyId} className={fieldLabelClassName()}>
             수량
           </label>
+          {/* SPEC-DESIGN-001 M3 — this stepper stays intentionally narrow
+              (w-20), unlike every other form-field consumer's full-width
+              input, so `!w-20` overrides `fieldInputClassName()`'s baked-in
+              `w-full` with Tailwind's important modifier rather than
+              duplicating the token-referencing border/padding/focus classes
+              by hand. */}
           <input
             id={qtyId}
             type="number"
             min={1}
             value={quantity}
             onChange={(event) => handleQuantityChange(event.target.value)}
-            className="mt-1 w-20 rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
+            className={fieldInputClassName({ className: "!w-20" })}
           />
         </div>
-        <button
-          type="button"
-          disabled={stock === 0 || submitting}
-          onClick={handleClick}
-          className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-        >
+        <Button type="button" disabled={stock === 0 || submitting} onClick={handleClick}>
           장바구니에 담기
-        </button>
+        </Button>
       </div>
 
       <div

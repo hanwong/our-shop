@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { loadTossPaymentClient } from "@/lib/payment/toss-client";
+import { Button } from "@/components/ui/Button";
 
 /**
  * SPEC-PAYMENT-001 M4 — the checkout screen's payment-window trigger.
@@ -47,14 +48,9 @@ export function PayButton({ orderId, amount, orderName }: PayButtonProps) {
 
   return (
     <div className="mt-6">
-      <button
-        type="button"
-        onClick={handleClick}
-        disabled={isSubmitting}
-        className="w-full rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-      >
+      <Button type="button" onClick={handleClick} disabled={isSubmitting} fullWidth>
         {isSubmitting ? "결제창을 여는 중..." : "결제하기"}
-      </button>
+      </Button>
       {error ? (
         <p role="alert" className="mt-2 text-sm text-red-600">
           {error}

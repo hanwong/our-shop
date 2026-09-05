@@ -4,6 +4,8 @@ import { useId, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import type { InsufficientStockProduct } from "@/features/orders/types/order";
+import { Button } from "@/components/ui/Button";
+import { FormField } from "@/components/ui/FormField";
 
 /**
  * SPEC-ORDER-001 M5 — the shipping form (REQ-ORDER-008/010/013/014).
@@ -159,36 +161,23 @@ export function CheckoutForm({
 
       {FIELDS.map((field) => {
         const inputId = `${formId}-${field.name}`;
-        const errorId = `${inputId}-error`;
         const error = fieldErrors[field.name];
 
         return (
-          <div key={field.name}>
-            <label htmlFor={inputId} className="block text-sm font-medium text-neutral-800">
-              {field.label}
-            </label>
-            <input
-              id={inputId}
-              name={field.name}
-              type="text"
-              value={values[field.name]}
-              required={field.required}
-              {...("autoComplete" in field ? { autoComplete: field.autoComplete } : {})}
-              // The error is tied to its input programmatically, not merely
-              // placed beside it, so a screen reader announces the two together.
-              aria-describedby={error ? errorId : undefined}
-              aria-invalid={error ? true : undefined}
-              onChange={(event) =>
-                setValues((prev) => ({ ...prev, [field.name]: event.target.value }))
-              }
-              className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
-            />
-            {error ? (
-              <p id={errorId} className="mt-1 text-sm text-red-600">
-                {error}
-              </p>
-            ) : null}
-          </div>
+          <FormField
+            key={field.name}
+            id={inputId}
+            name={field.name}
+            type="text"
+            label={field.label}
+            value={values[field.name]}
+            required={field.required}
+            {...("autoComplete" in field ? { autoComplete: field.autoComplete } : {})}
+            error={error}
+            onChange={(event) =>
+              setValues((prev) => ({ ...prev, [field.name]: event.target.value }))
+            }
+          />
         );
       })}
 
@@ -212,13 +201,9 @@ export function CheckoutForm({
         </ul>
       ) : null}
 
-      <button
-        type="submit"
-        disabled={submitting}
-        className="w-full rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-      >
+      <Button type="submit" disabled={submitting} fullWidth>
         {submitting ? "주문 처리 중…" : "주문하기"}
-      </button>
+      </Button>
     </form>
   );
 }

@@ -57,6 +57,18 @@ describe("SiteHeader — AC-AUTH-038", () => {
   });
 });
 
+describe("SiteHeader — SPEC-DESIGN-001 M3 (.nav Classical mapping)", () => {
+  it("applies Classical nav container styling (surface background, divider hairline)", async () => {
+    vi.mocked(resolveSession).mockResolvedValue(null);
+
+    const { container } = render(await SiteHeader());
+    const header = container.querySelector("header");
+
+    expect(header?.className).toMatch(/bg-surface/);
+    expect(header?.className).toMatch(/border-divider/);
+  });
+});
+
 describe("SiteHeader — AC-AUTH-039", () => {
   it("renders identically for every null-session reason (missing / revoked / expired)", async () => {
     const outputs: string[] = [];

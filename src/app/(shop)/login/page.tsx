@@ -3,6 +3,9 @@
 import { useId, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { Button } from "@/components/ui/Button";
+import { FormField } from "@/components/ui/FormField";
+
 /**
  * SPEC-AUTH-002 M2 — the customer login screen (`/login`).
  *
@@ -65,35 +68,25 @@ export default function LoginPage() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-      <div>
-        <label htmlFor={emailId} className="block text-sm font-medium text-neutral-800">
-          이메일
-        </label>
-        <input
-          id={emailId}
-          name="email"
-          type="email"
-          value={email}
-          autoComplete="username"
-          onChange={(event) => setEmail(event.target.value)}
-          className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
-        />
-      </div>
+      <FormField
+        id={emailId}
+        name="email"
+        type="email"
+        label="이메일"
+        value={email}
+        autoComplete="username"
+        onChange={(event) => setEmail(event.target.value)}
+      />
 
-      <div>
-        <label htmlFor={passwordId} className="block text-sm font-medium text-neutral-800">
-          비밀번호
-        </label>
-        <input
-          id={passwordId}
-          name="password"
-          type="password"
-          value={password}
-          autoComplete="current-password"
-          onChange={(event) => setPassword(event.target.value)}
-          className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
-        />
-      </div>
+      <FormField
+        id={passwordId}
+        name="password"
+        type="password"
+        label="비밀번호"
+        value={password}
+        autoComplete="current-password"
+        onChange={(event) => setPassword(event.target.value)}
+      />
 
       {formError ? (
         <p role="alert" className="text-sm text-red-600">
@@ -101,13 +94,9 @@ export default function LoginPage() {
         </p>
       ) : null}
 
-      <button
-        type="submit"
-        disabled={submitting}
-        className="w-full rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-      >
+      <Button type="submit" disabled={submitting} fullWidth>
         {submitting ? "로그인 중…" : "로그인"}
-      </button>
+      </Button>
 
       <p className="text-sm text-neutral-600">
         계정이 없으신가요? <a href="/signup">회원가입</a>
