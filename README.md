@@ -145,7 +145,7 @@ Key security properties (see `.moai/specs/SPEC-AUTH-001/` for the full spec/acce
 
 갤러리는 의도적으로 작다: 확대·라이트박스·스와이프·자동 재생 캐러셀은 제공하지 않는다. 썸네일은 네이티브 `<button>`이라 Tab 이동·Enter/Space 활성화·포커스 링을 브라우저에서 그대로 받는다. 장바구니 담기 버튼, 헤더·푸터·전역 내비게이션, 상품 목록/검색 화면은 전부 이 SPEC의 범위 밖이며 별도 SPEC 대상이다.
 
-**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-STOREFRONT-001/progress.md` 참고): `npm run build`가 실패한다 — 원인은 이 SPEC이 아니라 `src/middleware.ts` → `src/lib/auth/jwt.ts` → `node:crypto` 경로의 기존 결함이며(Edge 런타임이 `node:crypto`를 번들하지 못함), 이 SPEC의 산출물을 전부 제거해도 동일하게 실패함을 확인했다. 칸반 백로그의 별도 카드로 분리해 추적한다. 폭 375px 뷰포트의 가로 스크롤 여부는 **아직 확인하지 않았다** — 브라우저 E2E 하네스가 없어 자동 판정이 불가능한 수동 확인 항목이며, 통과했다는 뜻이 아니라 아직 아무도 보지 않았다는 뜻이다. 빌드 게이트는 CI에 없어(`.github/workflows/ci.yml`에 `npm run build` 단계 없음) Tailwind 툴체인 회귀는 손으로 돌려야 잡힌다.
+**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-STOREFRONT-001/progress.md` 참고): `npm run build`가 실패한다 — 원인은 이 SPEC이 아니라 `src/middleware.ts` → `src/lib/auth/jwt.ts` → `node:crypto` 경로의 기존 결함이며(Edge 런타임이 `node:crypto`를 번들하지 못함), 이 SPEC의 산출물을 전부 제거해도 동일하게 실패함을 확인했다. 칸반 백로그의 별도 카드로 분리해 추적한다. 폭 375px 뷰포트의 가로 스크롤 여부는 **아직 확인하지 않았다** — 브라우저 E2E 하네스가 없어 자동 판정이 불가능한 수동 확인 항목이며, 통과했다는 뜻이 아니라 아직 아무도 보지 않았다는 뜻이다. 빌드 게이트는 CI에 없어(`.github/workflows/ci.yml`에 `npm run build` 단계 없음) Tailwind 툴체인 회귀는 손으로 돌려야 잡힌다. (참고: `SPEC-E2E-001`이 이 저장소에 브라우저 E2E 하네스(`e2e/`, Playwright — `e2e/README.md` 참고)를 도입했지만, 그 스위트는 게스트 결제 여정(장바구니→체크아웃→결제)만 다루고 뷰포트·반응형 확인은 다루지 않는다 — 이 375px 항목은 여전히 미확인 상태이며, 다룰 후속 SPEC이 이 하네스를 확장할 수 있다.)
 
 ## 장바구니 화면·담기 UI (SPEC-STOREFRONT-002)
 
@@ -161,7 +161,7 @@ Key security properties (see `.moai/specs/SPEC-AUTH-001/` for the full spec/acce
 
 접근성: 수량 증가/감소·삭제 버튼에 상품명을 포함한 `aria-label`, 카트 이미지 전량에 상품명을 포함한 `alt`, 수량 숫자에 `tabular-nums`.
 
-**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-STOREFRONT-002/progress.md` 참고): `tests/integration/auth/login.test.ts`의 AC-AUTH-005는 알려진 플레이크다(칸반 백로그 카드 `t20`, 이 SPEC과 무관 — 격리 실행에서는 통과함을 재확인했다). `EmptyCart`의 "상품 목록으로 이동" 링크는 이 저장소에 아직 없는 `/products` 대신 `/`를 가리킨다(REQ-STOREFRONT-017이 정확한 href를 고정하지 않으므로 실제 진입점으로 보정). 브라우저 E2E 자동화는 범위 밖이다(jsdom + Testing Library까지만).
+**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-STOREFRONT-002/progress.md` 참고): `tests/integration/auth/login.test.ts`의 AC-AUTH-005는 알려진 플레이크다(칸반 백로그 카드 `t20`, 이 SPEC과 무관 — 격리 실행에서는 통과함을 재확인했다). `EmptyCart`의 "상품 목록으로 이동" 링크는 이 저장소에 아직 없는 `/products` 대신 `/`를 가리킨다(REQ-STOREFRONT-017이 정확한 href를 고정하지 않으므로 실제 진입점으로 보정). 브라우저 E2E 자동화는 이 SPEC 시점 범위 밖이었다(jsdom + Testing Library까지만). (참고: `SPEC-E2E-001`이 이후 게스트 카트→체크아웃→결제 여정에 대한 브라우저 E2E 하네스를 도입했다(`e2e/`, Playwright — `e2e/README.md` 참고) — 장바구니 담기·빈 장바구니를 포함해 이 화면들의 핵심 흐름이 이제 실제 Chromium으로 커버된다. 다만 접근성 검증(`aria-label` 등)이나 375px 뷰포트 가로 스크롤 확인은 그 스위트의 범위 밖으로 남아 있다.)
 
 ## 홈 화면 상품 그리드 (SPEC-STOREFRONT-003)
 
@@ -177,7 +177,7 @@ SPEC-STOREFRONT-001이 스텁으로 남기고 "홈 콘텐츠 설계는 범위 �
 
 `ProductGrid`는 **정렬·필터·페이지네이션 prop을 아예 받지 않는다** — 나중을 위해 자리를 비워 두는 대신, 그 기능들이 범위 밖이라는 결정을 타입으로 고정했다. 카드 위의 담기 버튼, 헤더·전역 내비게이션, 공유 포맷 유틸 추출도 전부 범위 밖이다. 가격 포맷(`formatWon`)은 이 저장소에서 이미 8개 파일이 각자 정의하고 있고 이 SPEC도 아홉 번째 지역 정의를 택했다(중복 제거는 별개 결정).
 
-**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-STOREFRONT-003/progress.md` 참고): 홈은 첫 20개에서 끝나며 21번째 상품부터는 도달할 방법이 없다(페이지네이션 범위 밖 — `totalCount`는 읽지만 화면에 쓰지 않는다). `/products` 목록 라우트는 여전히 없다. 2/3/4열 전환은 Tailwind 브레이크포인트 클래스의 존재로만 검증했고 폭 375px 실제 가로 스크롤 여부는 SPEC-STOREFRONT-001과 마찬가지로 아직 확인하지 않았다(E2E 하네스 부재). 이미지 허용 호스트는 여전히 `next.config.ts`의 `picsum.photos` 하나뿐인 임시 플레이스홀더이며 이 SPEC은 그 파일을 건드리지 않았다.
+**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-STOREFRONT-003/progress.md` 참고): 홈은 첫 20개에서 끝나며 21번째 상품부터는 도달할 방법이 없다(페이지네이션 범위 밖 — `totalCount`는 읽지만 화면에 쓰지 않는다). `/products` 목록 라우트는 여전히 없다. 2/3/4열 전환은 Tailwind 브레이크포인트 클래스의 존재로만 검증했고 폭 375px 실제 가로 스크롤 여부는 SPEC-STOREFRONT-001과 마찬가지로 아직 확인하지 않았다(`SPEC-E2E-001`이 도입한 브라우저 E2E 하네스는 게스트 결제 여정만 다루고 뷰포트·반응형 확인은 다루지 않는다 — `e2e/README.md` 참고). 이미지 허용 호스트는 여전히 `next.config.ts`의 `picsum.photos` 하나뿐인 임시 플레이스홀더이며 이 SPEC은 그 파일을 건드리지 않았다.
 
 ## 고객용 로그인·회원가입 화면 (SPEC-AUTH-002)
 
@@ -196,7 +196,7 @@ SPEC-STOREFRONT-001이 스텁으로 남기고 "홈 콘텐츠 설계는 범위 �
 
 **클라이언트 인증 상태 저장소는 도입하지 않았다** — 액세스 토큰을 클라이언트 메모리에만 두는 `SPEC-AUTH-001`의 설계(REQ-AUTH-009)를 뒤집는 결정이라 별개 SPEC의 몫이며, `createContext`/`useContext`/`useAuth`/`localStorage`/`sessionStorage`가 0건이라는 것을 정적 가드가 강제한다. `src/features/admin/services/admin-session.ts`와 `src/middleware.ts`는 한 글자도 바뀌지 않았다.
 
-**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-AUTH-002/progress.md` 참고): 헤더·전역 내비게이션이 없어 로그인해도 화면이 달라지지 않고 로그아웃할 방법도 화면에 없다. `resolveSession`은 아직 소비자가 없어 단위 테스트로만 검증됐고 실제 요청 경로에서 실행된 적이 없다. Google OAuth 진입 버튼이 없어 브라우저에서 소셜 로그인을 시작할 방법은 여전히 없다. 검증은 jsdom + Testing Library까지이며 실제 브라우저 폼 거동·모바일 뷰포트는 E2E 하네스 부재로 아직 확인하지 않았다.
+**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-AUTH-002/progress.md` 참고): 헤더·전역 내비게이션이 없어 로그인해도 화면이 달라지지 않고 로그아웃할 방법도 화면에 없다. `resolveSession`은 아직 소비자가 없어 단위 테스트로만 검증됐고 실제 요청 경로에서 실행된 적이 없다. Google OAuth 진입 버튼이 없어 브라우저에서 소셜 로그인을 시작할 방법은 여전히 없다. 검증은 jsdom + Testing Library까지이며 실제 브라우저 폼 거동·모바일 뷰포트는 아직 확인하지 않았다. (참고: `SPEC-E2E-001`이 브라우저 E2E 하네스를 도입했지만(`e2e/`, Playwright), 게스트 결제 여정 전용이라 이 SPEC의 로그인·회원가입 화면은 그 스위트의 범위 밖이다 — 여전히 미확인 상태다.)
 
 ## 상품 리뷰 (SPEC-REVIEW-001)
 
