@@ -348,3 +348,48 @@ canary_compliance_check: n/a   # 이 SPEC은 forward-looking 정책을 자체 �
 **Justification**: This is coding-heavy implementation work with a hard sequential dependency — M2-M6 all build on M1's proof that the undici interceptor reaches the Next.js route-handler execution context. Per Anthropic's coding-task parallelism caveat, coding work has fewer truly parallelizable units than research; `serial` (single manager-develop spawn per milestone) is the correct default here.
 
 **Implementation Kickoff Approval**: user approved 2026-09-05 via AskUserQuestion (option: "지금 시작 (권장)"); progression mode = autonomous ("자동 진행 (권장)").
+
+## §G CodeRabbit Follow-up Cleanup (2026-09-05, cards t38/t39/t40)
+
+Batch cleanup of 3 CodeRabbit findings against the merged PR #25 (SPEC-E2E-001). No plan-phase applies — cause and fix direction were pre-diagnosed by the dispatching orchestrator; this section records fix evidence per the 5-section format.
+
+### t38 — `playwright.config.ts`: reused local server bypasses the Toss interceptor
+
+**Claim**: `reuseExistingServer: !process.env.CI` allowed a locally-running `next dev` server (started outside Playwright) to be reused without the mandatory `NODE_OPTIONS` Toss-interceptor injection, silently breaking the zero-real-Toss-network-contact safety invariant in local development.
+
+**Evidence**: `git diff` shows `reuseExistingServer` changed from `!process.env.CI` to `false` (unconditional), with a code comment explaining the safety-over-convenience tradeoff. `npx tsc --noEmit` → clean (no errors). `npx playwright test e2e/m2-toss-stub.spec.ts` (which exercises the same `webServer` config) → 2 passed, confirming a freshly-spawned server (never reused) still boots and serves correctly with the interceptor active.
+
+**Baseline-attribution**: this-run, this-tree, branch `WT-coderabbit-cleanup-g1`, HEAD at time of fix built on `e8c4ef3`.
+
+**Gaps**: no test directly exercises "a pre-existing server on port 3100 is NOT reused" (would require spawning a second Next.js process in the test harness itself — out of scope for a one-line safety fix). Verification is source-level correctness + the unconditional value, not a behavioral repro.
+
+**Residual-risk**: none identified — the change is strictly more conservative than before (always fresh vs. sometimes reused).
+
+### t39 — `e2e/m2-toss-stub.spec.ts`: success-mode cleanup races the async confirm write
+
+**Claim**: `page.waitForRequest(...)` only waits for the confirm HTTP request to be SENT, not for the server's `markOrderPaid()` write to complete; the `finally` block's `deleteSpikeOrder()` could race an in-flight write for the same order.
+
+**Evidence**: `page.waitForRequest(...)` replaced with `page.waitForResponse(...)` (predicate checks `res.request().method()` and `res.url()` instead of `req.method()`/`req.url()`); subsequent `request.url()` reads changed to `response.url()`. `npx tsc --noEmit` → clean. `npx playwright test e2e/m2-toss-stub.spec.ts` → both scenarios pass (2 passed, 12.8s), confirming the paymentKey/orderId/amount assertions and the zero-Toss-host-hit assertion still hold with the stronger completion signal.
+
+**Baseline-attribution**: this-run, this-tree, branch `WT-coderabbit-cleanup-g1`.
+
+**Gaps**: per the Reproduction-First discipline note in the dispatch prompt, this race was NOT reliably reproducible on demand (M5's own investigation needed forced concurrency to trigger a related issue). No RED/GREEN pair exists for this fix — verification is the manual-reasoning justification below plus the still-passing test suite, not a captured failing-then-passing repro.
+
+**Residual-risk**: `waitForResponse` is strictly a stronger completion guarantee than `waitForRequest` for this purpose — a `Response` is only observable after the server has returned it, which for this route only happens after the handler's `markOrderPaid()` write and its subsequent JSON response are both complete (the route does not stream a response before finishing its write). This closes the specific race identified, but general E2E timing flakiness (unrelated to this specific write) remains a class of residual risk inherent to browser automation, unchanged by this fix.
+
+### t40 — `package.json`: `engines.node` under-declares the `process.loadEnvFile` floor
+
+**Claim**: `e2e/support/env-check.ts` calls `process.loadEnvFile()`, which requires Node.js 20.6.0+, while `engines.node` permitted `>=20.0.0`.
+
+**Evidence**: `grep -A2 '"engines"' package.json` → `"node": ">=20.6.0"`.
+```
+  "engines": {
+    "node": ">=20.6.0"
+  },
+```
+
+**Baseline-attribution**: this-run, this-tree, branch `WT-coderabbit-cleanup-g1`.
+
+**Gaps**: no automated check enforces `engines.node` at install time in this project (no `engine-strict` npm config observed) — this fix corrects the declared contract but does not add enforcement. Outside t40's stated scope.
+
+**Residual-risk**: none — this is a metadata-only correction; runtime behavior is unaffected (the actual `process.loadEnvFile` call was already correct given the observed Node 25.2.1 runtime in this environment).

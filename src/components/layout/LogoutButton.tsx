@@ -30,11 +30,21 @@ export function LogoutButton() {
   const router = useRouter();
 
   async function handleLogout() {
-    const response = await fetch("/api/auth/logout", {
-      method: "POST",
-      headers: { "X-CSRF-Token": readCsrfToken() },
-      credentials: "same-origin",
-    });
+    let response: Response;
+    try {
+      response = await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { "X-CSRF-Token": readCsrfToken() },
+        credentials: "same-origin",
+      });
+    } catch {
+      // t43 — a network-level failure (offline, DNS failure, etc.) throws
+      // from fetch() itself, distinct from a non-200 HTTP response. The
+      // no-op-on-failure contract (REQ-AUTH-045) below applies equally
+      // here: deliberately empty, no navigation, no refresh, the button
+      // stays exactly as it was.
+      return;
+    }
 
     // Non-200 (403 CSRF failure or 500) intentionally does nothing further —
     // no navigation, no refresh, the button stays exactly as it was

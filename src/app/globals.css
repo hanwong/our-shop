@@ -55,9 +55,18 @@
   --color-accent-100: #fff3e4; --color-accent-200: #ffe3bf; --color-accent-300: #facb8d;
   --color-accent-400: #e1ad66; --color-accent-500: #c28d41; --color-accent-600: #a06f24;
   --color-accent-700: #7d5411; --color-accent-800: #5a3b0a; --color-accent-900: #3a270d;
-  --font-heading: "Cormorant Garamond", system-ui, sans-serif;
+  /* t51 (CodeRabbit follow-up, 2026-09-05) — a deliberate, narrow deviation
+   * from the byte-identical-to-plan.md-§D.1 mandate above, authorized by
+   * this specific follow-up card for next/font structural robustness. The
+   * RENDERED font family is UNCHANGED (still Cormorant Garamond / Lora);
+   * only the value-sourcing mechanism changes, from a literal string that
+   * happens to match next/font's internal @font-face naming to a CSS
+   * custom property next/font itself emits (`layout.tsx`'s `variable`
+   * font-loader option, applied to <html>). Every other token in this
+   * @theme block remains the verbatim plan.md §D.1 transcription. */
+  --font-heading: var(--font-heading-nf), system-ui, sans-serif;
   --font-heading-weight: 600;
-  --font-body: "Lora", system-ui, sans-serif;
+  --font-body: var(--font-body-nf), system-ui, sans-serif;
   --space-1: 4.6px; --space-2: 9.2px; --space-3: 13.8px; --space-4: 18.4px; --space-6: 27.6px; --space-8: 36.8px;
   --radius-sm: 2px; --radius-md: 4px; --radius-lg: 7px;
   --shadow-sm: 0 1px 2px color-mix(in srgb, #2d2b2b 14%, transparent);
