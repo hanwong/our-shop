@@ -185,8 +185,8 @@ SPEC-STOREFRONT-001이 스텁으로 남기고 "홈 콘텐츠 설계는 범위 �
 
 | 경로 | 파일 | 설명 |
 |---|---|---|
-| `/login` | `src/app/login/page.tsx` | 고객 로그인. `POST /api/auth/login`을 기존 요청 모양 그대로 호출하고 성공 시 `/`로 이동 |
-| `/signup` | `src/app/signup/page.tsx` | 회원가입. `POST /api/auth/signup` 호출, 201에도 자동 로그인하지 않고 `/login`으로 이동 |
+| `/login` | `src/app/(shop)/login/page.tsx` | 고객 로그인. `POST /api/auth/login`을 기존 요청 모양 그대로 호출하고 성공 시 `/`로 이동 |
+| `/signup` | `src/app/(shop)/signup/page.tsx` | 회원가입. `POST /api/auth/signup` 호출, 201에도 자동 로그인하지 않고 `/login`으로 이동 |
 
 두 화면 모두 `src/app/staff/login/page.tsx`의 시각 관례(`useId` 라벨 연결, `noValidate`, `role="alert"` 오류 표시, 제출 중 버튼 비활성화)를 그대로 재사용하며 서로 이동하는 링크를 갖는다. 실패 시에는 서버가 준 `error` 문자열을 **그대로** 표시한다 — 클라이언트에서 문구를 다시 쓰지 않는다.
 

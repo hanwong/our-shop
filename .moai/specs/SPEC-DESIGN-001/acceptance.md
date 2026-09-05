@@ -73,7 +73,7 @@ Then (a) 그 문자열을 직접 갖는 파일이 `src/components/ui/` 밖에 �
 - (a) `grep -rl "rounded-md bg-neutral-900" src/ | grep -v "src/components/ui/"` → 0건
 - (b) 버튼 프리미티브 단위 테스트가 투명 배경 + accent 테두리·글자를 단언
 - (c) **채움 금지 — 세 가지 표기 형태를 모두 거부한다.** 버튼 프리미티브에서 `bg-transparent` 이외의 배경 지정이 0건:
-  ```
+  ```bash
   grep -rnE 'bg-(accent|surface|bg|text|neutral)(-[0-9]{3})?\b|bg-\[var\(--color-|background(-color)?:\s*var\(--color-' src/components/ui/ | grep -v 'bg-transparent'
   ```
   → 0건

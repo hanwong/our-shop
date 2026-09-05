@@ -1634,7 +1634,7 @@ own computed `id`/`className`/`aria-invalid`/`aria-describedby`) spread BEFORE
 `aria-describedby` — silently overwrote FormField's own computed value, even a
 real error-linked id string. Verified as a genuine LATENT defect (no current
 consumer simultaneously passes `error=` AND a manual `aria-describedby`), but
-`src/app/staff/products/ProductForm.tsx`'s 5 `<FormField>` call sites (lines
+`src/app/staff/products/ProductForm.tsx`'s 4 `<FormField>` call sites (lines
 ~199-277) pass a manual `aria-describedby` WITHOUT ever setting `error=`
 (this file renders its own error text via a separate `fieldError()` helper) —
 their current-working behavior depends on `rest`'s `aria-describedby`
@@ -1644,7 +1644,7 @@ surviving, so a naive spread-order flip was rejected as unsafe.
 keys ONLY when `error` is set, and spreads AFTER `rest` — so FormField's own
 computed values win over a caller-passed value when `error` is set (the fix),
 while a caller's own `aria-describedby`/`aria-invalid` passes through
-untouched when `error` is not set (ProductForm.tsx's 5 call sites — zero
+untouched when `error` is not set (ProductForm.tsx's 4 call sites — zero
 regression). `id`/`className` are unaffected (already destructured out of
 `rest` before this point). No consumer file was touched.
 
