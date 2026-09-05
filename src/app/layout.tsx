@@ -72,15 +72,35 @@ import "./globals.css";
  * — the system stack is not an option that satisfies it, so the tradeoff
  * that favored reverting there does not apply here.
  */
+/*
+ * t51 (CodeRabbit follow-up, 2026-09-05) — `globals.css`'s `@theme` block
+ * previously hardcoded the LITERAL font-name strings ("Cormorant Garamond",
+ * "Lora") that happen to match next/font's internally-generated
+ * `@font-face` family names. That works today (re-verified against the
+ * compiled `.next/static/css/*.css` output — see
+ * `.moai/reports/sync-audit/SPEC-DESIGN-001-2026-09-05.md` § F1 Resolution
+ * and progress.md's F1 Residual-risk note), but it is not a documented
+ * next/font contract — a future next/font internal-naming change could
+ * silently break it with no compile-time signal. The `variable` option
+ * below emits a CSS custom property next/font itself controls, so
+ * `globals.css` can reference it via `var(...)` instead of guessing the
+ * literal family-name string. `--font-heading-nf`/`--font-body-nf` are
+ * DELIBERATELY separate from the `--font-heading`/`--font-body` @theme
+ * tokens: the `-nf` ones are next/font-generated primitives, the @theme
+ * ones remain the Classical-system token names consumers use via the
+ * `font-heading`/`font-body` Tailwind utilities.
+ */
 const cormorantGaramond = Cormorant_Garamond({
   subsets: ["latin"],
   weight: ["400", "600"],
   display: "swap",
+  variable: "--font-heading-nf",
 });
 const lora = Lora({
   subsets: ["latin"],
   weight: ["400", "600"],
   display: "swap",
+  variable: "--font-body-nf",
 });
 
 export const metadata: Metadata = {
@@ -90,7 +110,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ko" className={`${cormorantGaramond.className} ${lora.className}`}>
+    <html
+      lang="ko"
+      className={`${cormorantGaramond.className} ${lora.className} ${cormorantGaramond.variable} ${lora.variable}`}
+    >
       {/* SPEC-DESIGN-001 M3 cascade follow-up (plan.md §D.1b "흰 배경 → var(--color-bg)"):
           AC-DESIGN-010 requires all 15 pages to inherit the Classical
           background/text tokens from this single point. `bg-white` is a
