@@ -273,7 +273,9 @@ $ grep -rn "일치\|통합\|잠정\|두 차례" .moai/specs/SPEC-DESIGN-001/
 
 **Justification**: M0→M1→{M2,M3,M4}→M5의 강한 순차 의존과, 사용자가 명시적으로 선택한 "단계마다 확인"(세미-자동 진행) 축이 결합해 마일스톤 단위 순차 위임이 맞다. M0는 실패·되돌림 경로가 정의된 인프라 작업이라 독립 확인이 필요하고, 코딩 중심 작업이므로 Anthropic의 coding-task parallelism caveat에 따라 fanout/sweep보다 serial이 안전하다.
 
-**Implementation Kickoff Approval**: user approved 2026-09-05 via AskUserQuestion (option: "지금 시작 (권장)"); progression mode = **semi-autonomous** ("단계마다 확인 (권장)") — 이전 3개 카드(E2E-001, AUTH-003, AUTH-004)와 달리 자동 진행이 아님. 마일스톤마다 결과를 보고하고 다음 진행 여부를 확인받는다.
+**Implementation Kickoff Approval**: user approved 2026-09-05 via AskUserQuestion (option: "지금 시작 (권장)"); progression mode = semi-autonomous ("단계마다 확인 (권장)")로 시작 — M0/M1 완료 후 각각 사용자 확인을 받았다.
+
+**진행 방식 전환 (M2 진행 중, 2026-09-05)**: 사용자가 "마일스톤 넘어가는것은 자동으로 계속 진행해줘"라고 직접 지시 — 이 시점부터 M3 이후는 **자동 진행**으로 전환한다. 각 마일스톤 병합·검증(typecheck/lint/전체 스위트/PRESERVE diff)은 계속 오케스트레이터가 직접 수행하고 리드에게도 계속 보고하되, 사용자 확인 라운드(AskUserQuestion)는 마일스톤 사이에서 생략한다.
 
 ## §G Design-phase Evidence (D1-D5, manager-design)
 
