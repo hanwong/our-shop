@@ -37,7 +37,7 @@ import {
   deleteSpikeOrder,
   disconnectSpikeOrderClient,
   getSeededProduct,
-  STUB_SUCCESS_PAYMENT_KEY,
+  stubSuccessPaymentKey,
 } from "./support/order-fixture";
 
 test.describe("M3 — guest happy-path journey", () => {
@@ -105,14 +105,12 @@ test.describe("M3 — guest happy-path journey", () => {
       await expect(page.getByRole("button", { name: "결제하기" })).toBeVisible();
 
       // --- REQ-E2E-010 / AC-E2E-008: payment success -> paid completion state ---
-      // Defensive, scenario-scoped only (progress.md §E.2 M2 residual-risk
-      // note): toss-sdk-stub.js hardcodes ONE literal success paymentKey for
-      // every scenario, and Order.paymentKey carries a DB-level unique
-      // constraint. Clearing any stale row holding it immediately before
-      // THIS scenario's own confirm write guards against a leftover async
-      // write from an earlier scenario colliding here — not the general M5
-      // seed/isolation cleanup.
-      await clearStalePaymentKey(STUB_SUCCESS_PAYMENT_KEY);
+      // Belt-and-suspenders only (M5 — toss-sdk-stub.js now derives the
+      // success paymentKey from this order's own id, so no OTHER scenario's
+      // order can ever collide on it; see stubSuccessPaymentKey()'s doc
+      // comment in order-fixture.ts). Clearing any stale row holding THIS
+      // order's own key guards only the leftover-interrupted-run case.
+      await clearStalePaymentKey(stubSuccessPaymentKey(orderId!));
 
       await page.getByRole("button", { name: "결제하기" }).click();
       await expect(page).toHaveURL(new RegExp(`/checkout/complete/${orderId}$`));

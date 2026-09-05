@@ -26,7 +26,7 @@ import {
   deleteSpikeOrder,
   disconnectSpikeOrderClient,
   getSeededProduct,
-  STUB_SUCCESS_PAYMENT_KEY,
+  stubSuccessPaymentKey,
 } from "./support/order-fixture";
 
 test.describe("M4 — failure/retry and edge paths", () => {
@@ -79,7 +79,7 @@ test.describe("M4 — failure/retry and edge paths", () => {
       // 바꾼 뒤 결제를 다시 누른다" -- switch mode on the SAME page (no
       // reload), because `setMode()`'s `addInitScript()` only takes effect on
       // a FUTURE navigation and the failed page is already loaded.
-      await clearStalePaymentKey(STUB_SUCCESS_PAYMENT_KEY);
+      await clearStalePaymentKey(stubSuccessPaymentKey(order.orderId));
       await tossPaymentStub.setModeOnCurrentPage("success");
       await retryButton.click();
 
