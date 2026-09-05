@@ -619,7 +619,7 @@ spec_level_tensions_resolved_in_scope: 2  # (1) plan.md §E WARN comment vs AC-A
 ```yaml
 sync_status: audit-ready
 sync_complete_at: 2026-09-05
-sync_commit_sha: pending-backfill-SPEC-AUTH-004-sync
+sync_commit_sha: 868e8e7
 sync_auditor_verdict: PASS
 sync_auditor_scores:
   functionality: 98
