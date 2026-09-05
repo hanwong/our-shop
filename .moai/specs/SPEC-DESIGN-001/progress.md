@@ -810,23 +810,344 @@ CSRF 유틸(§C.3), `globals.css`, `src/components/ui/`, 다른 페이지·
 확인했다. 기존 4개 단언은 애초에 통과 상태였고 적응(adaptation) 없이
 그대로 유지됐다 — 선택자·값 변경 0건.
 
+### M3 — 고객 화면 9장 + Classical 매핑 2건
+
+cycle_type: tdd. 워크트리 복구 경로(A.0)를 탔다 — 초기 `HEAD`
+(`0be83c5f182819fb58599cd9089abe7dc0842f05`)가 기대값
+(`35444516e9b4bd62dd136ef6885ada297361363d`, M2 병합 커밋)과 달라
+`m3-customer-pages` 브랜치를 후자에서 새로 분기했다. 분기 직후
+`src/components/ui/Button.tsx`/`FormField.tsx`(M1 산출물) 존재를 확인한 뒤
+`npm install`을 실행했다.
+
+**E0 — 워크트리 케이스**: A.0 경로 B(불일치)를 탔다. 위 문단 참조.
+
+**사전 확인 (Section C pre-flight)** — 편집 이전:
+
+```
+$ npx tsc --noEmit
+(exit 0, no output)
+
+$ npm run lint
+(exit 0, no output)
+
+$ npm test
+Test Files  115 passed (115)
+     Tests  1514 passed (1514)
+
+$ grep -n "focus-visible:ring" src/components/product/ProductCard.tsx
+40:      className="group block overflow-hidden rounded-md border border-neutral-200 transition hover:border-neutral-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2"
+```
+
+M2 베이스라인(115 파일 / 1514 테스트)과 정확히 일치. M1이 이월한
+AC-DESIGN-005(c)의 1건 잔존도 재확인했다.
+
+**소비 파일 인벤토리 (편집 전 실측)** — plan.md §F M3 목록과 대조하기 위해
+전수 grep을 먼저 실행했다:
+
+```
+$ grep -rl "rounded-md bg-neutral-900" src/
+(shop)/signup/page.tsx, (shop)/login/page.tsx, staff/products/ProductForm.tsx,
+staff/products/page.tsx, staff/login/page.tsx, product/AddToCartButton.tsx,
+product/ReviewForm.tsx, checkout/CheckoutForm.tsx, checkout/CheckoutInteractive.tsx,
+checkout/PayButton.tsx, cart/CartView.tsx, cart/EmptyCart.tsx,
+orders/OrderLookupForm.tsx  → 13개 파일 (spec.md §1.3 실측과 일치)
+
+$ grep -rl "w-full rounded-md border border-neutral-300" src/
+(shop)/signup/page.tsx, (shop)/login/page.tsx, staff/products/ProductForm.tsx,
+staff/login/page.tsx, product/ReviewForm.tsx, checkout/CheckoutForm.tsx,
+checkout/CheckoutInteractive.tsx, orders/OrderLookupForm.tsx  → 8개 파일
+```
+
+스태프 3개 파일(`ProductForm.tsx`, `staff/products/page.tsx`,
+`staff/login/page.tsx`)은 M4 소관 — 제외. 나머지 10개(버튼)/6개(폼, staff 2개
+제외)가 정확히 plan.md §F M3의 동반 컴포넌트 목록과 1:1로 일치함을 확인했다.
+
+**RED 증거 (E11)** — 이 마일스톤은 대부분 기존 테스트 적응(className 교체,
+새 동작 없음)이라 신규 테스트는 스타일 단언 2건에 한정했다(`SiteHeader`/
+`ProductCard`의 시각 매핑, 착수 지시 E11이 명시적으로 허용한 범위):
+
+```
+$ npx vitest run tests/unit/components/product-card.test.tsx
+ FAIL — "does not use the hardcoded focus-visible:ring-* utility any more"
+   AssertionError: expected 'group block overflow-hidden rounded-m…' not to match /focus-visible:ring/
+ FAIL — "uses the Classical outline focus-visible rule and .card token styling"
+   AssertionError: expected '...' to match /focus-visible:outline-accent/
+ Test Files  1 failed (1)
+      Tests  2 failed | 9 passed (11)
+
+$ npx vitest run tests/unit/components/site-header.test.tsx
+ FAIL — "applies Classical nav container styling (surface background, divider hairline)"
+   AssertionError: expected '' to match /bg-surface/
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+```
+
+**GREEN** — 아래 구현 후 재실행:
+
+```
+$ npx vitest run tests/unit/components/product-card.test.tsx tests/unit/components/site-header.test.tsx
+ ✓ tests/unit/components/site-header.test.tsx (4 tests)
+ ✓ tests/unit/components/product-card.test.tsx (11 tests)
+ Test Files  2 passed (2)
+      Tests  15 passed (15)
+```
+
+**구현 내역**:
+
+- `(shop)/login/page.tsx`, `(shop)/signup/page.tsx` — 이메일/비밀번호
+  `<input>` 2개를 `FormField`로, 제출 `<button>`을 `<Button fullWidth>`로
+  교체. `formError` 단락은 필드 종속 오류가 아니므로(전체 폼 오류) 그대로
+  유지.
+- `cart/CartView.tsx`, `cart/EmptyCart.tsx` — "결제하기"/"상품 목록으로
+  이동" `<a>` CTA 링크를 `buttonClassName({ className: "mt-6" })`으로 교체.
+  수량 스테퍼(+/−)와 삭제 링크는 13개 파일 수렴 문자열과 무관한
+  보조(secondary) 컨트롤이라 plan.md §D.3의 "중간 신뢰도, run-phase 개별
+  판단" 대상으로 남기고 손대지 않았다(§D.2 레이아웃 예외와 동일 논리).
+- `checkout/CheckoutForm.tsx` — `FIELDS.map`의 라벨+입력+오류 블록 전체를
+  `FormField`로 교체(요소당 3줄이던 것이 `FormField` 1개 호출로 축약).
+  제출 버튼을 `<Button fullWidth>`로 교체.
+- `checkout/CheckoutInteractive.tsx` — 쿠폰 입력(근접 변형,
+  `CheckoutInteractive.tsx:138`)을 `<FormField>` 컴포넌트가 아니라 그
+  익스포트된 빌더 `fieldInputClassName()`/`fieldLabelClassName()`으로
+  직접 교체했다 — 입력이 "적용" 버튼과 같은 줄(flex row)에 나란히 있어
+  `FormField`의 라벨-위/입력-아래 세로 레이아웃과 맞지 않기 때문
+  (`buttonClassName`이 `<a>` 소비자를 위해 별도 export된 것과 동일한
+  이유, M1 선례). 근접 변형의 "선행 mt-1 없음" 차이는 감싸는 `<div>`의
+  `mt-1`을 제거하는 방식으로 흡수했다 — `fieldInputClassName()`이 이미
+  자신의 `mt-[var(--space-1)]`를 내장하므로 중복 마진이 생기지 않는다
+  (plan.md §1.3 "여백 prop으로 흡수"). "적용" 버튼은
+  `buttonClassName({ className: "shrink-0" })`.
+- `checkout/PayButton.tsx` — `<button>`을 `<Button fullWidth>`로 교체.
+- `orders/OrderLookupForm.tsx` — 주문번호/연락처 `<input>` 2개를
+  `FormField`로, 제출 버튼을 `<Button fullWidth>`로 교체.
+- `product/AddToCartButton.tsx` — "장바구니에 담기" `<button>`을 `<Button>`
+  으로 교체. 수량 `<input type="number">`는 13/8개 파일 수렴 문자열
+  어디에도 없는 별도 폭(`w-20`, 실측 grep에서 미검출)이라 `<FormField>`
+  컴포넌트로 감싸지 않고, `fieldInputClassName({ className: "!w-20" })`으로
+  토큰 참조는 확보하되 폭은 Tailwind `!important` 수식자로 오버라이드했다
+  (AC-DESIGN-010의 "모든 폼 필드가 프리미티브를 경유" 요건을 좁은 폭이라는
+  이유로 예외 처리하지 않기 위함).
+- `product/ReviewForm.tsx` — "리뷰 내용" `<textarea>`(정확히 8개 파일
+  수렴에 포함)를 `<FormField multiline>`으로 교체. "평점" `<select>`는
+  `<input>`/`<textarea>`만 다루는 `FormField`의 판별 유니언 밖이라 동일하게
+  `fieldInputClassName({ className: "!w-auto" })` 직접 소비 패턴을 썼다.
+  제출 버튼을 `<Button>`으로 교체.
+- `layout/SiteHeader.tsx` (plan.md §C.4/§D.3, `.nav`/`.nav-brand`
+  매핑) — **시각 스타일만** 변경: `bg-surface` + `border-divider`(헤어라인)
+  + 토큰 패딩 + `font-body`/`text-text`를 `<header>`에 적용, 로그인 링크에
+  `text-accent`. 렌더 구조·조건분기·자식 컴포넌트는 원문 그대로(AC-AUTH-049
+  무영향 — 이 파일은 여전히 `(shop)/layout.tsx`에서만 렌더된다). 원래 두
+  분기(guest/logged-in)에 감싸는 `<div>`를 새로 추가하지 않고 개별 요소에
+  마진만 적용해 DOM 노드 수를 그대로 유지했다.
+- `product/ProductCard.tsx` (plan.md §D.3/§D.4-4, `.card` 매핑 + 포커스
+  링 교체) — 카드 `<a>`의 `border-neutral-200`/`hover:border-neutral-400`
+  을 `border-divider`/`hover:border-accent`로, `bg-surface` +
+  `shadow-sm`(whisper elevation)을 추가. 하드코딩된
+  `focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900
+  focus-visible:ring-offset-2`를 M1 프리미티브와 동일한
+  `focus-visible:outline focus-visible:outline-2
+  focus-visible:outline-offset-2 focus-visible:outline-accent`로 교체
+  (M1이 도입한 규약의 재사용, 새 규약 발명 없음). 상품명에
+  `text-neutral-900` → `text-text`(`.card-title`), 가격은 기존
+  `text-neutral-700` 유지(`.card-meta`, 이미 @theme 오버라이드로 Classical
+  값을 상속하는 literal이라 변경 불요).
+
+**cascade follow-up — `src/app/layout.tsx` body 배경 토큰** (M3 파일
+목록 밖, plan.md §D.1b 근거): AC-DESIGN-010은 "15개 페이지 전부가
+Classical 배경(`--color-bg`)을 상속"을 요구하며, 그 상속 지점은
+`layout.tsx` 단일 지점이라고 명시한다(acceptance.md AC-DESIGN-010 검증
+절). 그런데 실측 결과 `layout.tsx`의 `<body>`가 여전히
+`bg-white text-neutral-900`였다 — `text-neutral-900`은 M1의 `@theme`
+오버라이드로 이미 Classical 값을 상속하지만(`--color-neutral-900`이
+Classical의 따뜻한 어두운 색으로 재정의됨), `bg-white`는 Classical
+토큰에 전혀 대응되지 않는 리터럴이라(plan.md §D.1b가 명시적으로
+"흰 배경 → `var(--color-bg)`"를 값 교체 항목으로 열거) 이 SPEC의 어떤
+마일스톤도 이 한 줄을 소유하지 않은 채 남아 있었다. 착수 지시의 M3 파일
+목록에는 `layout.tsx`가 없지만, AC-DESIGN-010 — 바로 이 마일스톤이
+책임지는 인수 기준 — 이 이 수정에 의존하므로, `.claude/agents/moai/`의
+"SPEC 범위 내 cascade follow-up"(L46 귀속) 조항에 따라 `bg-white
+text-neutral-900` → `bg-bg text-text`로 교체했다. 한 줄, 저위험, 이미
+`plan.md §D.1b`에 명시된 값 매핑을 그대로 적용한 것이며, `shell.test.tsx`가
+`<body>`의 리터럴 className을 단언하지 않음을 사전 확인했다. 변경 후 관련
+테스트(`shell.test.tsx` 9건) 재실행해 GREEN 확인.
+
+**기존 테스트 적응 (test-after 아님 — 동작 재검증)**: M1 이전
+`SPEC-STOREFRONT-002 M5`가 작성한
+`tests/unit/components/pay-button.test.tsx`의 한 단언이 `PayButton.tsx`
+소스에 리터럴 `"px-4 py-2"` 문자열이 존재함을 검사했다. 이 SPEC이 그
+패딩을 `src/components/ui/Button.tsx`의 단일 정의처로 이전했으므로(
+`px-[var(--space-4)] py-[var(--space-2)]`) 그 리터럴이 더 이상
+`PayButton.tsx` 자체에 없다 — RED로 확인 후, 단언을 "여전히 py-3가 아님
++ 이제 공유 Button 프리미티브를 import함"으로 교체했다(SPEC-DESIGN-001
+§1.1이 명시적으로 반전하는 바로 그 이전 결정이므로 SPEC 요구사항에 의한
+적응이며, 임의 삭제가 아니다). 근본 단언(일관된 패딩)은 유지되고, 검증
+방식만 "리터럴 문자열 grep"에서 "단일 정의처 import 확인"으로 바뀌었다.
+
+**E1 — AC PASS/FAIL 매트릭스**:
+
+| AC | Given-When-Then 핵심 | 검증 명령/방법 | 결과 |
+|---|---|---|---|
+| AC-DESIGN-005(a) | 프리미티브가 토큰 역할만 참조(M3 신규 소비 지점 포함) | `grep -rn "neutral-900\|neutral-300\|#[0-9a-fA-F]{6}" src/components/ui/` → 0건(M1 이후 무변경) | **PASS** |
+| AC-DESIGN-005(b) | 포커스 표시가 Classical `:focus-visible`+`outline`+`outline-offset` | `ProductCard.tsx` 신규 단위 테스트가 `focus-visible:outline-accent` 클래스 존재를 단언(GREEN) | **PASS** |
+| AC-DESIGN-005(c) | `ProductCard.tsx:40`의 `ring-*` 방식 하드코딩 제거 | `grep -rn "focus-visible:ring" src/` → 0건(repo 전체, M1이 이월했던 유일 잔존 건 해소) | **PASS** (M1 DEFERRED → 이번 M3에서 해소) |
+| AC-DESIGN-006 | 신규 의존성 0건 | `git diff --stat -- package.json package-lock.json` → 빈 출력 | **PASS** |
+| AC-DESIGN-008(a) | 버튼 복제 문자열이 `src/components/ui/` 밖에 0건 | `grep -rl "rounded-md bg-neutral-900" src/ \| grep -v "src/components/ui/"` → staff 3개 파일만(M4 소관, M3 무관) | **PASS**(M3 소관 10개 파일 전부 소거 확인) |
+| AC-DESIGN-008(b) | 버튼 프리미티브가 Classical 아웃라인 렌더 | M1 `ui-button.test.tsx`(11건, 무변경)가 이미 단언 + M3는 그 프리미티브를 10개 파일에서 소비 | **PASS** |
+| AC-DESIGN-008(c) | accent 색 솔리드 채움 버튼 0건(3형태 전수) | 3형태 grep을 `src/` 전체에 재실행 → `bg-accent`/`bg-[var(--color-accent...)]` 형태 실사용 0건(주석 1건 제외); `bg-surface`/`bg-bg`/`bg-neutral-*` 형태 히트는 전부 비버튼(페이지 배경·nav surface·card surface·상태 배너·이미지 placeholder) — 아래 E5 참조 | **PASS** |
+| AC-DESIGN-009 | 폼 필드 복제 문자열이 `src/components/ui/` 밖에 0건 | `grep -rl "w-full rounded-md border border-neutral-300" src/ \| grep -v "src/components/ui/"` → staff 2개 파일만(M4 소관) | **PASS**(M3 소관 6개 파일 전부 소거 확인) |
+| AC-DESIGN-010 | 9개 고객 페이지 전수 커버 | 아래 페이지별 표 | **PASS**(9/9, N/A 명시 3건) |
+
+**AC-DESIGN-010 페이지별 확인**:
+
+| # | 페이지 | 기본 액션 버튼 | 폼 필드 | 판정 |
+|---|---|---|---|---|
+| 1 | `(shop)/page.tsx` (홈) | 없음(ProductGrid→ProductCard, 링크 카드) | 없음 | **N/A** (버튼/폼 없음, layout.tsx 상속으로 배경/타이포 충족) |
+| 2 | `products/[productId]/page.tsx` | `AddToCartButton`(하위 컴포넌트, PASS) | `ReviewForm`의 평점 select + 리뷰 내용(하위 컴포넌트, PASS) | **PASS**(하위 컴포넌트 경유) |
+| 3 | `cart/page.tsx` | `CartView`의 "결제하기" 또는 `EmptyCart`의 "상품 목록으로 이동"(하위 컴포넌트, PASS) | 없음 | **PASS**(버튼만, 폼 N/A) |
+| 4 | `checkout/page.tsx` | `CheckoutInteractive`의 쿠폰 "적용" + `CheckoutForm`의 "주문하기"(하위 컴포넌트, PASS) | `CheckoutForm`의 배송 정보 5필드 + 쿠폰 입력(하위 컴포넌트, PASS) | **PASS** |
+| 5 | `checkout/complete/[orderId]/page.tsx` | `PayButton`(pending_payment일 때만, 하위 컴포넌트, PASS) | 없음 | **PASS**(버튼만, 조건부 렌더는 REQ-DESIGN-007 무변경 확인 완료) |
+| 6 | `login/page.tsx` | "로그인" 제출 버튼(직접 마이그레이션, PASS) | 이메일/비밀번호 2필드(직접 마이그레이션, PASS) | **PASS** |
+| 7 | `signup/page.tsx` | "회원가입" 제출 버튼(직접 마이그레이션, PASS) | 이메일/비밀번호 2필드(직접 마이그레이션, PASS) | **PASS** |
+| 8 | `orders/lookup/page.tsx` | `OrderLookupForm`의 "주문 조회"(하위 컴포넌트, PASS) | `OrderLookupForm`의 주문번호/연락처 2필드(하위 컴포넌트, PASS) | **PASS** |
+| 9 | `orders/lookup/[orderNumber]/page.tsx` | 없음(`OrderLookupResultView`는 버튼/폼/링크 요소 0건, grep 확인) | 없음 | **N/A** (버튼/폼 없음, 쿠키 매치 시 즉시 결과 렌더) |
+
+9/9 페이지 전부 확인. 3건(#1, #9 전체 + #3의 폼)이 명시적 N/A이며,
+누락과 구분해 기록했다(acceptance.md AC-DESIGN-010의 요구사항).
+
+**E2 — AC-DESIGN-008(a) grep**:
+```
+$ grep -rl "rounded-md bg-neutral-900" src/ | grep -v "src/components/ui/"
+src/app/staff/products/ProductForm.tsx
+src/app/staff/products/page.tsx
+src/app/staff/login/page.tsx
+```
+(스태프 3개 — M4 소관, M3 무관. M3 대상 10개 파일 전부 소거 확인)
+
+**E3 — AC-DESIGN-009 grep**:
+```
+$ grep -rl "w-full rounded-md border border-neutral-300" src/ | grep -v "src/components/ui/"
+src/app/staff/products/ProductForm.tsx
+src/app/staff/login/page.tsx
+```
+(스태프 2개 — M4 소관, M3 무관. M3 대상 6개 파일 전부 소거 확인)
+
+**E4 — AC-DESIGN-005(c) grep**:
+```
+$ grep -rn "focus-visible:ring" src/
+(빈 출력 — 0건, repo 전체. 착수 전 1건 → 0건)
+```
+
+**E5 — AC-DESIGN-008(c) 3형태 grep, `src/` 전체**:
+```
+$ grep -rnE 'bg-(accent|surface|bg|text|neutral)(-[0-9]{3})?\b|bg-\[var\(--color-|background(-color)?:\s*var\(--color-' src/ | grep -v 'bg-transparent'
+```
+19건 히트, 검토 결과:
+- `bg-accent`/`bg-[var(--color-accent...)]` 실사용: **0건**(정밀 재검색으로
+  재확인 — accent 전용 패턴만 별도 grep, 히트는 globals.css의 주석 1건뿐)
+- `layout.tsx`(`bg-bg`, cascade), `SiteHeader.tsx`(`bg-surface`, nav
+  컨테이너), `ProductCard.tsx`(`bg-surface`, 카드 컨테이너) — 모두 M3가
+  이번에 도입한 것이며 전부 **비-accent** 배경(페이지 캔버스/nav
+  표면/card 표면 역할). Classical readme 제약은 "버튼·카드를 **accent**
+  색으로 솔리드 채움 금지"이지 "배경을 아예 쓰지 말라"가 아니다 — `.card`가
+  `--color-surface`를 배경으로 갖는 것은 §D.4-1의 정상 범위다.
+- 나머지 히트(staff 파일 3건, `ProductGallery.tsx`, `OrderLookupResultView.tsx`
+  등)는 M3 미소관 파일이거나 M3 편집 이전부터 있던 `bg-neutral-100`
+  placeholder/상태-배너 배경(비버튼) — 판단 근거는 위 §D.2/§D.4 텍스트.
+- **버튼/Button-프리미티브 인접 요소에 accent 솔리드 채움 0건** 확인.
+
+**E6 — tsc/lint**:
+```
+$ npx tsc --noEmit
+(exit 0, no output)
+
+$ npm run lint
+> our-shop@0.1.0 lint
+> eslint .
+(exit 0, no output)
+```
+
+**E7 — 전체 회귀** (M2 베이스라인 115 파일/1514 테스트 대비):
+```
+$ npm test
+ Test Files  115 passed (115)
+      Tests  1517 passed (1517)
+  Duration  17.78s
+```
+115 파일 = M2와 동일(신규 테스트 파일 없음, 기존 2개 파일에 케이스 추가).
+1517 테스트 = 1514(M2 베이스라인) + 3(신규: `ProductCard` 2건 +
+`SiteHeader` 1건). 기존 테스트 실패 0건, 신규 실패 0건.
+`pay-button.test.tsx`의 1건은 교체(적응)이지 삭제가 아니므로 카운트에
+포함된 채 유지된다(7건 그대로).
+
+**E8 — 스태프 무변경**:
+```
+$ git diff --stat -- src/app/staff/
+(빈 출력)
+```
+
+**E9 — 브랜치/푸시 상태**: 브랜치 `m3-customer-pages`(base
+`35444516e9b4bd62dd136ef6885ada297361363d`, M2 병합 커밋). 커밋 후
+`git push origin m3-customer-pages` 예정 — 오케스트레이터가 t47에서 머지.
+
+**E10 — 블로커**: 없음. 판단이 필요했던 지점(cascade follow-up 1건,
+CheckoutInteractive/AddToCartButton/ReviewForm의 비-`<FormField>` 직접
+소비 패턴 3건)은 전부 plan.md §D.1b/§1.3의 명시적 근거를 인용해 위
+"구현 내역"/"cascade follow-up" 절에 투명하게 기록했다.
+
+**실제 diff 범위** (scope discipline 준수 확인):
+```
+$ git status --short
+ M src/app/(shop)/login/page.tsx
+ M src/app/(shop)/signup/page.tsx
+ M src/app/layout.tsx
+ M src/components/cart/CartView.tsx
+ M src/components/cart/EmptyCart.tsx
+ M src/components/checkout/CheckoutForm.tsx
+ M src/components/checkout/CheckoutInteractive.tsx
+ M src/components/checkout/PayButton.tsx
+ M src/components/layout/SiteHeader.tsx
+ M src/components/orders/OrderLookupForm.tsx
+ M src/components/product/AddToCartButton.tsx
+ M src/components/product/ProductCard.tsx
+ M src/components/product/ReviewForm.tsx
+ M tests/unit/components/pay-button.test.tsx
+ M tests/unit/components/product-card.test.tsx
+ M tests/unit/components/site-header.test.tsx
+```
+16개 파일 — 착수 지시 Section D의 9페이지 중 2개(login/signup, 직접
+버튼/폼 보유) + 8개 동반 컴포넌트 전부 + SiteHeader/ProductCard 2개 +
+cascade 1개(`layout.tsx`, 위 근거) + 테스트 3개(신규 단언 2 + 적응 1).
+`src/app/staff/`, `LogoutButton.tsx`는 무변경.
+
+MX 태그: `Button.tsx`/`FormField.tsx`의 fan-in 실측 재확인 —
+`grep -rl 'from "@/components/ui/Button"' src/` → 11개 파일(M2 1개 +
+M3 10개), `FormField` → 7개 파일(M3 전부). plan.md §H가 M5에서 확정하기로
+한 항목이므로 이번 마일스톤에서 프리미티브 자체의 `@MX:ANCHOR` 주석은
+수정하지 않았다(M1 원문 유지).
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 ```yaml
-run_milestone: M2
-next_milestone: M3
+run_milestone: M3
+next_milestone: M4
 run_status: in-progress
 m0_status: complete
 m0_fallback_taken: false
 m1_status: complete
 m2_status: complete
+m3_status: complete
 ac_design_007_status: PASS
+ac_design_005c_status: PASS (resolved in M3, was deferred-from-M1)
+ac_design_008_status: PASS (a/b/c all verified against full src/ tree)
+ac_design_009_status: PASS
+ac_design_010_status: PASS (9/9 customer pages, 3 explicit N/A)
 ac_design_012_baseline: "113 files / 1493 tests passed (npm test, pre-M0-edit)"
-ac_design_012_post_change: "115 files / 1514 tests passed (npm test, post-M2-edit) — 0 regressions, +0 files/+1 test (new AC-DESIGN-007 assertion in existing logout-button.test.tsx)"
-ac_design_005c_status: deferred-to-M3 (ProductCard.tsx:40 untouched by design)
+ac_design_012_post_change: "115 files / 1517 tests passed (npm test, post-M3-edit) — 0 regressions, +0 files/+3 tests (2 new ProductCard style assertions + 1 new SiteHeader style assertion), 1 existing test adapted (pay-button.test.tsx literal-className assertion → shared-primitive-import assertion, SPEC-DESIGN-001-mandated per §1.1)"
 new_warnings_or_lints_introduced: 0
 package_json_diff: empty
-m1_to_mN_commit_strategy: single feature branch per milestone (m2-logout-button), orchestrator merges per milestone
+cross_platform_build: not re-run this milestone (no platform-sensitive change; M1's npm run build pass still holds for the primitive layer)
+cascade_follow_up: "src/app/layout.tsx body className bg-white/text-neutral-900 -> bg-bg/text-text (plan.md §D.1b explicit value mapping, required for AC-DESIGN-010's background-inheritance claim; not in Section D's literal M3 file list but within the SPEC's declared scope envelope per L46 attribution)"
+m1_to_mN_commit_strategy: single feature branch per milestone (m3-customer-pages), orchestrator merges per milestone
 ```
 
 ## §E.4 Sync-phase Audit-Ready Signal

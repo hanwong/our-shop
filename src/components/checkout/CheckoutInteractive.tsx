@@ -5,6 +5,8 @@ import { useId, useState } from "react";
 import type { CartDTO } from "@/features/cart/types/cart";
 import { CheckoutForm } from "@/components/checkout/CheckoutForm";
 import { OrderSummary } from "@/components/checkout/OrderSummary";
+import { buttonClassName } from "@/components/ui/Button";
+import { fieldInputClassName, fieldLabelClassName } from "@/components/ui/FormField";
 
 /**
  * SPEC-DISCOUNT-001 M6b — the coupon input + result area, composed with
@@ -126,22 +128,28 @@ export function CheckoutInteractive({
   return (
     <div className="space-y-8">
       <section className="rounded-lg border border-neutral-200 p-4">
-        <label htmlFor={inputId} className="block text-sm font-medium text-neutral-800">
+        <label htmlFor={inputId} className={fieldLabelClassName()}>
           쿠폰 코드
         </label>
-        <div className="mt-1 flex gap-2">
+        {/* SPEC-DESIGN-001 M3 — the wrapping div previously carried the "mt-1"
+            top margin that every other form-field consumer puts on the input
+            itself (plan.md §1.3 near-variant). `fieldInputClassName()` already
+            bakes in that same margin token, so it is absorbed here rather than
+            duplicated (plan.md §D.2 "여백 prop으로 흡수") — the wrapping div
+            carries no margin of its own any more. */}
+        <div className="flex gap-2">
           <input
             id={inputId}
             type="text"
             value={code}
             onChange={(event) => setCode(event.target.value)}
-            className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
+            className={fieldInputClassName()}
           />
           <button
             type="button"
             onClick={handleApply}
             disabled={applying || code.trim() === ""}
-            className="shrink-0 rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+            className={buttonClassName({ className: "shrink-0" })}
           >
             적용
           </button>

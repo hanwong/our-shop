@@ -30,12 +30,20 @@ export default async function SiteHeader() {
   const session = await resolveSession(await cookies());
 
   return (
-    <header>
+    /* SPEC-DESIGN-001 M3 (plan.md §C.4/§D.3 — `.nav`/`.nav-brand` Classical
+       mapping, VISUAL STYLE ONLY): warm surface background + hairline
+       divider border, matching the readme's editorial/booklike register.
+       Render structure, the session branch, and every child element are
+       unchanged (AC-AUTH-049 stays untouched — this file still exists ONLY
+       inside src/app/(shop)/layout.tsx). */
+    <header className="border-b border-divider bg-surface px-[var(--space-4)] py-[var(--space-3)] font-body text-sm text-text">
       {session === null ? (
-        <Link href="/login">로그인</Link>
+        <Link href="/login" className="text-accent hover:text-accent-2">
+          로그인
+        </Link>
       ) : (
         <>
-          <span>내 정보</span>
+          <span className="mr-[var(--space-3)]">내 정보</span>
           <LogoutButton />
         </>
       )}

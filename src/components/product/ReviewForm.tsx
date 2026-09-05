@@ -3,6 +3,9 @@
 import { useId, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { Button } from "@/components/ui/Button";
+import { FormField, fieldInputClassName, fieldLabelClassName } from "@/components/ui/FormField";
+
 /**
  * SPEC-REVIEW-001 M4 — the product detail screen's review-writing control
  * (REQ-REVIEW-002, REQ-REVIEW-008). Rendered only for a logged-in visitor —
@@ -64,14 +67,19 @@ export function ReviewForm({ productId }: { productId: string }) {
   return (
     <form onSubmit={handleSubmit} className="mt-4 space-y-3">
       <div>
-        <label htmlFor={ratingId} className="block text-sm font-medium text-neutral-800">
+        <label htmlFor={ratingId} className={fieldLabelClassName()}>
           평점
         </label>
+        {/* Not a <FormField> consumer — <select> is outside FormField's
+            input/textarea discriminant, and this control is intentionally
+            auto-width (not the shared w-full), so the exported class builder
+            is applied directly with an important-modifier override
+            (AddToCartButton.tsx's quantity input set the same precedent). */}
         <select
           id={ratingId}
           value={rating}
           onChange={(event) => setRating(Number(event.target.value))}
-          className="mt-1 rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
+          className={fieldInputClassName({ className: "!w-auto" })}
         >
           {RATINGS.map((value) => (
             <option key={value} value={value}>
@@ -81,27 +89,19 @@ export function ReviewForm({ productId }: { productId: string }) {
         </select>
       </div>
 
-      <div>
-        <label htmlFor={bodyId} className="block text-sm font-medium text-neutral-800">
-          리뷰 내용
-        </label>
-        <textarea
-          id={bodyId}
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
-          required
-          rows={3}
-          className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
-        />
-      </div>
+      <FormField
+        id={bodyId}
+        label="리뷰 내용"
+        multiline
+        value={body}
+        onChange={(event) => setBody(event.target.value)}
+        required
+        rows={3}
+      />
 
-      <button
-        type="submit"
-        disabled={submitting}
-        className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-      >
+      <Button type="submit" disabled={submitting}>
         리뷰 등록
-      </button>
+      </Button>
 
       {error !== null ? (
         <div role="alert" aria-live="polite" className="text-sm text-red-600">

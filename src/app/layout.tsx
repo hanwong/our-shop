@@ -81,7 +81,16 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ko" className={`${cormorantGaramond.className} ${lora.className}`}>
-      <body className="bg-white text-neutral-900 antialiased">
+      {/* SPEC-DESIGN-001 M3 cascade follow-up (plan.md §D.1b "흰 배경 → var(--color-bg)"):
+          AC-DESIGN-010 requires all 15 pages to inherit the Classical
+          background/text tokens from this single point. `bg-white` is a
+          literal Tailwind color with no Classical mapping (unlike
+          `text-neutral-900`, which M1's @theme override already redirects to
+          Classical's warm ink color) — `bg-bg`/`text-text` complete that
+          inheritance. Layout.tsx is not itself an M3 file, but this one-line
+          swap is what M3's own AC-DESIGN-010 depends on; see progress.md
+          §E.2 M3 for the scope rationale. */}
+      <body className="bg-bg text-text antialiased">
         {children}
       </body>
     </html>

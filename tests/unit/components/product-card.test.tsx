@@ -110,6 +110,24 @@ describe("ProductCard — AC-STOREFRONT-038 (scope: no description/stock/categor
   });
 });
 
+describe("ProductCard — SPEC-DESIGN-001 M3 (AC-DESIGN-005(c) Classical focus ring)", () => {
+  it("does not use the hardcoded focus-visible:ring-* utility any more", () => {
+    render(<ProductCard product={product()} />);
+
+    const link = screen.getByRole("link");
+    expect(link.className).not.toMatch(/focus-visible:ring/);
+  });
+
+  it("uses the Classical outline focus-visible rule and .card token styling", () => {
+    render(<ProductCard product={product()} />);
+
+    const link = screen.getByRole("link");
+    expect(link.className).toMatch(/focus-visible:outline-accent/);
+    expect(link.className).toMatch(/border-divider/);
+    expect(link.className).toMatch(/shadow-sm/);
+  });
+});
+
 describe("ProductCard — AC-STOREFRONT-040 (a)/(b) accessibility", () => {
   it("gives the image alt text that includes the product name", () => {
     render(<ProductCard product={product({ name: "코튼 볼캡" })} />);
