@@ -1548,6 +1548,84 @@ $ git status --short
 `globals.css`, 페이지 파일, 다른 컴포넌트, 테스트 파일, `package.json`은
 전혀 건드리지 않았다 — M5 범위(검증 + `@MX` 주석 확정)와 정확히 일치.
 
+### sync-audit F1 fix (2026-09-05) — Classical typography cascade not applied
+
+sync-auditor's `--deep` lens review (`.moai/reports/sync-audit/SPEC-DESIGN-001-2026-09-05.md`)
+found the Classical typography tokens (`--font-heading`/`--font-body`, declared
+in `globals.css`'s `@theme` block) were never applied to any rendered
+element — verified independently twice by direct code reading (lead session,
+then this orchestrator) before delegating this fix. **Overall verdict: FAIL**
+(Functionality dimension, must-pass firewall) — blocking finding F1.
+
+**Claim**: `body`/heading text site-wide now visually inherits
+`var(--font-body)`/`var(--font-heading)` (Cormorant Garamond/Lora), with the
+pre-existing Korean-fallback chain preserved and unmoved after the Classical
+fonts, and the `@theme` block's token VALUES (AC-DESIGN-001) are byte-identical
+to before the fix.
+
+**Evidence**:
+
+- RED (pre-fix `globals.css`, `npx vitest run tests/unit/app/typography-cascade.test.tsx`):
+  ```
+  FAIL  tests/unit/app/typography-cascade.test.tsx > globals.css typography cascade — sync-audit F1 regression guard > applies var(--font-body) to the body rule's font-family, ahead of the Korean fallback stack
+  AssertionError: expected 'body {\n  /* A Latin stack ahead of t…' to match /font-family:\s*\n?\s*var\(--font-body…/
+  FAIL  tests/unit/app/typography-cascade.test.tsx > globals.css typography cascade — sync-audit F1 regression guard > declares a heading-level rule that applies var(--font-heading), outside the @theme token block
+  AssertionError: expected '@import "tailwindcss";\n\n/*\n * SPEC…' to match /font-family:\s*\n?\s*var\(--font-head…/
+  Test Files  1 failed (1)
+       Tests  2 failed (2)
+  ```
+- GREEN (post-fix, same command): `Test Files  1 passed (1)` / `Tests  2 passed (2)`.
+- F1 verification greps re-run: `grep -rln "font-heading\b" src/` → `src/app/layout.tsx`,
+  `src/app/globals.css` (comment + new `h1-h6` rule — was only `globals.css`
+  the `@theme` declaration itself, before). `grep -rn "font-body" src/` → 5
+  hits across `layout.tsx` (comment), `globals.css` (token + comment + new
+  `body` rule reference), `SiteHeader.tsx` (unchanged existing usage) — was
+  exactly 1 hit before.
+- `git diff 306c0afc8297ec18e88a848c88282a8fb7b92edc -- src/app/globals.css`
+  (against the pre-fix commit): confirms the `@theme` block (lines 45-66,
+  every token value) is untouched — the diff touches only the `body` rule
+  (prepends `var(--font-body),`) and adds a new `h1, h2, h3, h4, h5, h6` rule,
+  both outside `@theme`.
+- Final `body` rule: `font-family: var(--font-body), ui-sans-serif, system-ui,
+  -apple-system, "Segoe UI", Roboto, "Apple SD Gothic Neo", "Malgun Gothic",
+  "Noto Sans KR", sans-serif;` — Korean fallback (`Apple SD Gothic Neo` →
+  `Malgun Gothic` → `Noto Sans KR`) present, unmoved, after the Classical font.
+- New `h1, h2, h3, h4, h5, h6` rule: same shape, leading with
+  `var(--font-heading)` instead.
+- `npx tsc --noEmit` → clean, no output.
+- `npm run lint` → clean, no output (ast-grep CLI absent, gracefully skipped).
+- `npm test` → `Test Files  116 passed (116)` / `Tests  1519 passed (1519)` —
+  M5 baseline was 115 files/1517 tests; delta is exactly +1 file/+2 tests
+  (the new regression test), 0 regressions, 0 new failures.
+
+**Baseline-attribution**: this-run, this-tree. Branch `fix-f1-typography-cascade`
+created off `306c0afc8297ec18e88a848c88282a8fb7b92edc` (the `WT-design-system-rollout`
+M5-final commit). All commands above were executed in that worktree
+(`.claude/worktrees/agent-a187d13ad7c770507`) against the working tree at
+commit `19659ee` (this fix's commit), not carried over from any prior
+milestone's measurement.
+
+**Gaps**: no jsdom/rendered `getComputedStyle` assertion exists (sync-audit
+F1 point 6 established this is not feasible for an external CSS file under
+jsdom) — the regression test is a static source-text scan, matching the
+audit's own stated recommendation ("a static scan is sufficient given
+jsdom's CSS limitations"). No visual/screenshot verification was performed
+(no browser tooling available in this delegation). `--font-heading-weight:
+600` (declared in `@theme`, unrelated to F1) remains unapplied anywhere —
+pre-existing, not flagged by the audit, out of scope for this fix.
+
+**Residual-risk**: relies on `next/font/google`'s self-hosted `@font-face`
+declaration matching the literal font-family name `"Lora"`/`"Cormorant
+Garamond"` referenced by `--font-body`/`--font-heading` (next/font/google
+without the `variable:` option emits a global `@font-face` under the real
+font name backed by the self-hosted file) — this was not independently
+re-verified against a production build's emitted CSS in this delegation;
+if next/font's internal font-family naming differs from assumption, the
+`var(--font-body)`/`var(--font-heading)` reference would silently fall
+through to `system-ui` rather than erroring, which a static-scan regression
+test cannot detect. This is the same mechanism plan.md §B.5 already commits
+to (M0), not a new risk this fix introduces.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 ```yaml
