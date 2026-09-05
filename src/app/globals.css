@@ -65,13 +65,31 @@
   --shadow-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
 }
 
+/*
+ * SPEC-DESIGN-001 sync-audit F1 fix (2026-09-05) — typography cascade.
+ *
+ * `next/font/google` in src/app/layout.tsx (SPEC-DESIGN-001 M0) applies its
+ * className tokens to <html>, self-hosting Cormorant Garamond + Lora at
+ * build time — but that alone does not make either font RENDER anywhere.
+ * Per CSS inheritance mechanics, an element's own explicit `font-family`
+ * declaration is what its descendants inherit, and every visible page
+ * element lives under <body>, not <html> directly. The `body` rule below
+ * therefore owns the actual application point: it explicitly references
+ * `var(--font-body)` (Lora) so descendant text inherits it, with the
+ * pre-existing Korean-fallback chain kept immediately after — Cormorant
+ * Garamond/Lora carry no Hangul glyphs, so Korean copy transparently falls
+ * through to the curated Korean stack via ordinary font-family fallback,
+ * exactly as it did before this fix (no new mechanism introduced).
+ *
+ * Headings get their own rule below, referencing `var(--font-heading)`
+ * (Cormorant Garamond) with the same Korean-fallback chain — this is what
+ * gives headings and body text the differentiated treatment plan.md §B.5
+ * describes ("Cormorant Garamond(제목)·Lora(본문)"), which did not exist
+ * anywhere in the shipped code before this fix.
+ */
 body {
-  /* A Latin stack ahead of the platform Korean faces. Web-font subsetting is
-     out of scope; these are all system-resident. Cormorant Garamond / Lora
-     load via next/font/google in src/app/layout.tsx (SPEC-DESIGN-001 M0)
-     and are applied there, not here — this body rule is the Korean-copy
-     fallback stack for text outside the two Classical font roles. */
   font-family:
+    var(--font-body),
     ui-sans-serif,
     system-ui,
     -apple-system,
@@ -83,4 +101,18 @@ body {
     sans-serif;
   line-height: 1.6;
   -webkit-text-size-adjust: 100%;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family:
+    var(--font-heading),
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    "Apple SD Gothic Neo",
+    "Malgun Gothic",
+    "Noto Sans KR",
+    sans-serif;
 }

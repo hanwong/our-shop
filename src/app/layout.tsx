@@ -41,6 +41,16 @@ import "./globals.css";
  * system's serif pairing (plan.md §D.1): Cormorant Garamond for headings,
  * Lora for body text.
  *
+ * SPEC-DESIGN-001 sync-audit F1 fix (2026-09-05) — this loader call self-
+ * hosts the two fonts and applies their className to <html>, but that alone
+ * does not make either font render: every visible element lives under
+ * <body>, which carries its own explicit `font-family` declaration in
+ * globals.css, and CSS inheritance resolves from an element's own rule, not
+ * an ancestor's. The actual application point is the `body` / heading rules
+ * in `src/app/globals.css` (`var(--font-body)` / `var(--font-heading)`),
+ * not this <html> className — this loader call's job is only to fetch and
+ * expose the fonts as CSS-consumable values.
+ *
  * SPEC-STOREFRONT-001 previously tried `next/font/google` here and reverted
  * to the system font stack, for two reasons (plan.md §K R7, this file's
  * prior revision): (a) the build-time network fetch it introduces, and (b)
