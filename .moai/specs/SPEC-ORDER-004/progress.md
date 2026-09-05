@@ -95,6 +95,37 @@ plan-auditor 독립 감사(Tier L 임계값 0.85). 통과 후 Implementation Kic
 
 Two commits will land: (1) `feat(SPEC-ORDER-004): M1 ...` — schema, migration, fixture fix, spec.md frontmatter, progress.md; (2) a separate immediately-following commit rewriting the 4 schema-side test files, clearly labeled as pulled-forward mechanical M6 work, not folded into M1's own commit message.
 
+### M1 — CLOSED. Commits `814b620` (M1 proper) + `6a31c6b` (pulled-forward M6 schema-side, 4 files/6 items), pushed to `WT-member-checkout`. Independently confirmed: `git log`, clean `git status`, `0 0` divergence vs origin.
+
+**Peer cross-validation (independent read-only Agent, NOT the author) — verdict per AC**:
+
+| AC | Verdict | Evidence |
+|----|---------|----------|
+| AC-ORDER-050 | PASS | schema text + live-DB `information_schema`/`pg_constraint` cross-check, both confirm `userId String?`, `user User? @relation(..., onDelete: Restrict)`, `@@index([userId])`, `User.orders Order[]`, no `@unique` on `userId` |
+| AC-ORDER-051 | PASS | migration.sql contains the exact `DROP NOT NULL` string; schema + live DB both show `guestId` nullable |
+| AC-ORDER-052 | PARTIAL (correct, expected) | schema half done (both nullable); write-path discriminated-union enforcement correctly deferred to M3/M4 — `order-repository.ts` confirmed unchanged this milestone |
+| AC-ORDER-053 | PASS | migration.sql non-destructive (0 DROP/DELETE/TRUNCATE/UPDATE statements — the one substring hit is a FK `ON DELETE RESTRICT` referential-action clause, not DML); header comment names SPEC ID + rollback data-loss point |
+| AC-ORDER-072 (interim) | PASS | `npx vitest run` → 116/116 files, 1526/1526 tests, ALL passing (not just non-regressed); `npx prisma migrate status` confirms the migration applied and not rolled back |
+
+**5 non-blocking flags from the peer reviewer (recorded for later milestones, none block M1 close)**:
+1. A naive grep-based AC-ORDER-053 auto-checker would false-positive on `ON DELETE RESTRICT ON UPDATE CASCADE` (an FK referential-action clause, not DML) — any future mechanical AC-053 checker (M6/sync) should exclude comment lines and referential-action clauses, not do a bare substring match.
+2. No regression test guards `Order.user`'s `onDelete: Restrict` — the schema and live DB are correct now, but nothing in the suite would catch an accidental future change to `Cascade`. Candidate for M6 test-coverage consideration, not required by any stated AC.
+3. No mechanical test verifies migration.sql content (relies on human/agent reading) — this is acceptance.md §I's own acknowledged "one gate without mechanical verification" (B4), not a new gap.
+4. `e2e/support/order-fixture.ts`'s `order.guestId!` non-null assertion is sound today (guest-only fixture) but is a comment-enforced invariant, not type-enforced — would silently break if the fixture is ever extended to member orders.
+5. `spec.md`'s `updated:` field was left unchanged in `814b620` (only `status:` was bumped) — happens to still read correctly since today is 2026-09-05, but flagging the pattern so it doesn't drift on a later commit.
+
+**Context-folding note**: `/compact` is unavailable in this subagent (spawned-agent) context — per `runtime-recovery-doctrine.md`'s built-in exception, noting this rather than blocking; evidence persistence (`.moai/state/verify/order004-m1/`) and this fold row substitute for the compact step. Proceeding to M2.
+
+## §E.2 addendum — M2 blocked, then resolved via M2+M3+M4 merge decision
+
+**M2 worker correctly caught a planning inconsistency in manager-lead's own delegation.** M2's brief said route.ts must call `createOrder(owner, body)` (the new `OrderOwner` discriminated union) while ALSO forbidding any change to `order-service.ts`/`order-repository.ts` this milestone. `order-service.ts:446`'s actual exported signature is `createOrder(guestId: string, body: unknown)` — a plain string, not `OrderOwner`. The worker implemented route.ts + order.ts types exactly as specified, hit the resulting `tsc` error, did NOT expand scope on its own authority, did NOT bypass the gate, and returned a well-evidenced blocker with 3 options (A: merge M2+M3+M4; B: reorder M3→M4→M2; C: rejected, gate bypass forbidden) and its own recommendation (B).
+
+**manager-lead traced the dependency chain further before deciding** (verification, not blind acceptance of the worker's recommendation): `order-repository.ts`'s `CreateOrderRow.guestId: string → owner: OrderOwner` change (M3, per design.md §6.2) breaks `order-service.ts`'s existing call site — M3 alone will not compile. And `order-service.ts`'s top-level signature change to accept `owner: OrderOwner` (M4, per design.md §6.3) breaks `route.ts`'s existing call site — M3+M4 alone, with route.ts unchanged, ALSO will not compile. **M2, M3, and M4 are one atomic TypeScript compile-unit** — there is no ordering of the three that keeps every intermediate commit independently green without inventing a throwaway compatibility shim (rejected: adds complexity the SPEC never scoped, against the Enforce Simplicity ladder). The worker's Option B would hit the identical wall one level higher up the call chain.
+
+**Decision: Option A — merge M2+M3+M4 into one implementation cycle**, landing as clearly-labeled separate commits within that cycle (not one undifferentiated commit) so the history stays reviewable: one commit for the combined production code (route.ts + order.ts types [already drafted by the M2 worker, carried forward verbatim] + order-repository.ts + cart-repository.ts + order-service.ts), a second commit for the pulled-forward M6 behavior-side test rewrites (route.test.ts + create-order.test.ts — these literally cannot go green without M3/M4 existing, confirming the worker's own diagnosis that Task 3 was blocked on code, not on judgment). This is a commit-sequencing/milestone-boundary decision within manager-lead's coordination authority — plan.md's per-milestone WHAT/WHY content is unchanged; only the git-landing grouping is corrected to match the code's actual dependency graph (which the original M1-through-M7 prose sequence undercounted at the compile-atomicity level, though it already flagged M2→M3→M4 as tightly sequential).
+
+The B3 risk the worker flagged (M4 must preserve `scope-boundaries.test.ts`'s six PRESERVE-listed regex assertions: `:113,:122,:123,:127,:128,:134`) is unchanged by this merge — it was always going to require careful authorship (explicit `if` branches, literal `findCartByGuestId(guestId, tx)` string form, `throw new OrderAbort` not `return`) regardless of which commit boundary the work landed in.
+
 manager-lead dispatched a leaf worker for M1 (schema + migration). Implementation is complete and internally verified (AC-ORDER-050/051/053 PASS with evidence — see below), but the local pre-commit quality gate (`moai gate`, invoked by `.git/hooks/pre-commit`) blocks the commit on 18 test failures. HEAD is unchanged at `4613f6a440ddb6aa7aa2c658981cbbb4591869eb`. Staged (uncommitted):
 
 ```
@@ -119,6 +150,39 @@ M  prisma/schema.prisma
 Evidence persisted at `.moai/state/verify/order004-m1/` (gitignored, cited paths confirmed to resolve): `baseline-vitest.txt`, `after-vitest.txt`, `failures-by-file.txt`, `eslint.txt`, `migration-ts.txt`, `schema.old.prisma`, `schema.new.prisma`.
 
 **Gaps**: migration SQL never executed against a server (B-1 unresolved — the 12-failure attribution to "migration not yet applied" is a well-evidenced inference, not a proven fact, until the migration is actually applied or the decision is made not to). Coverage not measured this milestone (not required until sync).
+
+### M2+M3+M4 — identity/CSRF + repository + service: IMPLEMENTED, all gates green
+
+Landed as the merged cycle §E.2 addendum decided. Baseline at entry (HEAD `6a31c6b` + the prior M2 worker's uncommitted route.ts/order.ts): **2 files / 30 tests failing** — the expected consequence of route.ts already calling `createOrder(owner, …)` against a service still typed `createOrder(guestId: string, …)`.
+
+**Final state**: `npx vitest run --reporter=dot` → **116 files / 1553 tests, 0 failing**. `npx tsc --noEmit` → exit 0. `npx eslint .` → exit 0. `npx prisma validate` → exit 0. Evidence: `.moai/state/verify/order004-m234/`.
+
+Test count moved 1526 → 1553 (+27, all additions; no `it` block deleted), satisfying AC-ORDER-072's "≥ 1526".
+
+**M2 (carried forward + verified against design.md §3)**: the prior worker's route.ts and order.ts were re-read line by line and match §3.4's non-reorderable sequence (session → member-CSRF → body → transaction), §3.2.1's inlined guest branch, and §3.3's guest-path CSRF exemption. Only the `createOrder(owner, body)` call site needed the M4 signature to exist. No corrections were required.
+
+**M3**: `CreateOrderRow.guestId: string` → `owner: OrderOwner`; `createOrderWithItems` spreads the union into exactly one column (the other is omitted, not written `null`); `findOrderForUser` added with ownership in the `where`; `findCartByUserId` gained the optional trailing client, and `cart-repository.ts:51-53`'s frozen-invariant comment now names three functions. `cart-service.ts` is unchanged (0 lines).
+
+**M4**: `createOrder(owner: OrderOwner, …)`; explicit two-branch cart dispatch inside the transaction preserving the literal `findCartByGuestId(guestId, tx)` text; `isSameOwner()` replacing the `guestId`-only comparison at BOTH idempotency sites; `getOrderForUser()` mirroring `getOrderForGuest()`.
+
+**The six PRESERVE-listed `scope-boundaries.test.ts` assertions (`:113`,`:122`,`:123`,`:127`,`:128`,`:134`) all still pass, unmodified** — verified before, during and after (15/15 in that file). The file was not touched.
+
+#### Scope finding — M6 was under-counted a second time (6 files/12 items → 10 files/16 items)
+
+`research.md` §2's union was itself incomplete. The M2+M3+M4 signature changes mechanically break **four more test files** the SPEC never enumerated. All four are pure call-site adaptations of a mandated change — no design judgment — and are the same class as §2.7/§2.8's PAYMENT-001 files, which the SPEC admitted into M6 scope on exactly this reasoning ("이 SPEC의 변경이 기계적으로 깨뜨리는 결과이므로 M6 범위에 포함한다"). They were therefore fixed rather than escalated, but the count is recorded so the SPEC body can be reconciled at sync:
+
+1. `tests/unit/orders/order-service.test.ts` — 57 type errors (`createOrder("G1", …)`), plus `:273` "attributes the order to the guest and to no one else", which asserted `row.guestId` on the service→repository boundary. Rewritten to assert the owner union; the property is unchanged, only where it is expressed.
+2. `tests/unit/orders/order-repository.test.ts` — 3 type errors (the `CreateOrderRow` fixture).
+3. `tests/integration/orders/concurrency.postgres.test.ts` — 6 type errors (three guest-vs-guest race scenarios).
+4. `tests/unit/cart/cart-repository-tx.test.ts` — **not a type error, a runtime assertion**: `:117` asserted `findCartByUserId` does NOT take a client ("the member path is out of scope"). That is SPEC-ORDER-001's scope guard, and this SPEC's design.md §6.1 deliberately reverses its premise. Rewritten to assert the three-function list plus the optional-trailing-parameter shape — the suite's actual property is "the exception does not widen SILENTLY", not "the list is frozen at two".
+
+Item 4 is the one worth a second look at sync: it is the only case where a passing SPEC-ORDER-001 guard was inverted rather than extended.
+
+#### AC coverage added beyond the mechanical fixes
+
+AC-ORDER-052/061 (repository-level XOR, both directions), AC-ORDER-060 (member cart read+delete on the tx client), AC-ORDER-062a/b and AC-ORDER-063 (both cross-owner directions, at unit AND integration level, including the anonymous-500 shape), AC-ORDER-069/070 (CSRF gating, and the guest exemption).
+
+**Gaps**: M5 (the two checkout screens) and M7 (the copy) are untouched — still open, as planned. AC-ORDER-064~068 are therefore unverified. Coverage was not measured this cycle (not required until sync). The Postgres concurrency suite's 6 rewritten call sites were type-checked but the suite itself skips without a reachable database in this run.
 
 ## §F Phase 4 Mode Selection
 

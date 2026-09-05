@@ -14,8 +14,10 @@
  *    number, expiry or CVC to model, because none is ever collected.
  *  - No email (plan.md §0 #4). The completion screen shows once, right after
  *    the order; nothing in this SPEC's scope has a use for an address.
- *  - No member attribution. An order belongs to a guest identity and to nothing
- *    else (design.md §1.4) — the same boundary the schema enforces.
+ *
+ * SPEC-ORDER-004 M2 reopens exactly one of those absences: an order now carries
+ * a member owner as well as a guest one, expressed as the `OrderOwner` union
+ * below. The two payment/email absences above are unchanged.
  *
  * The contrast with CartItemDTO is the point of this SPEC: a cart line carries
  * the CURRENT price read live on every request, while an order line carries the
@@ -32,6 +34,22 @@ import type { DiscountFailure } from "@/features/discounts/types/discount";
 
 /** The order lifecycle values. This SPEC only ever writes `pending_payment`. */
 export type OrderStatusDTO = "pending_payment" | "paid" | "cancelled";
+
+/**
+ * SPEC-ORDER-004 M2 — who an order belongs to (REQ-ORDER-048's XOR invariant,
+ * expressed as a type rather than as a review convention).
+ *
+ * Deliberately a discriminated union rather than `{ guestId?: string; userId?:
+ * string }`: that shape makes "both" and "neither" representable, which is
+ * exactly the pair the invariant forbids, and would push enforcement out of the
+ * compiler and into code review (plan.md §G).
+ *
+ * The write path (M3/M4) dispatches on `kind`; the route (M2) is the only place
+ * that DECIDES it, from `resolveSession()` alone (design.md §3.2.1).
+ */
+export type OrderOwner =
+  | { kind: "user"; userId: string }
+  | { kind: "guest"; guestId: string };
 
 /**
  * Everything the shopper is asked for — exactly the five fields REQ-ORDER-008
@@ -105,8 +123,10 @@ export interface OrderDTO {
 }
 
 /**
- * The five ways an otherwise well-formed submission can be refused
- * (design.md §8, extended by SPEC-ORDER-002 plan.md §2), plus the four coupon
+ * The four ways an otherwise well-formed submission can be refused
+ * (design.md §8, extended by SPEC-ORDER-002 plan.md §2; SPEC-ORDER-004 M2
+ * removed the fifth — the member-checkout refusal — when the member path
+ * stopped being a refusal at all, REQ-ORDER-056), plus the four coupon
  * refusals SPEC-DISCOUNT-001 adds (spec.md §4 "쿠폰 검증과 거절",
  * `DiscountFailureCode` in features/discounts/types/discount.ts). Each is a
  * 409, not a 400: the request itself is fine, it is the server's state that
@@ -118,7 +138,6 @@ export interface OrderDTO {
  * simply be sent again (REQ-ORDER-027).
  */
 export type OrderFailureCode =
-  | "MEMBER_CHECKOUT_UNSUPPORTED"
   | "CART_EMPTY"
   | "INSUFFICIENT_STOCK"
   | "PRICE_CHANGED"
@@ -142,7 +161,6 @@ export interface InsufficientStockProduct {
  */
 export type OrderFailure =
   | { status: 400; error: string; fieldErrors: Record<string, string> }
-  | { status: 409; error: string; code: "MEMBER_CHECKOUT_UNSUPPORTED" }
   | { status: 409; error: string; code: "CART_EMPTY" }
   | {
       status: 409;

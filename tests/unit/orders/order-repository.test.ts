@@ -155,9 +155,13 @@ describe("SPEC-ORDER-002 M1 — findStockByProductIds (REQ-ORDER-025)", () => {
 });
 
 describe("SPEC-ORDER-001 M2 — createOrderWithItems (REQ-ORDER-001/002/011)", () => {
+  // SPEC-ORDER-004 M3 — `guestId: "G1"` became `owner: { kind: "guest", ... }`.
+  // The repository now spreads the union into exactly one owner column, so the
+  // assertion below still reads `data.guestId` — what changed is the ARGUMENT
+  // shape, not the column the guest path writes (design.md §1.4).
   const row = {
     orderNumber: "ORD-20260831-ABC123",
-    guestId: "G1",
+    owner: { kind: "guest", guestId: "G1" } as const,
     idempotencyKey: "key-1",
     recipientName: "홍길동",
     recipientPhone: "010-0000-0000",
@@ -185,6 +189,34 @@ describe("SPEC-ORDER-001 M2 — createOrderWithItems (REQ-ORDER-001/002/011)", (
     expect(arg.data).toHaveProperty("items.create");
     expect(arg.data.guestId).toBe("G1");
     expect(singleton.order.create).not.toHaveBeenCalled();
+  });
+
+  // SPEC-ORDER-004 M3 — AC-ORDER-052's write-path half, observed at the only
+  // place an Order row is ever created. The opposite column is not written as
+  // an explicit null; it is not mentioned at all, and Prisma leaves an omitted
+  // column null. Asserting `not.toHaveProperty` rather than `toBeNull` is what
+  // makes that distinction observable (design.md §1.4).
+  it("spreads a MEMBER owner into userId alone, never mentioning guestId", async () => {
+    const tx = fakeTx();
+    await repo.createOrderWithItems(tx as never, {
+      ...row,
+      owner: { kind: "user", userId: "user-1" },
+    });
+
+    const [arg] = tx.order.create.mock.calls[0]! as [{ data: Record<string, unknown> }];
+    expect(arg.data.userId).toBe("user-1");
+    expect(arg.data).not.toHaveProperty("guestId");
+    expect(arg.data).not.toHaveProperty("owner");
+  });
+
+  it("spreads a GUEST owner into guestId alone, never mentioning userId", async () => {
+    const tx = fakeTx();
+    await repo.createOrderWithItems(tx as never, row);
+
+    const [arg] = tx.order.create.mock.calls[0]! as [{ data: Record<string, unknown> }];
+    expect(arg.data.guestId).toBe("G1");
+    expect(arg.data).not.toHaveProperty("userId");
+    expect(arg.data).not.toHaveProperty("owner");
   });
 
   it("carries the per-line snapshot fields through unchanged (REQ-ORDER-002)", async () => {
@@ -223,6 +255,26 @@ describe("SPEC-ORDER-001 M2 — findOrderForGuest (REQ-ORDER-020)", () => {
 
   it("joins the items so the completion screen can render the lines", async () => {
     await repo.findOrderForGuest("order-1", "G1");
+
+    const [arg] = singleton.order.findFirst.mock.calls[0]!;
+    expect(arg).toHaveProperty("include.items");
+  });
+});
+
+describe("SPEC-ORDER-004 M3 — findOrderForUser (REQ-ORDER-062)", () => {
+  it("filters by BOTH the order id and the owning user id", async () => {
+    await repo.findOrderForUser("order-1", "user-1");
+
+    // The same discipline findOrderForGuest sets: ownership lives IN the where
+    // clause, so no shape of this function returns a stranger's order to be
+    // filtered afterwards (design.md §5.2).
+    expect(singleton.order.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "order-1", userId: "user-1" } })
+    );
+  });
+
+  it("joins the items so the completion screen can render the lines", async () => {
+    await repo.findOrderForUser("order-1", "user-1");
 
     const [arg] = singleton.order.findFirst.mock.calls[0]!;
     expect(arg).toHaveProperty("include.items");

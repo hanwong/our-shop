@@ -1,49 +1,81 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 
-import { buildGuestCartCookie } from "@/lib/auth/guest-identity";
-import { resolveCartIdentity } from "@/features/cart/services/cart-service";
+import {
+  buildGuestCartCookie,
+  generateGuestCartId,
+  readGuestCartId,
+} from "@/lib/auth/guest-identity";
+import { verifyCsrfRequest } from "@/lib/auth/csrf";
+import { resolveSession } from "@/lib/auth/session-resolver";
 import { createOrder } from "@/features/orders/services/order-service";
+import type { OrderOwner } from "@/features/orders/types/order";
 
 /**
- * SPEC-ORDER-001 M4 — POST /api/orders (create a guest order).
+ * SPEC-ORDER-001 M4 / SPEC-ORDER-004 M2 — POST /api/orders (create an order for
+ * a member OR a guest).
  *
- * Traces: REQ-ORDER-007 (no credentials required), REQ-ORDER-010 (400 naming
- * the invalid fields, nothing persisted), REQ-ORDER-013/014/015 (the 409
- * refusals), REQ-ORDER-016 (a replay returns the first order), REQ-ORDER-021
- * (a member submission is refused).
+ * Traces: REQ-ORDER-051 (resolveSession decides membership), REQ-ORDER-053
+ * (no session ⇒ guest, cookie read or minted), REQ-ORDER-055 (an Authorization
+ * header is never grounds for member treatment here), REQ-ORDER-056 (the 409
+ * member refusal is gone), REQ-ORDER-064 (CSRF gates the member path before the
+ * transaction), REQ-ORDER-065 (guest behaviour observably unchanged).
  *
- * This is the ONLY place in the SPEC where an identity is decided, and it does
- * so by calling SPEC-CART-001's resolveCartIdentity() rather than reimplementing
- * the rules — so the order endpoint and the cart endpoints can never disagree
- * about who a request is (design.md §6.2). The read paths (the two checkout
- * screens) decide nothing at all: they read one cookie.
+ * ORDER OF OPERATIONS — design.md §3.4, and not reorderable:
  *
- * The member guard sits FIRST, before the body is even parsed, because it must
- * not open a transaction (AC-ORDER-022 (e)) and because refusing early is the
- * cheapest correct answer.
+ *   1. resolveSession(cookieStore)   read-only DB lookup; safe before CSRF
+ *   2a. member → verifyCsrfRequest() fail ⇒ 403, no body parse, no transaction
+ *   2b. guest  → no CSRF             guestId = readGuestCartId() ?? generate…
+ *   3. body parse
+ *   4. createOrder(owner, body)      the transaction
+ *
+ * CSRF cannot go first. It is scoped to the member path only, so "is this the
+ * member path" must be answered first — and answering it IS resolveSession(),
+ * itself a DB read. The invariant is "CSRF before the STATE-CHANGING
+ * operation", not "CSRF before all DB access"; the session lookup mutates
+ * nothing (REQ-AUTH-034), so preceding CSRF with it costs nothing CSRF protects.
+ *
+ * WHY THE CART DOMAIN'S IDENTITY RESOLVER IS NOT CALLED HERE (design.md
+ * §3.2.1). It returns `{kind:"user", userId}` for ANY valid Bearer token and
+ * offers no way to force a guest fallback — so routing this endpoint through it
+ * would make REQ-ORDER-055 unimplementable: a valid Bearer would always produce
+ * a member identity. The guest branch below is therefore built inline from
+ * guest-identity.ts's three raw primitives. That duplicates ~3 lines, and buys
+ * the property that no Bearer-parsing code path exists in this file at all —
+ * the ignore is expressed as an absent call, not as a comment. cart-service.ts
+ * keeps its Bearer branch untouched for the four cart routes (REQ-ORDER-054).
  */
 export async function POST(request: Request): Promise<Response> {
-  const { identity, issuedGuestId } = await resolveCartIdentity(request);
+  // 1. Identity. The ONLY source of member truth on this route.
+  const jar = await cookies();
+  const session = await resolveSession(jar);
 
-  // REQ-ORDER-021. A member's credentials are VALID here — they are simply for
-  // an identity this scope cannot serve, so this is 409 rather than 401/403:
-  // logging in again would produce the same answer (design.md §8).
-  //
-  // Refusing is deliberately preferred over silently demoting the request to
-  // its guest cookie. A demoted order would be attributed to a guest id the
-  // member no longer presents (login expires it), leaving them with an order
-  // they could never open — the exact defect the guest-only scope exists to
-  // avoid (spec.md §3).
-  if (identity.kind === "user") {
-    return NextResponse.json(
-      {
-        error: "회원 체크아웃은 아직 제공되지 않습니다",
-        code: "MEMBER_CHECKOUT_UNSUPPORTED",
-      },
-      { status: 409 }
-    );
+  let owner: OrderOwner;
+  // Non-null only when this request arrived without a guest cookie and we
+  // minted one — the existing :79-82 behaviour, preserved verbatim below.
+  let issuedGuestId: string | null = null;
+
+  if (session !== null) {
+    // 2a. Member. CSRF before anything that changes state (REQ-ORDER-064).
+    // 403 says nothing about WHICH check failed, matching the discipline
+    // staff/api/orders/[orderId]/status/route.ts already set.
+    if (!verifyCsrfRequest(request)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    owner = { kind: "user", userId: session.userId };
+  } else {
+    // 2b. Guest. No CSRF: the guest cookie is an identifier, not an
+    // authenticator — forging it only lets an attacker order from their own
+    // cart, and requiring CSRF here would break every existing guest client
+    // (REQ-ORDER-065, design.md §3.3).
+    //
+    // Reached regardless of any Authorization header, which is REQ-ORDER-055.
+    const existing = readGuestCartId(request);
+    issuedGuestId = existing === null ? generateGuestCartId() : null;
+    owner = { kind: "guest", guestId: existing ?? issuedGuestId! };
   }
 
+  // 3. Body. Never parsed on the member-CSRF-failure path above.
   let body: unknown;
   try {
     body = await request.json();
@@ -53,7 +85,8 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const result = await createOrder(identity.guestId, body);
+  // 4. The transaction.
+  const result = await createOrder(owner, body);
 
   // The service's failure object IS design.md §8's response body, minus the
   // two discriminants. Destructuring it rather than rebuilding it field by

@@ -2,7 +2,12 @@ import { randomBytes } from "node:crypto";
 import type { Coupon } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
-import { findCartByGuestId, deleteCart } from "@/features/cart/repositories/cart-repository";
+import {
+  findCartByGuestId,
+  findCartByUserId,
+  deleteCart,
+  type CartWithItems,
+} from "@/features/cart/repositories/cart-repository";
 import {
   createOrderWithItems,
   decrementStockIfAvailable,
@@ -10,6 +15,7 @@ import {
   findOrderByNumberAndPhone,
   findOrderByNumberForGuest,
   findOrderForGuest,
+  findOrderForUser,
   findStockByProductIds,
   type OrderWithItems,
 } from "@/features/orders/repositories/order-repository";
@@ -21,6 +27,7 @@ import type {
   OrderDTO,
   OrderFailure,
   OrderItemDTO,
+  OrderOwner,
   OrderResult,
   ShippingInfo,
 } from "@/features/orders/types/order";
@@ -48,11 +55,14 @@ import type { DiscountFailure } from "@/features/discounts/types/discount";
  * parsed body, and returns discriminated results. HTTP mapping belongs to the
  * route handler.
  *
- * The identity argument is a plain guest id STRING rather than a CartIdentity
- * union. That is not a simplification — it is the guest-only scope showing up
- * in the type: there is no member branch to dispatch on, because a member
- * cannot reach a server-rendered checkout at all (spec.md §3, research.md §6).
- * The route rejects member credentials before calling this function at all.
+ * SPEC-ORDER-004 M4 — the identity argument WAS a plain guest id string, which
+ * encoded the guest-only scope in the type: there was no member branch to
+ * dispatch on because a member could not reach checkout at all, and the route
+ * refused member credentials before calling this function. That scope is what
+ * this SPEC lifts. The argument is now the `OrderOwner` discriminated union
+ * (types/order.ts), and every owner-sensitive step below — the cart read, the
+ * cart delete, the stored row, and BOTH idempotency comparisons — dispatches on
+ * its `kind` (design.md §6.3).
  *
  * @MX:ANCHOR fan-in target — POST /api/orders and the completion screen both
  * enter the order domain exclusively through this module.
@@ -428,7 +438,35 @@ function shortLines(
 // ---------------------------------------------------------------------------
 
 /**
- * Creates a guest order, or explains why it cannot.
+ * Whether a stored order belongs to the identity now presenting its idempotency
+ * key (SPEC-ORDER-004 M4 — REQ-ORDER-059, design.md §4).
+ *
+ * This replaces the former `replayed.guestId === guestId`, and the shape of the
+ * replacement is the whole point. The obvious generalisation —
+ * `order.userId === owner.userId || order.guestId === owner.guestId` — is a
+ * SECURITY DEFECT: an owner carries only one of the two ids, so the other
+ * comparison degenerates to `undefined === null` or, worse, `null === null`
+ * once both sides are read off partially-populated objects. That match would
+ * hand a stranger the whole order, shipping PII included — the exact F1 finding
+ * SPEC-ORDER-001's audit fixed on the guest axis, reopened on the member one.
+ *
+ * Dispatching on `kind` closes it structurally rather than by care: when
+ * `kind === "user"`, `owner.userId` is necessarily a string and a guest-owned
+ * order's `userId` is necessarily `null`, so the comparison CANNOT match. The
+ * mirror holds for guests. REQ-ORDER-048's XOR is what guarantees that, which
+ * is why the XOR is a security property and not a tidiness one.
+ */
+function isSameOwner(
+  order: { guestId: string | null; userId: string | null },
+  owner: OrderOwner
+): boolean {
+  return owner.kind === "user"
+    ? order.userId === owner.userId
+    : order.guestId === owner.guestId;
+}
+
+/**
+ * Creates an order for a member or a guest, or explains why it cannot.
  *
  * The step order below is design.md §2's, and two parts of it are load-bearing:
  *
@@ -443,7 +481,10 @@ function shortLines(
  * the idempotency fast path — happens before the transaction opens, so a
  * rejected request never costs a transaction at all.
  */
-export async function createOrder(guestId: string, body: unknown): Promise<OrderResult<OrderDTO>> {
+export async function createOrder(
+  owner: OrderOwner,
+  body: unknown
+): Promise<OrderResult<OrderDTO>> {
   const validated = validate(body);
   if (!validated.ok) {
     return fail({
@@ -459,11 +500,16 @@ export async function createOrder(guestId: string, body: unknown): Promise<Order
   //
   // The owner check is REQ-ORDER-020 (AC-ORDER-023). The key alone names an
   // order but proves nothing about who is asking for it, so a replay is only a
-  // replay for the guest that minted the key; for anyone else the key is simply
-  // not theirs and this branch must not fire. Without this the endpoint hands a
-  // stranger the whole order, shipping PII included — the audit's F1.
+  // replay for the identity that minted the key; for anyone else the key is
+  // simply not theirs and this branch must not fire. Without this the endpoint
+  // hands a stranger the whole order, shipping PII included — the audit's F1.
+  //
+  // SPEC-ORDER-004 M4: the comparison now spans both owner kinds. A cross-owner
+  // key (a member presenting a guest's key, or the reverse) falls through here
+  // exactly as a stranger's key always did — see isSameOwner() above for why it
+  // cannot accidentally match.
   const replayed = await findOrderByIdempotencyKey(input.idempotencyKey);
-  if (replayed !== null && replayed.guestId === guestId) {
+  if (replayed !== null && isSameOwner(replayed, owner)) {
     return { ok: true, data: toOrderDTO(replayed) };
   }
 
@@ -472,7 +518,22 @@ export async function createOrder(guestId: string, body: unknown): Promise<Order
   try {
     const order = await prisma.$transaction(async (tx) => {
       // 1. Re-read the cart, its lines, and each line's CURRENT price and stock.
-      const cart = await findCartByGuestId(guestId, tx);
+      //
+      //    SPEC-ORDER-004 M4 — an explicit two-branch `if`, each branch calling
+      //    its OWN repository function directly. Not a `findCart(owner, tx)`
+      //    helper: scope-boundaries.test.ts reads this file as TEXT and requires
+      //    the literal call shape `findCartByGuestId(guestId, tx)`
+      //    (research.md §2.5). That assertion guards a real property — every
+      //    order write happens on the transaction client — so the correct
+      //    response to the constraint is to keep the shape, not to relax the
+      //    assertion (design.md §6.3, plan.md §G).
+      let cart: CartWithItems | null;
+      if (owner.kind === "user") {
+        cart = await findCartByUserId(owner.userId, tx);
+      } else {
+        const { guestId } = owner;
+        cart = await findCartByGuestId(guestId, tx);
+      }
       if (cart === null || cart.items.length === 0) {
         throw new OrderAbort({
           status: 409,
@@ -617,7 +678,7 @@ export async function createOrder(guestId: string, body: unknown): Promise<Order
       // 5. Write the order and its lines, with the prices and names as of now.
       const created = await createOrderWithItems(tx, {
         orderNumber,
-        guestId,
+        owner,
         idempotencyKey: input.idempotencyKey,
         ...input.shipping,
         itemsSubtotal,
@@ -684,15 +745,20 @@ export async function createOrder(guestId: string, body: unknown): Promise<Order
     //
     // The same owner check as the fast path above, and for the same reason
     // (AC-ORDER-023): this lookup is also by key alone, so a winner belonging to
-    // another guest must not be handed back here either. Losing the race is not
-    // a licence to read a stranger's order.
+    // another identity must not be handed back here either. Losing the race is
+    // not a licence to read a stranger's order.
+    //
+    // SPEC-ORDER-004 M4: both sites moved to isSameOwner() together. Updating
+    // only the fast path would leave the guest-only comparison here as a second,
+    // quieter door to the same F1 defect — reachable only under a race, which is
+    // exactly where it would go unnoticed.
     if (isUniqueViolation(error)) {
       const winner = await findOrderByIdempotencyKey(input.idempotencyKey);
-      if (winner !== null && winner.guestId === guestId) {
+      if (winner !== null && isSameOwner(winner, owner)) {
         return { ok: true, data: toOrderDTO(winner) };
       }
 
-      // The key is taken by an order that is not this guest's. Answering with
+      // The key is taken by an order that is not this identity's. Answering with
       // design.md §8's unexpected-transaction row — 500, no code — is
       // deliberate: it is the same answer any other unnamed unique collision
       // gets, so it tells the caller nothing about whether the key exists,
@@ -723,6 +789,21 @@ export async function createOrder(guestId: string, body: unknown): Promise<Order
  */
 export async function getOrderForGuest(orderId: string, guestId: string): Promise<OrderDTO | null> {
   const order = await findOrderForGuest(orderId, guestId);
+  return order === null ? null : toOrderDTO(order);
+}
+
+/**
+ * The order, but only for the member that owns it (SPEC-ORDER-004 M4 —
+ * REQ-ORDER-062, design.md §5.2).
+ *
+ * Mirrors getOrderForGuest() above deliberately, down to the null: a member
+ * asking for an order that is not theirs gets the same answer as one asking for
+ * an order that does not exist, so the completion screen renders notFound() and
+ * the response discloses nothing about whether the id is real. Distinguishing
+ * the two — a "not yours" status — would turn an order id into an oracle.
+ */
+export async function getOrderForUser(orderId: string, userId: string): Promise<OrderDTO | null> {
+  const order = await findOrderForUser(orderId, userId);
   return order === null ? null : toOrderDTO(order);
 }
 

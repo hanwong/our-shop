@@ -48,13 +48,21 @@ export type CartWithItems = Prisma.CartGetPayload<{ include: typeof CART_INCLUDE
  * singleton above, or the one `prisma.$transaction` hands its callback. Both
  * satisfy `Prisma.TransactionClient`, so no union is needed.
  *
- * Only findCartByGuestId() and deleteCart() accept one, and only as an OPTIONAL
- * trailing parameter defaulting to the singleton — so every existing call site
- * is unchanged. The order transaction must read the guest cart and delete it
- * INSIDE its transaction (SPEC-ORDER-001 design.md §2 steps 1 and 6); the
- * alternative was to copy the `where: { guestId }` ownership query into the
- * order domain, forking the very authorization surface the module anchor above
- * exists to keep in one place.
+ * Only findCartByGuestId(), deleteCart() and findCartByUserId() accept one, and
+ * only as an OPTIONAL trailing parameter defaulting to the singleton — so every
+ * existing call site is unchanged. The order transaction must read the cart and
+ * delete it INSIDE its transaction (SPEC-ORDER-001 design.md §2 steps 1 and 6);
+ * the alternative was to copy the `where: { guestId }` / `where: { userId }`
+ * ownership queries into the order domain, forking the very authorization
+ * surface the module anchor above exists to keep in one place.
+ *
+ * SPEC-ORDER-004 M3 — findCartByUserId() is the THIRD function on that list and
+ * the SECOND exception to it. It inherits the first exception's argument
+ * verbatim (design.md §6.1): member checkout reads and empties the MEMBER cart
+ * inside the same transaction, so it needs the same client the guest path
+ * already gets. The list sentence above is part of the invariant rather than a
+ * description of it — leaving it saying "two functions" would make this file
+ * lie about itself, and the next reader would believe the comment over the code.
  */
 type CartClient = Prisma.TransactionClient;
 
@@ -96,9 +104,17 @@ export async function createGuestCart(guestId: string): Promise<{ id: string }> 
  * Null is an ordinary result, not an error: a cart row is created lazily on
  * the first add (plan.md §2.6), so "no row" is the normal state of an identity
  * that has only ever browsed.
+ *
+ * SPEC-ORDER-004 M3 — `client` is OPTIONAL and defaults to the singleton, so
+ * cart-service.ts's two existing call sites are unchanged to the character. The
+ * order transaction passes its own client so the member cart is read inside the
+ * transaction that is about to empty it (design.md §6.1).
  */
-export async function findCartByUserId(userId: string): Promise<CartWithItems | null> {
-  return prisma.cart.findUnique({ where: { userId }, include: CART_INCLUDE });
+export async function findCartByUserId(
+  userId: string,
+  client: CartClient = prisma
+): Promise<CartWithItems | null> {
+  return client.cart.findUnique({ where: { userId }, include: CART_INCLUDE });
 }
 
 /**
