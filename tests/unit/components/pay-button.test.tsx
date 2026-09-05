@@ -69,12 +69,19 @@ describe("PayButton — SPEC-STOREFRONT-002 M5 style cleanup (REQ-STOREFRONT-028
     expect(source).toMatch(/text-red-600/);
   });
 
-  it("uses the checkout-wide button vertical padding py-2 rather than py-3", async () => {
+  it("uses the checkout-wide button vertical padding via the shared Button primitive (SPEC-DESIGN-001 M3)", async () => {
+    // SPEC-DESIGN-001 M3 (spec.md §1.1) supersedes this literal-className
+    // assertion: the padding this test guarded is no longer a
+    // per-file string in PayButton.tsx — it now lives in the single shared
+    // definition point, src/components/ui/Button.tsx (plan.md §D.1b), so
+    // the consistency this test originally protected is now structural
+    // (one definition, not a repeated literal) rather than a repeated
+    // string to grep for.
     const { readFileSync } = await import("node:fs");
     const source = readFileSync("src/components/checkout/PayButton.tsx", "utf8");
 
-    expect(source).not.toMatch(/px-4 py-3/);
-    expect(source).toMatch(/px-4 py-2/);
+    expect(source).not.toMatch(/py-3\b/);
+    expect(source).toMatch(/from "@\/components\/ui\/Button"/);
   });
 
   it("renders the error text in the checkout-wide red-600 class", async () => {

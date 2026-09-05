@@ -373,6 +373,18 @@ ALTER TYPE "PaymentEventSource" ADD VALUE 'ADMIN_ACTION';
 
 **알려진 한계**(자세한 내용은 `.moai/specs/SPEC-ADMIN-001/progress.md` 참고): 배송(이행) 상태 기계·새 상태값(`preparing`/`shipped`/`delivered`)은 범위 밖이다(백로그 카드 `t24`). 관리자 계정 프로비저닝(가입 화면·API)은 없다 — 관리자 계정은 Prisma seed나 수동 DB 갱신으로 확보하는 운영 절차로 취급한다. 환불·부분 취소·PG 환불 API 호출·일괄 상태 변경·검색·감사 로그 열람 UI는 모두 범위 밖이다. 두 관리자가 같은 주문을 동시에 취소하는 경쟁 상황은 조건부 원자 갱신(`updateMany` where 절에 소스 상태 포함) 형태로 정적으로만 확인했다(`SPEC-ORDER-002`의 `AC-013-EXCL-CONCURRENCY`와 동일한 성격의 제외).
 
+## 공통 디자인 토큰 체계 (SPEC-DESIGN-001)
+
+**이 저장소 최초의 공통 디자인 토큰 체계다.** 그 전까지는 각 SPEC(스토어프론트/주문/결제/관리자…)이 각자 색상·둥근모서리·간격 값을 임의로 정해 왔다 — 이 SPEC이 그것을 하나의 정본으로 통합한다. 소스는 Classical(편집·서적풍) 디자인이며, 값은 `plan.md` §D.1에 바이트 단위로 전사되어 있고 로컬에서 새로 지어낸 값은 없다(spec.md §4 "잠정 값은 없다").
+
+- **토큰 위치**: `src/app/globals.css`의 Tailwind v4 `@theme` 블록. 색상/폰트/둥근모서리/그림자 변수는 Tailwind v4 네이밍 규약(`--color-*`, `--font-*`, `--radius-*`, `--shadow-*`)을 그대로 따르므로 기존 유틸리티 클래스(`bg-accent`, `rounded-md`, `font-heading`...)가 자동으로 새 값을 받는다 — `--color-neutral-*`/`--radius-md`처럼 Tailwind 내장 스케일을 오버라이드하는 변수는 마이그레이션 여부와 무관하게 **사이트 전체에 즉시 적용**된다(의도된 순서: 토큰 먼저, 소비자 마이그레이션은 뒤따름).
+- **신규 공용 프리미티브 2개**: `src/components/ui/Button.tsx`(outline 스타일, fan-in 15)와 `src/components/ui/FormField.tsx`(fan-in 9). 15개 화면(고객 9 + 스태프 6) 전체가 두 프리미티브 중 하나 이상을 거쳐 렌더된다.
+- **타이포그래피**: 제목은 Cormorant Garamond, 본문은 Lora(둘 다 `next/font/google`로 self-host), 한글은 기존 폴백 스택을 그대로 보존한다.
+- **부수적으로 고친 실제 결함**: `ProductCard.tsx`의 하드코딩된 개별 포커스 링을 제거하고 Classical의 공유 `:focus-visible` 규칙으로 대체했다.
+- **범위 밖**: Lucide 아이콘 도입은 Classical 소스가 언급하지만 이번 SPEC은 의도적으로 제외했다(신규 의존성 0건 유지). 레이아웃(마진/간격 배치) 재설계는 범위 밖이다 — 토큰 교체만 다룬다.
+
+**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-DESIGN-001/progress.md` 참고): sync-audit `--deep` 렌즈 1차 검증에서 `body`의 자체 `font-family` 선언이 `<html>`에 적용된 폰트 클래스를 덮어써 `SiteHeader.tsx` 외에는 세리프 타이포그래피가 실제로 렌더되지 않던 캐스케이드 결함(F1)이 발견됐다 — 렌더된 DOM의 폰트를 단언할 방법이 이 테스트 설정에는 없어 어떤 기존 테스트도 잡지 못했다. `body`/`h1-h6` 규칙이 `var(--font-body)`/`var(--font-heading)`를 명시적으로 참조하도록 고치는 CSS 전용 수정과, CSS 소스 레벨에서 캐스케이드를 단언하는 신규 회귀 테스트(`typography-cascade.test.tsx`)로 닫았다. sync-audit 재검증 PASS(Functionality 96/Security 95/Craft 90/Consistency 92, `.moai/reports/sync-audit/SPEC-DESIGN-001-2026-09-05.md`).
+
 ## Project documentation
 
 - `.moai/project/product.md`, `structure.md`, `tech.md` — project-wide docs

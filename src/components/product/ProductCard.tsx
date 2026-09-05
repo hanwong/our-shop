@@ -37,7 +37,15 @@ export function ProductCard({
   return (
     <a
       href={`/products/${product.id}`}
-      className="group block overflow-hidden rounded-md border border-neutral-200 transition hover:border-neutral-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2"
+      /* SPEC-DESIGN-001 M3 (plan.md §D.3/§D.4-4 — `.card` Classical mapping +
+       * hardcoded focus-ring removal): hairline divider border + a "whisper"
+       * shadow-sm elevation replace the old flat gray border, and the
+       * hardcoded ring-based focus utility is replaced by the same
+       * outline-based focus-visible treatment src/components/ui/ primitives
+       * use (M1 precedent) — the only conflicting focus style in the repo
+       * (plan.md §D.4-4 grep confirmation) is gone.
+       */
+      className="group block overflow-hidden rounded-md border border-divider bg-surface shadow-sm transition hover:border-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
     >
       {image === undefined ? (
         <div
@@ -58,8 +66,9 @@ export function ProductCard({
         </div>
       )}
 
+      {/* .card-title / .card-meta (plan.md §D.3) */}
       <div className="p-3">
-        <p className="truncate text-sm font-medium text-neutral-900">{product.name}</p>
+        <p className="truncate text-sm font-medium text-text">{product.name}</p>
         <p className="mt-1 text-sm text-neutral-700">{formatWon(product.price)}</p>
       </div>
     </a>

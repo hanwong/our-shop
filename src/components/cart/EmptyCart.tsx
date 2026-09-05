@@ -1,3 +1,5 @@
+import { buttonClassName } from "@/components/ui/Button";
+
 /**
  * SPEC-STOREFRONT-002 M1 — the guidance screen shown when there is no cart
  * to show at "/cart" (REQ-STOREFRONT-017, design.md §4).
@@ -25,10 +27,7 @@ export function EmptyCart() {
       <p className="mt-4 text-sm leading-relaxed text-neutral-700">
         아직 담은 상품이 없습니다. 상품을 둘러보고 장바구니에 담아 보세요.
       </p>
-      <a
-        href="/"
-        className="mt-6 inline-block rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white"
-      >
+      <a href="/" className={buttonClassName({ className: "mt-6" })}>
         상품 목록으로 이동
       </a>
     </section>

@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { buttonClassName } from "@/components/ui/Button";
 import { resolveAdminSession } from "@/features/admin/services/admin-session";
 import {
   listCategoriesForAdmin,
@@ -132,10 +133,7 @@ export default async function StaffProductsPage({
     <main className="mx-auto max-w-5xl px-4 py-12">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-neutral-900">관리자 상품 목록</h1>
-        <a
-          href="/staff/products/new"
-          className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white"
-        >
+        <a href="/staff/products/new" className={buttonClassName()}>
           새 상품 등록
         </a>
       </div>

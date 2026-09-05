@@ -1,0 +1,80 @@
+{
+  "$schema_note": "Design-phase artifact for SPEC-DESIGN-001. Transcribed from plan.md §D.2 (extraction table) and §D.3 (Classical class -> repo component mapping). Reserved path per manager-design.md H2. Scoped to what run-phase M1-M5 actually consume.",
+  "source_ssot": ".moai/specs/SPEC-DESIGN-001/plan.md §D.2, §D.3, §D.4",
+  "primitives_to_extract": [
+    {
+      "name": "button (primary action)",
+      "classical_class": ".btn / .btn-primary (outlined) / .btn-block (full-width)",
+      "target_dir": "src/components/ui/",
+      "style_contract": "transparent background + var(--color-accent) border + var(--color-accent) text. MUST NOT solid-fill with accent color (Classical readme: \"Do not fill cards or buttons with solid accent color.\")",
+      "observed_consumers_count": 13,
+      "mx_tag_requirement": "@MX:ANCHOR (fan_in >= 3, expected >13)",
+      "reason": "Highest observed duplication — same literal className string across 13 files"
+    },
+    {
+      "name": "form field (input + label + error text)",
+      "classical_class": ".field + label + .input (incl. textarea.input)",
+      "target_dir": "src/components/ui/",
+      "style_contract": "tokens only, no raw palette literals",
+      "observed_consumers_count": 8,
+      "consumers_breakdown": "7 exact-match files + 1 near-variant (CheckoutInteractive.tsx:138, missing leading mt-1, absorbed via spacing prop)",
+      "mx_tag_requirement": "@MX:ANCHOR (fan_in >= 3)",
+      "reason": "Repeated as a set (label-input-error), not just a string"
+    }
+  ],
+  "utility_only_no_extraction": [
+    "layout grid / spacing / flex placement (page-specific, not duplicated)",
+    "typography heading utility classes (no duplication pattern observed)",
+    "modal / toast / dropdown / tab / table (do not exist in current code — out of scope)"
+  ],
+  "component_mapping": [
+    {
+      "classical_class": ".btn / .btn-primary / .btn-block",
+      "repo_target": "13 files' primary-action buttons — PayButton, AddToCartButton, CheckoutForm, OrderLookupForm, staff save buttons, etc.",
+      "confidence": "high (convergence measured)"
+    },
+    {
+      "classical_class": ".btn-secondary (divider-color border) / .btn-ghost",
+      "repo_target": "CartView / EmptyCart secondary link-style buttons",
+      "confidence": "medium (case-by-case judgment during run-phase)"
+    },
+    {
+      "classical_class": ".field + label + .input",
+      "repo_target": "8 form files — CheckoutForm, OrderLookupForm, ProductForm, ReviewForm, CheckoutInteractive, login/signup x2, staff/login",
+      "confidence": "high"
+    },
+    {
+      "classical_class": ".nav + .nav-brand",
+      "repo_target": "src/components/layout/SiteHeader.tsx",
+      "confidence": "highest -- 1:1 correspondence. Visual style only; render structure/location (AC-AUTH-049) untouched."
+    },
+    {
+      "classical_class": ".card / .card-title / .card-body / .card-meta + .elev-sm",
+      "repo_target": "src/components/product/ProductCard.tsx (also remove hardcoded focus-visible:ring-* at line 40, replaced by Classical :focus-visible rule)",
+      "confidence": "high"
+    },
+    {
+      "classical_class": ".radio+.dot, .seg+.seg-opt, .tag, .table, .dialog",
+      "repo_target": "NOT INTRODUCED -- no corresponding component exists in this repo",
+      "confidence": "n/a (out of scope, spec.md §3)"
+    },
+    {
+      "classical_class": ".plate (photo wrapper)",
+      "repo_target": "ProductGallery.tsx -- OUT OF SCOPE this SPEC, forward-pointer only (spec.md §4)",
+      "confidence": "n/a"
+    }
+  ],
+  "explicit_non_targets": [
+    {
+      "component": "src/app/staff/orders/[orderId]/CancelOrderButton.tsx:88",
+      "reason": "Destructive-action button (bg-red-600). Classical has no danger color role (mono accent system only). Explicitly out of scope, spec.md §3."
+    }
+  ],
+  "readme_constraints": [
+    "1. Buttons/cards are outline/border style. No solid accent fill (source: Classical readme, \"Do not fill cards or buttons with solid accent color.\")",
+    "2. No heavy shadows -- elevation is a \"whisper\" level. Use only --shadow-sm/md/lg, do not invent new shadows.",
+    "3. Body text is justified where layout allows. Do not tighten line-height or spacing -- the spacing scale is intentionally airy (1.15x).",
+    "4. Focus ring: :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }. One conflicting hardcoded style found and flagged for removal: src/components/product/ProductCard.tsx:40 (focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2). This is the only focus-style site in the repo (confirmed by grep during plan-phase).",
+    "5. Icons are Lucide -- DEFERRED, not introduced this SPEC (no lucide-react dependency exists; no icon usage in this SPEC's scope; AC-DESIGN-006 requires 0 new dependencies). Forward-pointer only (spec.md §4)."
+  ]
+}
