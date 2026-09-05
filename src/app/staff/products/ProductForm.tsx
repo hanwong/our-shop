@@ -9,6 +9,8 @@ import type {
   ProductInputErrors,
 } from "@/features/admin/types/admin";
 import { REQUEST_NOT_DELIVERED } from "@/features/admin/write-failure";
+import { Button } from "@/components/ui/Button";
+import { FormField, fieldInputClassName, fieldLabelClassName } from "@/components/ui/FormField";
 
 /**
  * SPEC-ADMIN-002 M4/M5 — the product form shared by create and edit
@@ -194,22 +196,21 @@ export function ProductForm({ mode, categories, product }: ProductFormProps) {
   return (
     <div>
       <form onSubmit={handleSubmit} noValidate className="mt-6 space-y-5">
-        <div>
-          <label htmlFor="name" className="block text-sm font-medium text-neutral-700">
-            상품명
-          </label>
-          <input
-            id="name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            aria-describedby={describedBy("name")}
-            className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
-          />
-          {fieldError("name")}
-        </div>
+        <FormField
+          id="name"
+          label="상품명"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          aria-describedby={describedBy("name")}
+        />
+        {fieldError("name")}
 
         <div>
-          <label htmlFor="categoryId" className="block text-sm font-medium text-neutral-700">
+          {/* Not a <FormField> consumer — <select> is outside FormField's
+              input/textarea discriminant (ReviewForm.tsx's rating <select>
+              set this precedent); the exported class builders are applied
+              directly instead. */}
+          <label htmlFor="categoryId" className={fieldLabelClassName()}>
             카테고리
           </label>
           <select
@@ -217,7 +218,7 @@ export function ProductForm({ mode, categories, product }: ProductFormProps) {
             value={categoryId}
             onChange={(e) => setCategoryId(e.target.value)}
             aria-describedby={describedBy("categoryId")}
-            className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+            className={fieldInputClassName()}
           >
             {categories.map((c) => (
               <option key={c.id} value={c.id}>
@@ -228,36 +229,28 @@ export function ProductForm({ mode, categories, product }: ProductFormProps) {
           {fieldError("categoryId")}
         </div>
 
-        <div>
-          <label htmlFor="price" className="block text-sm font-medium text-neutral-700">
-            가격 (원)
-          </label>
-          <input
-            id="price"
-            type="number"
-            min={1}
-            step={1}
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-            aria-describedby={describedBy("price")}
-            className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
-          />
-          {fieldError("price")}
-        </div>
+        <FormField
+          id="price"
+          label="가격 (원)"
+          type="number"
+          min={1}
+          step={1}
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          aria-describedby={describedBy("price")}
+        />
+        {fieldError("price")}
 
         <div>
-          <label htmlFor="stock" className="block text-sm font-medium text-neutral-700">
-            재고
-          </label>
-          <input
+          <FormField
             id="stock"
+            label="재고"
             type="number"
             min={0}
             step={1}
             value={stock}
             onChange={(e) => setStock(e.target.value)}
             aria-describedby={describedBy("stock", "stock-hint")}
-            className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
           />
           {/*
             spec.md §4's accepted residual risk, surfaced where it can actually
@@ -274,20 +267,16 @@ export function ProductForm({ mode, categories, product }: ProductFormProps) {
           {fieldError("stock")}
         </div>
 
-        <div>
-          <label htmlFor="description" className="block text-sm font-medium text-neutral-700">
-            설명
-          </label>
-          <textarea
-            id="description"
-            rows={5}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            aria-describedby={describedBy("description")}
-            className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
-          />
-          {fieldError("description")}
-        </div>
+        <FormField
+          id="description"
+          label="설명"
+          multiline
+          rows={5}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          aria-describedby={describedBy("description")}
+        />
+        {fieldError("description")}
 
         <fieldset>
           <legend className="text-sm font-medium text-neutral-700">이미지 URL</legend>
@@ -335,13 +324,9 @@ export function ProductForm({ mode, categories, product }: ProductFormProps) {
           </p>
         ) : null}
 
-        <button
-          type="submit"
-          disabled={submitting}
-          className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-        >
+        <Button type="submit" disabled={submitting}>
           저장
-        </button>
+        </Button>
       </form>
 
       {/*
