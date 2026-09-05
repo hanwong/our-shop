@@ -8,9 +8,15 @@ import path from "node:path";
  * Traces: REQ-ORDER-001 (one order belongs to exactly one GUEST identity),
  * REQ-ORDER-002 (the item carries its own price and name snapshot),
  * REQ-ORDER-003 (order number, status, money columns), REQ-ORDER-017
- * (a new order is pending_payment). Verifies AC-ORDER-001 (b)(c) — the
- * guest-only boundary is enforced by the SCHEMA, not by prose: no `userId`,
- * no `user` relation, no `@@index([userId])`, and `guestId` NOT nullable.
+ * (a new order is pending_payment). Originally verified AC-ORDER-001 (b)(c) —
+ * the guest-only boundary enforced by the SCHEMA rather than by prose.
+ *
+ * AMENDED by SPEC-ORDER-004 M1 (research.md §2.6). That SPEC deliberately
+ * lifts the guest-only boundary, so the three assertions stating it have been
+ * INVERTED rather than deleted: `guestId` is now nullable, `userId` + the
+ * `user` relation + `@@index([userId])` now exist, and `User` now carries the
+ * `orders` back-relation Prisma requires. Everything else below is unchanged
+ * and still guards SPEC-ORDER-001's shape.
  *
  * Verification strategy matches tests/unit/cart/schema.test.ts: the schema is
  * read as TEXT because no live PostgreSQL is reachable here (research.md §5).
@@ -60,19 +66,23 @@ describe("SPEC-ORDER-001 M1 — OrderStatus enum (REQ-ORDER-017, design.md §1)"
 });
 
 describe("SPEC-ORDER-001 M1 — Order model (REQ-ORDER-001/003, AC-ORDER-001)", () => {
-  it("attributes an order to a NON-NULLABLE guest identity", () => {
+  it("attributes an order to a NULLABLE guest identity (SPEC-ORDER-004 M1)", () => {
     const body = modelBody("Order");
-    // `String` with no `?`: a member-owned order is not representable, which is
-    // how design.md §1.4 turns the guest-only scope into a type constraint.
-    expect(body).toMatch(/^\s*guestId\s+String\s/m);
-    expect(body).not.toMatch(/^\s*guestId\s+String\?/m);
+    // SPEC-ORDER-004 M1 inverted SPEC-ORDER-001's non-nullable `guestId`: the
+    // two ownership columns form an XOR discriminated union in which exactly
+    // one side is filled per row, so neither side can be non-nullable
+    // (research.md §2.6, design.md §1.4).
+    expect(body).toMatch(/^\s*guestId\s+String\?/m);
+    expect(body).not.toMatch(/^\s*guestId\s+String\s/m);
   });
 
-  it("declares NO member attribution at all (AC-ORDER-001 (b))", () => {
+  it("declares the member attribution SPEC-ORDER-004 M1 added", () => {
     const body = modelBody("Order");
-    expect(body).not.toMatch(/^\s*userId\b/m);
-    expect(body).not.toMatch(/^\s*user\s+User/m);
-    expect(body).not.toContain("@@index([userId])");
+    expect(body).toMatch(/^\s*userId\s+String\?/m);
+    expect(body).toMatch(/^\s*user\s+User\?\s+@relation\(/m);
+    // Nothing here doubles as an index the way Cart's @unique did, so the
+    // member-lookup index is declared explicitly (design.md §1.2).
+    expect(body).toContain("@@index([userId])");
   });
 
   it("carries a unique human-readable order number and a defaulted status", () => {
@@ -135,9 +145,13 @@ describe("SPEC-ORDER-001 M1 — OrderItem model (REQ-ORDER-002/004)", () => {
 });
 
 describe("SPEC-ORDER-001 M1 — the preserved models (plan.md §4)", () => {
-  it("leaves User completely untouched — no orders back-relation (AC-ORDER-001 (c))", () => {
+  it("adds only the orders back-relation to User (SPEC-ORDER-004 M1), changing no existing field", () => {
     const body = modelBody("User");
-    expect(body).not.toMatch(/orders?\s+Order/i);
+    // SPEC-ORDER-004 M1: Prisma requires the opposite side of Order.user, so
+    // this back-relation is now mandatory. Kept as its own PRESERVE-list
+    // regression guard rather than folded into the Order-model describe above
+    // — the two check the same fact for different reasons (research.md §2.6).
+    expect(body).toMatch(/^\s*orders\s+Order\[\]/m);
 
     // PRESERVE spot-check — the fields SPEC-AUTH-001 and SPEC-CART-001 own.
     expect(body).toMatch(/^\s*email\s+String\s+@unique/m);
