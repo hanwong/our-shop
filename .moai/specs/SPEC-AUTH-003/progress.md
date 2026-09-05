@@ -413,7 +413,7 @@ m1_to_mN_commit_strategy: >
 
 ```yaml
 sync_complete_at: 2026-09-05
-sync_commit_sha: pending-backfill-sync-phase-artifacts
+sync_commit_sha: 4873d74
 sync_status: audit-ready
 b12_self_test_a: "grep -c 'SPEC-AUTH-003' CHANGELOG.md → 0 before write (verified twice — orchestrator pre-flight + this agent's own re-verification)"
 b12_self_test_b: "AC count match — grep -oE 'AC-AUTH-0(3[7-9]|4[0-7])' acceptance.md | sort -u | wc -l → 11 distinct AC-IDs (037/038/039/040/041/042/043a/043b/044/045/046/047), matches CHANGELOG entry's stated 11"
