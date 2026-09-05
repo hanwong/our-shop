@@ -314,7 +314,7 @@ next_milestone: none — all milestones complete
 
 ```yaml
 sync_complete_at: 2026-09-05
-sync_commit_sha: pending-backfill-sync-phase-artifacts   # 자기참조 해시 — 이 커밋 자신은 자기 SHA를 알 수 없음(D3 SHA 자리표시자 백필 예외). 다음 후속 커밋에서 실제 SHA로 백필한다.
+sync_commit_sha: 818eb75ea0abda20c3fbc35379821106a436c588   # backfilled — D3 SHA 자리표시자 백필 예외에 따라 후속 커밋에서 실제 SHA로 갱신
 sync_status: audit-passed
 sync_auditor_verdict: PASS
 sync_auditor_scores:
