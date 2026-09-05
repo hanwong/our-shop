@@ -34,7 +34,7 @@ vi.mock("@/features/orders/services/order-service", () => orderService);
 
 const { notFound } = await import("next/navigation");
 const { cookies } = await import("next/headers");
-const { default: CheckoutCompletePage } = await import("@/app/checkout/complete/[orderId]/page");
+const { default: CheckoutCompletePage } = await import("@/app/(shop)/checkout/complete/[orderId]/page");
 
 const GUEST = "guest-cookie-value";
 
@@ -78,7 +78,7 @@ function renderPage() {
 }
 
 function completeSources(): string[] {
-  const root = "src/app/checkout/complete";
+  const root = "src/app/(shop)/checkout/complete";
   return readdirSync(root, { recursive: true, encoding: "utf8" })
     .filter((entry) => entry.endsWith(".tsx") || entry.endsWith(".ts"))
     .map((entry) => readFileSync(join(root, entry), "utf8"));

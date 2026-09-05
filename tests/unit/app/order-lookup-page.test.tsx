@@ -11,7 +11,7 @@ import { cleanup, render, screen } from "@testing-library/react";
  * cookies mock, no auth mock) precisely to demonstrate that.
  */
 
-const { default: OrderLookupPage } = await import("@/app/orders/lookup/page");
+const { default: OrderLookupPage } = await import("@/app/(shop)/orders/lookup/page");
 
 afterEach(cleanup);
 

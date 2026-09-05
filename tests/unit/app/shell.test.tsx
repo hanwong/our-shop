@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 
 import RootLayout, { metadata } from "@/app/layout";
-import HomePage from "@/app/page";
+import ShopLayout from "@/app/(shop)/layout";
+import HomePage from "@/app/(shop)/page";
 import SiteHeader from "@/components/layout/SiteHeader";
 import { listProducts } from "@/features/catalog/services/product-service";
 import type { PaginatedProducts, ProductListItem } from "@/features/catalog/types/product";
@@ -55,26 +56,49 @@ describe("RootLayout — AC-STOREFRONT-001 / 002", () => {
     );
   });
 
-  it("places SiteHeader inside body, above children — AC-AUTH-040 (plan.md §B.7 pattern B)", () => {
-    // Call-only, no mount (same reasoning as the test above): SiteHeader is an
-    // async server component nested inside this synchronous RootLayout, so it
-    // cannot be reached via render(await Component()) (pattern A) — and
-    // mounting RootLayout itself would trigger the same <html>/<body> nesting
-    // warning the test above avoids. Inspecting the un-invoked element tree
-    // sidesteps both: <SiteHeader /> stays a not-yet-called element whose
-    // `type` is the component reference itself, so the comparison below is
-    // async-agnostic.
+  it("does not render SiteHeader inside the root layout body — AC-AUTH-049 (plan.md §B.7 pattern B)", () => {
+    // SPEC-AUTH-004 M3 — this assertion replaces the removed AC-AUTH-040
+    // check, which asserted SiteHeader WAS the first child of the root
+    // layout's body. SPEC-AUTH-004 moved the header out of this file
+    // entirely into `src/app/(shop)/layout.tsx` — the sibling ShopLayout
+    // describe block below now owns the "renders it" half of this pair
+    // (AC-AUTH-050). Call-only, no mount (same reasoning the removed test
+    // used): mounting RootLayout would trigger the <html>/<body> nesting
+    // warning the earlier test in this block avoids.
     const MARKER = null;
     const tree = RootLayout({ children: MARKER }) as ReactElement<{
       lang?: string;
-      children?: ReactElement<{ children?: unknown[] }>;
+      children?: ReactElement<{ children?: unknown }>;
     }>;
 
     const body = tree.props.children;
     expect(body?.type).toBe("body");
     const bodyChildren = body?.props.children;
-    expect(Array.isArray(bodyChildren)).toBe(true);
-    const [first, second] = bodyChildren as [ReactElement, unknown];
+
+    if (Array.isArray(bodyChildren)) {
+      expect(
+        bodyChildren.some((child) => (child as ReactElement | null)?.type === SiteHeader)
+      ).toBe(false);
+    } else {
+      expect(bodyChildren).toBe(MARKER);
+    }
+  });
+});
+
+describe("ShopLayout — AC-AUTH-050", () => {
+  it("places SiteHeader above children in its returned element tree", () => {
+    // Same call-only technique as the RootLayout tests above (plan.md §B.7
+    // pattern B) — SiteHeader is an async server component nested inside
+    // this synchronous layout, so it cannot be reached via
+    // render(await Component()) (pattern A).
+    const MARKER = null;
+    const tree = ShopLayout({ children: MARKER }) as ReactElement<{
+      children?: unknown[];
+    }>;
+
+    const children = tree.props.children;
+    expect(Array.isArray(children)).toBe(true);
+    const [first, second] = children as [ReactElement, unknown];
     expect(first.type).toBe(SiteHeader);
     expect(second).toBe(MARKER);
   });

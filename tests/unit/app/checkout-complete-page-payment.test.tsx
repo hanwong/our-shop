@@ -42,7 +42,7 @@ vi.mock("@/components/checkout/PayButton", () => ({
 }));
 
 const { cookies } = await import("next/headers");
-const { default: CheckoutCompletePage } = await import("@/app/checkout/complete/[orderId]/page");
+const { default: CheckoutCompletePage } = await import("@/app/(shop)/checkout/complete/[orderId]/page");
 
 const GUEST = "guest-cookie-value";
 
