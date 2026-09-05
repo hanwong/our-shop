@@ -1,17 +1,76 @@
 @import "tailwindcss";
 
 /*
- * SPEC-STOREFRONT-001 M1 — global stylesheet.
+ * SPEC-DESIGN-001 M1 — Classical design-token system (plan.md §D.1, SSOT).
  *
- * The Tailwind entry point above plus the minimum body typography needed for
- * readable Korean copy. No `@theme` block: a design-token system is excluded
- * by spec.md §3, and inventing one here would fix project-wide styling
- * decisions this SPEC has no mandate to make.
+ * The block below is the Classical `:root` token block transcribed verbatim
+ * (REQ-DESIGN-008) into a Tailwind v4 `@theme` block. Values are byte-
+ * identical to plan.md §D.1 — do not re-derive, round, or paraphrase them.
+ * If the Classical source project changes, re-sync from plan.md §D.1
+ * (spec.md §4 — "잠정 값은 없다": every value here came from the real
+ * Classical project, not a locally-invented placeholder).
+ *
+ * This replaces the SPEC-STOREFRONT-001 M1 comment that excluded a
+ * design-token system from this file — this SPEC is that mandate
+ * (spec.md §1.1).
+ *
+ * Naming notes (variable-name mapping only — every value is untouched):
+ * - Color / font / radius / shadow variables already match the Tailwind v4
+ *   `@theme` namespace convention (`--color-*`, `--font-*`, `--radius-*`,
+ *   `--shadow-*`), so Tailwind auto-generates utilities from them directly
+ *   (`bg-accent`, `text-text`, `border-divider`, `rounded-md`, `shadow-sm`,
+ *   `font-heading`, ...).
+ * - `--color-neutral-100..900` are Classical's WARM grays and are NOT the
+ *   same values as Tailwind's built-in `neutral-*` scale (plan.md §D.1 note
+ *   1). Declaring them here overrides/shadows the built-in scale for this
+ *   project: every existing `bg-neutral-900` / `text-neutral-900` /
+ *   `border-neutral-300` class site-wide — including pages M2-M5 have not
+ *   migrated yet — now resolves to the Classical value, not Tailwind's
+ *   default cool gray. This is intentional (plan.md §F: M1 lays the token
+ *   foundation before M2-M5 migrate consumers), not an oversight.
+ * - `--radius-md` similarly overrides Tailwind's built-in `md` radius key
+ *   (~6px by default), so every existing `rounded-md` usage site-wide shifts
+ *   to Classical's 4px immediately, ahead of consumer migration. Same
+ *   rationale as the neutral-scale note above.
+ * - `--space-1..8` deliberately KEEP the `--space-*` name rather than
+ *   Tailwind's reserved `--spacing-*` scale namespace. Renaming them to
+ *   `--spacing-1`, `--spacing-2`, ... would override Tailwind's numeric
+ *   spacing utilities (`p-4`, `gap-4`, `mx-auto max-w-5xl px-4 py-12`, ...)
+ *   SITE-WIDE — spec.md §3 "레이아웃 재설계" explicitly excludes redesigning
+ *   each screen's margin/spacing layout. Keeping the `--space-*` name means
+ *   these values stay available via `var(--space-N)` (e.g.
+ *   `px-[var(--space-4)]`, used by src/components/ui/ primitives) without
+ *   touching unrelated layout spacing elsewhere in the site.
  */
+@theme {
+  --color-bg: #f3f2f2;
+  --color-surface: #eae9e9;
+  --color-text: #201f1d;
+  --color-accent: #b68235;
+  --color-accent-2: #ac803e;
+  --color-divider: color-mix(in srgb, #201f1d 16%, transparent);
+  --color-neutral-100: #f8f4f4; --color-neutral-200: #eae7e7; --color-neutral-300: #d7d3d3;
+  --color-neutral-400: #bab6b6; --color-neutral-500: #9b9797; --color-neutral-600: #7d7979;
+  --color-neutral-700: #605d5d; --color-neutral-800: #444141; --color-neutral-900: #2d2b2b;
+  --color-accent-100: #fff3e4; --color-accent-200: #ffe3bf; --color-accent-300: #facb8d;
+  --color-accent-400: #e1ad66; --color-accent-500: #c28d41; --color-accent-600: #a06f24;
+  --color-accent-700: #7d5411; --color-accent-800: #5a3b0a; --color-accent-900: #3a270d;
+  --font-heading: "Cormorant Garamond", system-ui, sans-serif;
+  --font-heading-weight: 600;
+  --font-body: "Lora", system-ui, sans-serif;
+  --space-1: 4.6px; --space-2: 9.2px; --space-3: 13.8px; --space-4: 18.4px; --space-6: 27.6px; --space-8: 36.8px;
+  --radius-sm: 2px; --radius-md: 4px; --radius-lg: 7px;
+  --shadow-sm: 0 1px 2px color-mix(in srgb, #2d2b2b 14%, transparent);
+  --shadow-md: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent);
+  --shadow-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
+}
 
 body {
   /* A Latin stack ahead of the platform Korean faces. Web-font subsetting is
-     out of scope; these are all system-resident. */
+     out of scope; these are all system-resident. Cormorant Garamond / Lora
+     load via next/font/google in src/app/layout.tsx (SPEC-DESIGN-001 M0)
+     and are applied there, not here — this body rule is the Korean-copy
+     fallback stack for text outside the two Classical font roles. */
   font-family:
     ui-sans-serif,
     system-ui,

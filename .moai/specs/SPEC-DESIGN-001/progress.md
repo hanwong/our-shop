@@ -1,6 +1,6 @@
 ---
 id: SPEC-DESIGN-001
-status: draft
+status: in-progress
 updated: 2026-09-05
 tier: M
 ---
@@ -475,18 +475,191 @@ $ git status --short
 **E7 — 결과**: 블로커 없음, 폴백 미사용. 모킹이 첫 시도에 성공했고 전 구간
 GREEN이다.
 
+### M1 — 토큰 + 프리미티브 (기반)
+
+cycle_type: tdd. 워크트리 복구 경로(A.0)를 탔다 — 초기 `HEAD`가 기대값
+(`e6bbcb2d775c0276809c365bd778b1ebf48fd9ce`)과 달라 `m1-tokens-primitives`
+브랜치를 해당 커밋에서 새로 분기해 작업했다. 분기 직후 `layout.tsx`의
+`Cormorant_Garamond` import와 `.moai/specs/SPEC-DESIGN-001/` 산출물 존재를
+확인한 뒤 `npm install`을 실행했다.
+
+**E0 — 워크트리 케이스**: A.0 경로 B(불일치)를 탔다. 위 문단 참조.
+
+**RED 증거 (E9)** — 프리미티브 구현 전, `@/components/ui/Button` /
+`@/components/ui/FormField`를 import하는 두 테스트 파일을 먼저 작성하고 실행:
+
+```
+$ npx vitest run tests/unit/components/ui-button.test.tsx tests/unit/components/ui-form-field.test.tsx
+ FAIL  tests/unit/components/ui-button.test.tsx [ tests/unit/components/ui-button.test.tsx ]
+Error: Failed to resolve import "@/components/ui/Button" from "tests/unit/components/ui-button.test.tsx". Does the file exist?
+ FAIL  tests/unit/components/ui-form-field.test.tsx [ tests/unit/components/ui-form-field.test.tsx ]
+Error: Failed to resolve import "@/components/ui/FormField" from "tests/unit/components/ui-form-field.test.tsx". Does the file exist?
+ Test Files  2 failed (2)
+      Tests  no tests
+```
+
+**GREEN** — `src/components/ui/Button.tsx` / `FormField.tsx` 구현 후 (중간에
+`toHaveClass` — 이 저장소에 `jest-dom`이 설치되어 있지 않아 `Invalid Chai
+property: toHaveClass`로 1차 FAIL, `.className.split(/\s+/)` 토큰 배열
+검사로 교체해 해소):
+
+```
+$ npx vitest run tests/unit/components/ui-button.test.tsx tests/unit/components/ui-form-field.test.tsx
+ ✓ tests/unit/components/ui-form-field.test.tsx (9 tests) 29ms
+ ✓ tests/unit/components/ui-button.test.tsx (11 tests) 83ms
+ Test Files  2 passed (2)
+      Tests  20 passed (20)
+```
+
+**설계 결정 — 토큰 값 vs Tailwind 네임스페이스 매핑**: `plan.md` §D.1의
+변수명은 대부분 Tailwind v4 `@theme`이 기대하는 네임스페이스(`--color-*`,
+`--font-*`, `--radius-*`, `--shadow-*`)와 이미 일치해 별도 리네이밍이
+필요 없었다. 유일한 예외는 `--space-*`다 — Tailwind가 인식하는 숫자 스케일
+네임스페이스는 `--spacing-*`(단수)이며, `--space-1`..`--space-8`을 그
+이름으로 옮기면 `p-4`/`gap-4` 같은 기존 숫자 유틸리티를 사이트 전역에서
+재정의해 버린다. `spec.md` §3 "레이아웃 재설계" 절이 화면별 여백 재배치를
+명시적으로 범위 밖에 두므로, `--space-*` 이름을 그대로 유지해 Tailwind의
+자동 유틸리티 생성을 피하고 `var(--space-N)` 임의값 문법으로만 소비되게
+했다(`px-[var(--space-4)]` 등). `globals.css`의 신규 주석 블록에 이 판단과
+그 반대의 의도된 부작용(neutral-*·radius-md의 사이트 전역 즉시 재정의)을
+모두 명시했다 — 착수 지시가 경고한 대로 "지금 당장은 아니지만 알고 있어야
+할" 사실이다.
+
+**설계 결정 — 오류 텍스트 색상**: Classical은 위험/오류 색상 역할이 없는
+단일 accent(mono) 체계다(`plan.md` §D.1 note 2). `text-red-600`/`bg-red-600`은
+`plan.md` §D.1b에서 "대응 토큰 없음 → 범위 밖"으로 명시되어 있으므로,
+`FormField`의 오류 텍스트는 기존 8개 파일이 이미 쓰던 Tailwind 기본
+`text-red-600`을 그대로 유지했다 — 새 색상 역할을 발명하지 않는다는 §1.5
+원칙과 일치한다.
+
+**설계 결정 — `<a>` 태그 소비자를 위한 `buttonClassName`/`fieldInputClassName`
+export**: `CartView.tsx`/`EmptyCart.tsx`/`staff/products/page.tsx`가 버튼
+스타일을 `<a href>`에 적용한다는 것을 13개 파일 실측에서 확인했다(§A 상단
+survey). `Button`을 `<button>`/`<a>` 다형 컴포넌트로 만드는 대신, 클래스
+문자열 빌더 함수를 별도 export해 M2-M4가 필요할 때 직접 `<a
+className={buttonClassName({fullWidth: true})}>`로 소비하게 했다 —
+Simplicity ladder에 따라 관측되지 않은 다형성 API를 미리 만들지 않았다.
+
+**E1 — AC PASS/FAIL 매트릭스**:
+
+| AC | Given-When-Then 핵심 | 검증 명령/방법 | 결과 |
+|---|---|---|---|
+| AC-DESIGN-001 | `@theme` 블록 존재 + Classical 값 축자 일치 | `grep -c "@theme" src/app/globals.css` → 1; `grep -oE '#[0-9a-fA-F]{6}\|4\.6px\|...'` plan.md vs globals.css `diff` → 빈 출력(완전 일치) | **PASS** |
+| AC-DESIGN-002 | 낡은 "No `@theme` block" 주석 제거 | `grep -c "No \`@theme\` block" src/app/globals.css` → 0 | **PASS** |
+| AC-DESIGN-003 | 토큰 원천 명시 + 폰트 로딩 동작 | (a) 신규 주석이 "Classical (plan.md §D.1)"를 원천으로 명시(파일 헤더 3-9행); (b)/(c) M0에서 이미 완료(`next/font/google` + 낡은 주석 교체, progress.md M0 절) | **PASS**(M1은 (a)만 추가 담당, (b)/(c)는 M0 산출물 재확인) |
+| AC-DESIGN-004 | 프리미티브 디렉터리 + 구성 | `ls src/components/ui/` → `Button.tsx`, `FormField.tsx` 존재 | **PASS** |
+| AC-DESIGN-005(a) | 프리미티브가 토큰 역할만 참조 | `grep -rn "neutral-900\|neutral-300\|#[0-9a-fA-F]{6}" src/components/ui/` → 0건(§E2 검증 블록) | **PASS** |
+| AC-DESIGN-005(b) | 포커스 표시가 Classical `:focus-visible`+`outline`+`outline-offset` 규칙을 따름 | 두 프리미티브 단위 테스트가 `focus-visible:outline`/`outline-2`/`outline-offset-2`/`outline-accent` 클래스 존재를 단언(GREEN) | **PASS** |
+| AC-DESIGN-005(c) | `ProductCard.tsx:40`의 `focus-visible:ring-*` 제거 | `grep -rn "focus-visible:ring" src/` → `ProductCard.tsx:40` 1건 잔존 | **명시적 DEFERRED — M3 소관**(아래 별도 절 참조, PASS로 잘못 표기하지 않음) |
+| AC-DESIGN-006 | 신규 의존성 0건 | `git diff --stat -- package.json package-lock.json` → 빈 출력 | **PASS** |
+
+**E2 — AC-DESIGN-008(c) 정확 3형태 grep** (버튼 프리미티브 최초 실행 시
+`Button.tsx`/`FormField.tsx` 자체 JSDoc 주석이 `bg-neutral-900`/
+`neutral-300` 문자열을 프로즈로 포함해 false positive가 발생 — 주석을
+우회 표현으로 재작성해 해소):
+
+```
+$ grep -rnE 'bg-(accent|surface|bg|text|neutral)(-[0-9]{3})?\b|bg-\[var\(--color-|background(-color)?:\s*var\(--color-' src/components/ui/ | grep -v 'bg-transparent'
+(빈 출력 — 0건)
+```
+
+**E3 — 정적 검증**:
+
+```
+$ npx tsc --noEmit
+(exit 0, no output)
+
+$ npm run lint
+> our-shop@0.1.0 lint
+> eslint .
+(exit 0, no output)
+```
+
+`npm run build`(`next build`)도 별도로 실행해 확인 — 프로덕션 빌드가
+Tailwind v4 `@theme` 블록을 오류 없이 컴파일하고 29개 페이지 전부
+정적/동적 생성에 성공했다(신규 프리미티브는 아직 어떤 페이지도 import하지
+않으므로 번들에는 포함되지 않는다 — M2-M4 소관).
+
+**E4 — 전체 회귀** (M0 베이스라인 113 파일/1493 테스트 대비):
+
+```
+$ npm test
+ Test Files  115 passed (115)
+      Tests  1513 passed (1513)
+  Duration  18.86s
+```
+
+115 파일 = 113(M0 베이스라인) + 2(신규 `ui-button.test.tsx`/
+`ui-form-field.test.tsx`). 1513 테스트 = 1493 + 20(신규 프리미티브 테스트
+11+9). 기존 테스트 실패 0건, 신규 실패 0건.
+
+**E5 — 의존성 무변경**: `git diff --stat -- package.json package-lock.json`
+→ 빈 출력. AC-DESIGN-006 충족.
+
+**E6 — 토큰 표본 대조** (`src/app/globals.css` `@theme` 블록에서 그대로
+발췌):
+
+```css
+--color-bg: #f3f2f2;
+--color-accent: #b68235;
+--color-text: #201f1d;
+--space-1: 4.6px; --space-2: 9.2px; --space-3: 13.8px; --space-4: 18.4px; --space-6: 27.6px; --space-8: 36.8px;
+--radius-sm: 2px; --radius-md: 4px; --radius-lg: 7px;
+--font-heading: "Cormorant Garamond", system-ui, sans-serif;
+--font-body: "Lora", system-ui, sans-serif;
+```
+
+`plan.md` §D.1 블록과의 축자 일치는 `grep -oE ... | sort -u | diff`로
+확인 완료(빈 출력 = 완전 일치, 색상 26개 + 간격 6개 값 전부).
+
+**E7 — 브랜치/푸시 상태**: 브랜치 `m1-tokens-primitives`(base
+`e6bbcb2d775c0276809c365bd778b1ebf48fd9ce`). 커밋 후
+`git push origin m1-tokens-primitives` 예정 — 오케스트레이터가 t47에서
+머지.
+
+**E8 — 블로커**: 없음.
+
+**실제 diff 범위** (scope discipline 준수 확인):
+
+```
+$ git status --short
+ M src/app/globals.css
+?? src/components/ui/
+?? tests/unit/components/ui-button.test.tsx
+?? tests/unit/components/ui-form-field.test.tsx
+
+$ git diff --name-only -- src/app/staff/
+(빈 출력)
+```
+
+`src/app/(shop)/`, `src/app/staff/`, `LogoutButton.tsx`, `SiteHeader.tsx`,
+`ProductCard.tsx`는 전혀 건드리지 않았다 — M1 범위(globals.css 토큰 +
+`src/components/ui/` 신설)와 정확히 일치. M2-M4 위임 대상이다.
+
+**AC-DESIGN-005(c) 명시적 이월 확인**: `ProductCard.tsx:40`의
+`focus-visible:ring-2 ring-neutral-900 ring-offset-2` 하드코딩은 이번
+M1에서 손대지 않았다(착수 지시가 명시적으로 금지). 저장소 전체
+`focus-visible:ring` grep이 여전히 그 1건을 반환하므로 AC-DESIGN-005(c)는
+**PASS로 표기하지 않고 M3로 이월**한다(`plan.md` §F M3, §D.4-4 실측
+확인 문단). M1이 도입한 `focus-visible:outline` 방식은 `src/components/ui/`
+프리미티브에서만 작동 중이며, `ProductCard.tsx`는 M3가 마이그레이션할 때
+비로소 이중 포커스 표시 문제 없이 정리된다.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 ```yaml
-run_milestone: M0
-next_milestone: M1
+run_milestone: M1
+next_milestone: M2
 run_status: in-progress
 m0_status: complete
 m0_fallback_taken: false
-ac_design_012_baseline: "113 files / 1493 tests passed (npm test, pre-edit)"
-ac_design_012_post_change: "113 files / 1493 tests passed (npm test, post-edit) — exact match, 0 regressions"
+m1_status: complete
+ac_design_012_baseline: "113 files / 1493 tests passed (npm test, pre-M0-edit)"
+ac_design_012_post_change: "115 files / 1513 tests passed (npm test, post-M1-edit) — 0 regressions, +2 files/+20 tests (new primitive suites)"
+ac_design_005c_status: deferred-to-M3 (ProductCard.tsx:40 untouched by design)
 new_warnings_or_lints_introduced: 0
 package_json_diff: empty
+m1_to_mN_commit_strategy: single feature branch (m1-tokens-primitives), orchestrator merges per milestone
 ```
 
 ## §E.4 Sync-phase Audit-Ready Signal
