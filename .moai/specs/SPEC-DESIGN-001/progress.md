@@ -359,11 +359,135 @@ run-phase 진입 시점에 별도로 수행한다. 이 세션에서 애플리케
 
 ## §E.2 Run-phase Evidence
 
-_<pending run-phase>_
+### M0 — 폰트 로딩 선행 작업 (vitest 폰트 로더 모킹 + `next/font/google` 도입)
+
+cycle_type: tdd. 워크트리 복구 경로(A.0)를 탔다 — 초기 `HEAD`가 기대값과 달라
+`m0-font-mock` 브랜치를 `9f2a1886f8bd5d313077869096d172cae32a64fa`에서 새로
+분기해 작업했다.
+
+**베이스라인 캡처 (E1, AC-DESIGN-012의 SPEC 전체 베이스라인)** — 첫 편집 이전:
+
+```
+$ npm test
+Test Files  113 passed (113)
+     Tests  1493 passed (1493)
+  Duration  19.40s
+```
+
+**RED 증거 (E8)** — `next/font/google` import를 모킹 없이 `layout.tsx`에
+임시로 추가하고 `tests/unit/app/shell.test.tsx`를 실행해 STOREFRONT-001과
+동일한 실패 형태를 재현했다:
+
+```
+$ npx vitest run tests/unit/app/shell.test.tsx
+FAIL  tests/unit/app/shell.test.tsx [ tests/unit/app/shell.test.tsx ]
+TypeError: Cormorant_Garamond is not a function
+ ❯ src/app/layout.tsx:9:27
+ Test Files  1 failed (1)
+      Tests  no tests
+```
+
+재현 후 `git checkout -- src/app/layout.tsx`로 되돌려 원본 상태를 복원했다.
+
+**모킹 접근 (E2)** — `vitest.config.ts`의 `resolve.alias`로 `next/font/google`을
+`tests/mocks/next-font-google.ts` 스텁으로 치환했다. 스텁은 `Cormorant_Garamond`/
+`Lora` 각각을 호출 가능한 함수로 제공하며, `className`/`style.fontFamily`/
+`variable`을 가진 객체를 반환한다(실제 폰트 로더의 소비 형태만 최소 재현).
+
+모킹만 추가한 상태(실제 import 추가 전)로 셸 테스트를 먼저 확인했다:
+
+```
+$ npx vitest run tests/unit/app/shell.test.tsx
+ ✓ tests/unit/app/shell.test.tsx (9 tests) 85ms
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+```
+
+그다음 `src/app/layout.tsx`에 실제 `next/font/google` import를 다시 추가하고
+(Cormorant Garamond 400/600 + Lora 400/600, `<html>` 요소에 두 `className`
+적용), STOREFRONT-001의 낡은 주석(반전 시도·철회 기록)을 이 SPEC의 결정으로
+교체했다(plan.md §B.5 근거 인용, vitest 모킹으로 (b) 실패가 해소됐음을 명시).
+GREEN 확인:
+
+```
+$ npx vitest run tests/unit/app/shell.test.tsx
+ ✓ tests/unit/app/shell.test.tsx (9 tests) 85ms
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+```
+
+**§B.5 후보 2 폴백은 필요하지 않았다** — 모킹이 첫 시도에 성공했다.
+
+**E3 — 정적 검증**:
+
+```
+$ npx tsc --noEmit
+(exit 0, no output)
+
+$ npm run lint
+> our-shop@0.1.0 lint
+> eslint .
+(exit 0, no output)
+```
+
+**E4 — 전체 회귀** (변경 후, E1 베이스라인과 대조):
+
+```
+$ npm test
+Test Files  113 passed (113)
+     Tests  1493 passed (1493)
+  Duration  19.22s
+```
+
+베이스라인(113 파일 / 1493 테스트, 전부 통과)과 파일 수·테스트 수·통과 여부가
+정확히 일치한다 — 신규 실패 0건, 카운트 변동 0건.
+
+**E5 — 의존성 무변경**:
+
+```
+$ git diff --stat -- package.json package-lock.json
+(빈 출력)
+```
+
+`package.json`/`package-lock.json` 변경 없음 — AC-DESIGN-006 충족.
+
+**E6 — 브랜치/커밋 상태**: 브랜치 `m0-font-mock` (base
+`9f2a1886f8bd5d313077869096d172cae32a64fa`). 커밋 후 `git push origin
+m0-font-mock` 예정 — 오케스트레이터가 t47에서 머지.
+
+**E0 — 워크트리 케이스**: A.0 경로 B(불일치)를 탔다. 초기 `git rev-parse HEAD`가
+기댓값과 달라 `git checkout -b m0-font-mock
+9f2a1886f8bd5d313077869096d172cae32a64fa`로 복구했고, SPEC 산출물과
+`.moai/design/tokens.json` 존재를 확인한 뒤 `npm install`을 실행했다.
+
+**실제 diff 범위** (scope discipline 준수 확인):
+
+```
+$ git status --short
+ M src/app/layout.tsx
+ M vitest.config.ts
+?? tests/mocks/
+```
+
+`globals.css`, `src/components/ui/`, 페이지 파일은 전혀 건드리지 않았다 — M0
+범위(폰트 import + 주석 교체 + vitest 모킹)와 정확히 일치.
+
+**E7 — 결과**: 블로커 없음, 폴백 미사용. 모킹이 첫 시도에 성공했고 전 구간
+GREEN이다.
 
 ## §E.3 Run-phase Audit-Ready Signal
 
-_<pending run-phase>_
+```yaml
+run_milestone: M0
+next_milestone: M1
+run_status: in-progress
+m0_status: complete
+m0_fallback_taken: false
+ac_design_012_baseline: "113 files / 1493 tests passed (npm test, pre-edit)"
+ac_design_012_post_change: "113 files / 1493 tests passed (npm test, post-edit) — exact match, 0 regressions"
+new_warnings_or_lints_introduced: 0
+package_json_diff: empty
+```
 
 ## §E.4 Sync-phase Audit-Ready Signal
 

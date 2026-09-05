@@ -31,6 +31,11 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // SPEC-DESIGN-001 M0 — next/font/google needs the Next.js SWC font
+      // loader, which vitest does not run; alias it to a stub so any file
+      // importing it (src/app/layout.tsx) stays testable. See
+      // tests/mocks/next-font-google.ts for the stub's shape and rationale.
+      "next/font/google": path.resolve(__dirname, "./tests/mocks/next-font-google.ts"),
     },
   },
 });
