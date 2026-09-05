@@ -202,13 +202,22 @@ describe("SPEC-ORDER-001 M5 — no cart to show (AC-ORDER-006)", () => {
       expect(document.body.textContent).not.toMatch(/장바구니가 (비어|비었)/);
     });
 
-    it(`says member checkout is out of scope when there is ${label}`, async () => {
+    it(`does not claim member checkout is unavailable when there is ${label}`, async () => {
       arrange();
       render(await CheckoutPage());
 
-      // The only way a logged-in member can find out why this screen has
-      // nothing for them.
-      expect(document.body.textContent).toMatch(/회원/);
+      // SPEC-ORDER-004 M7 (AC-ORDER-068). This assertion used to require the
+      // opposite. Member checkout shipped in M5, which made the old scope
+      // notice false — and a logged-in member with an empty cart lands on this
+      // very screen, so it was false where it was actually read. It is removed
+      // rather than rephrased: its entire content was the scope limitation, so
+      // there is no true replacement for it.
+      expect(document.body.textContent).not.toMatch(/회원 체크아웃|아직 제공되지 않/);
+
+      // What survives must be true for a member and a guest alike, so the
+      // guest-only qualifier is gone from it too (design.md §5.3).
+      expect(document.body.textContent).not.toMatch(/게스트/);
+      expect(document.body.textContent).toMatch(/이 요청에 연결된 장바구니를 찾을 수 없습니다/);
     });
   }
 
