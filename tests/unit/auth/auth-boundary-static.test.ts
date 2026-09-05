@@ -16,8 +16,8 @@ import { describe, expect, it } from "vitest";
 const CLIENT_STATE_PATTERN = /createContext|useContext|useAuth\b|localStorage|sessionStorage/;
 
 const FILES = [
-  "src/app/login/page.tsx",
-  "src/app/signup/page.tsx",
+  "src/app/(shop)/login/page.tsx",
+  "src/app/(shop)/signup/page.tsx",
   "src/lib/auth/session-resolver.ts",
 ];
 

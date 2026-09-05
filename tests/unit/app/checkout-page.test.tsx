@@ -33,7 +33,7 @@ const cartService = { getCart: vi.fn() };
 vi.mock("@/features/cart/services/cart-service", () => cartService);
 
 const { cookies } = await import("next/headers");
-const { default: CheckoutPage } = await import("@/app/checkout/page");
+const { default: CheckoutPage } = await import("@/app/(shop)/checkout/page");
 
 const GUEST = "guest-cookie-value";
 
@@ -77,7 +77,7 @@ const TWO_ITEMS = cart([
 ]);
 
 /** Every source file on the checkout screens and their components. */
-function checkoutSources(roots = ["src/app/checkout", "src/components/checkout"]): string[] {
+function checkoutSources(roots = ["src/app/(shop)/checkout", "src/components/checkout"]): string[] {
   return roots.flatMap((root) =>
     readdirSync(root, { recursive: true, encoding: "utf8" })
       .filter((entry) => entry.endsWith(".tsx") || entry.endsWith(".ts"))
@@ -88,9 +88,9 @@ function checkoutSources(roots = ["src/app/checkout", "src/components/checkout"]
 /** Only the FIRST-RENDER path: the server components and the pure summary. */
 function firstRenderSources(): string[] {
   return [
-    ...readdirSync("src/app/checkout", { recursive: true, encoding: "utf8" })
+    ...readdirSync("src/app/(shop)/checkout", { recursive: true, encoding: "utf8" })
       .filter((e) => e.endsWith(".tsx"))
-      .map((e) => readFileSync(join("src/app/checkout", e), "utf8")),
+      .map((e) => readFileSync(join("src/app/(shop)/checkout", e), "utf8")),
     readFileSync("src/components/checkout/OrderSummary.tsx", "utf8"),
   ];
 }
@@ -288,7 +288,7 @@ describe("SPEC-ORDER-001 M5 — the read path makes no identity judgement (AC-OR
     // What the read path does is read one cookie. Token verification, the
     // member/guest precedence rule and id minting are all absent — so there is
     // no second authorization surface to drift from the first (design.md §6.1).
-    for (const source of checkoutSources(["src/app/checkout"])) {
+    for (const source of checkoutSources(["src/app/(shop)/checkout"])) {
       for (const token of FORBIDDEN) {
         expect(source).not.toContain(token);
       }
@@ -296,7 +296,7 @@ describe("SPEC-ORDER-001 M5 — the read path makes no identity judgement (AC-OR
   });
 
   it("imports the cookie NAME rather than repeating the literal", () => {
-    const sources = checkoutSources(["src/app/checkout"]);
+    const sources = checkoutSources(["src/app/(shop)/checkout"]);
 
     // A second copy of the name is a second place for the identity to diverge.
     for (const source of sources) {

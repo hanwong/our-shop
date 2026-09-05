@@ -14,7 +14,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 const push = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 
-const { default: SignupPage } = await import("@/app/signup/page");
+const { default: SignupPage } = await import("@/app/(shop)/signup/page");
 
 const fetchMock = vi.fn();
 

@@ -19,7 +19,7 @@ vi.mock("@/features/catalog/services/product-service", () => ({
 }));
 
 const { listProducts } = await import("@/features/catalog/services/product-service");
-const { default: HomePage } = await import("@/app/page");
+const { default: HomePage } = await import("@/app/(shop)/page");
 
 function page(items: ProductListItem[]): PaginatedProducts {
   return { items, page: 1, pageSize: 20, totalCount: items.length, totalPages: 1 };
@@ -65,7 +65,7 @@ describe("HomePage — AC-STOREFRONT-031", () => {
 
 describe("HomePage — AC-STOREFRONT-032 static source scan", () => {
   it("imports listProducts directly and never calls the /api/products route", () => {
-    const source = readFileSync("src/app/page.tsx", "utf8");
+    const source = readFileSync("src/app/(shop)/page.tsx", "utf8");
 
     expect(source).toMatch(/from ["']@\/features\/catalog\/services\/product-service["']/);
     expect(source).not.toMatch(/\/api\/products/);
@@ -95,7 +95,7 @@ describe("HomePage — AC-STOREFRONT-034", () => {
 /** The three first-render source files this SPEC touches (REQ-037/039). */
 function firstRenderSources(): string[] {
   const files = [
-    "src/app/page.tsx",
+    "src/app/(shop)/page.tsx",
     "src/components/product/ProductGrid.tsx",
     "src/components/product/ProductCard.tsx",
   ];

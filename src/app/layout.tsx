@@ -20,11 +20,13 @@ import "./globals.css";
  * Footer, global navigation, search, and the cart icon remain excluded —
  * that part of spec.md §3 (SPEC-STOREFRONT-001) is unchanged.
  *
- * @MX:WARN do not (re-)add `<SiteHeader />` to this root layout. Doing so
- * would make `/staff/**` inherit the customer header again, reintroducing
- * SPEC-AUTH-004's defect (an admin ending their own session via the
- * customer logout button). The header belongs only in
- * `src/app/(shop)/layout.tsx`.
+ * @MX:WARN do not (re-)add the shared login-state header component to this
+ * root layout. Doing so would make `/staff/**` inherit the customer header
+ * again, reintroducing SPEC-AUTH-004's defect (an admin ending their own
+ * session via the customer logout button). That header component belongs
+ * only in `src/app/(shop)/layout.tsx` — AC-AUTH-049 requires this file's
+ * source to contain zero references to that component's name, so this
+ * comment deliberately does not spell it out.
  * @MX:NOTE this comment previously stated that only the header line was
  * narrowly amended by SPEC-AUTH-003, leaving footer/search/cart/category-nav
  * excluded (spec.md §1.4's 7-row table). SPEC-AUTH-004 M1 goes further: the
