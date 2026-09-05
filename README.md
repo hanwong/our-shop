@@ -196,7 +196,9 @@ SPEC-STOREFRONT-001이 스텁으로 남기고 "홈 콘텐츠 설계는 범위 �
 
 **클라이언트 인증 상태 저장소는 도입하지 않았다** — 액세스 토큰을 클라이언트 메모리에만 두는 `SPEC-AUTH-001`의 설계(REQ-AUTH-009)를 뒤집는 결정이라 별개 SPEC의 몫이며, `createContext`/`useContext`/`useAuth`/`localStorage`/`sessionStorage`가 0건이라는 것을 정적 가드가 강제한다. `src/features/admin/services/admin-session.ts`와 `src/middleware.ts`는 한 글자도 바뀌지 않았다.
 
-**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-AUTH-002/progress.md` 참고): 헤더·전역 내비게이션이 없어 로그인해도 화면이 달라지지 않고 로그아웃할 방법도 화면에 없다. `resolveSession`은 아직 소비자가 없어 단위 테스트로만 검증됐고 실제 요청 경로에서 실행된 적이 없다. Google OAuth 진입 버튼이 없어 브라우저에서 소셜 로그인을 시작할 방법은 여전히 없다. 검증은 jsdom + Testing Library까지이며 실제 브라우저 폼 거동·모바일 뷰포트는 아직 확인하지 않았다. (참고: `SPEC-E2E-001`이 브라우저 E2E 하네스를 도입했지만(`e2e/`, Playwright), 게스트 결제 여정 전용이라 이 SPEC의 로그인·회원가입 화면은 그 스위트의 범위 밖이다 — 여전히 미확인 상태다.)
+**알려진 한계**(자세한 내용은 `.moai/specs/SPEC-AUTH-002/progress.md` 참고): `resolveSession`은 이 SPEC 시점에는 아직 소비자가 없어 단위 테스트로만 검증됐고 실제 요청 경로에서 실행된 적이 없다(이후 `SPEC-AUTH-003`이 공유 헤더를 통해 첫 레이아웃 레벨 소비자를 세웠다 — 아래 참고). Google OAuth 진입 버튼이 없어 브라우저에서 소셜 로그인을 시작할 방법은 여전히 없다. 검증은 jsdom + Testing Library까지이며 실제 브라우저 폼 거동·모바일 뷰포트는 아직 확인하지 않았다. (참고: `SPEC-E2E-001`이 브라우저 E2E 하네스를 도입했지만(`e2e/`, Playwright), 게스트 결제 여정 전용이라 이 SPEC의 로그인·회원가입 화면은 그 스위트의 범위 밖이다 — 여전히 미확인 상태다.)
+
+**갱신(`SPEC-AUTH-003`)**: 로그인 상태를 보여주는 공유 헤더와 로그아웃 버튼이 이제 모든 화면에 존재한다(아래 [로그인 상태 헤더](#로그인-상태-헤더-spec-auth-003) 참고) — 위 문단이 서술하던 "헤더·전역 내비게이션 부재"는 헤더 부분만 해소됐다. 전역 내비게이션(카테고리/메뉴 링크)·검색창·장바구니 아이콘·배지는 여전히 없다.
 
 ## 상품 리뷰 (SPEC-REVIEW-001)
 
@@ -212,6 +214,21 @@ SPEC-STOREFRONT-001이 스텁으로 남기고 "홈 콘텐츠 설계는 범위 �
 **리뷰 본문은 저장형 XSS를 막도록 항상 일반 JSX 텍스트 자식으로만 렌더링된다**(`{review.body}`, `dangerouslySetInnerHTML` 미사용) — React의 기본 이스케이프에 기대는 것이 이 저장소의 다른 사용자-입력 렌더링과 같은 접근이다. 홈 화면 상품 그리드(`ProductGrid`/`ProductCard`)는 이 SPEC이 건드리지 않았고 여전히 평점 배지나 리뷰 개수를 표시하지 않는다.
 
 **알려진 한계**(자세한 내용은 `.moai/specs/SPEC-REVIEW-001/progress.md` 참고): `Promise.all` 기반의 진짜 동시 도착 레이스는 재현하지 않았다 — 순차 재현(먼저 하나 성공시키고 두 번째를 `P2002`로 거부)으로 DB 제약 자체가 최종 방어선임을 확인했을 뿐이다. plan-audit의 선택 관찰 2건(HISTORY 갱신, body 길이 상한의 별도 formal AC)은 지시대로 착수하지 않았다. 신규 통합 테스트(`review-repository.test.ts`)는 로컬 실제 PostgreSQL에서만 실행을 확인했다.
+
+## 로그인 상태 헤더 (SPEC-AUTH-003)
+
+이 저장소에 하나도 없던 **공유 사이트 헤더**를 도입했다. 헤더가 표시하는 것은 로그인 상태 하나뿐이다 — 미로그인 방문자에게는 `/login`으로 가는 "로그인" 링크를, 로그인한 방문자(customer/admin 구분 없음)에게는 "내 정보" 텍스트와 로그아웃 버튼을 보여준다. 새 메커니즘을 발명하지 않았다: 서버 렌더 화면이 로그인 상태를 아는 방법은 `SPEC-REVIEW-001`이 이미 쓰고 있던 `resolveSession()`(`src/lib/auth/session-resolver.ts`) 그대로이며, 이 SPEC은 그 결정을 문서로 정본화하고 **최초의 레이아웃 레벨 소비자**를 세웠을 뿐이다.
+
+| 컴포넌트 | 파일 | 설명 |
+|---|---|---|
+| `SiteHeader` | `src/components/layout/SiteHeader.tsx` | 서버 컴포넌트. `resolveSession()` 호출 결과로 로그인/미로그인 분기만 렌더 |
+| `LogoutButton` | `src/components/layout/LogoutButton.tsx` | 클라이언트 아일랜드. `POST /api/auth/logout`(기존 엔드포인트)에 CSRF 더블서브밋 헤더를 실어 호출, 성공 시 `router.refresh()`만 호출 |
+
+`src/app/layout.tsx`의 `<body>` 안, `{children}` 위에 `<SiteHeader />`를 배선했다 — 모든 라우트가 이 헤더를 통과한다. 이 SPEC이 **범위로 좁힌 것**: 헤더 내부에 로그인 상태 표시 하나만 두고, 푸터·전역 내비게이션(카테고리/메뉴 링크)·검색창·장바구니 아이콘/배지는 만들지 않았다 — 전부 여전히 부재이며 각각 별도 SPEC 대상이다(장바구니는 `SPEC-STOREFRONT-002`가, 검색은 `SPEC-CATALOG-002`가 이연). 정적 스캔 테스트(`site-header-boundary-static.test.ts`)가 신규 소스 2종에 `cart`/`장바구니`/`search`/`검색`/`<footer` 매치 0건, 렌더 출력에 `/cart`·`/products?...`·카테고리 경로 링크 0개임을 기계적으로 고정한다.
+
+**resolveSession() 호출자 개수 정정.** plan-phase 위임 요약은 이 함수의 프로덕션 호출자가 2곳(`page.tsx`의 표시 게이트, `route.ts`의 인증 게이트)이라고 전달했으나, 단일 파일 grep은 배타성을 증명하지 못한다는 자체 재검증에서 실제로는 이 SPEC이 세운 레이아웃 레벨 호출자를 더해 3곳임이 맞다는 사실이 확인됐다(`progress.md` §E.2). 그 자체가 이 SPEC의 결론을 바꾸지는 않는다 — 헤더는 여전히 이 함수의 **첫 레이아웃 레벨** 소비자다.
+
+`src/middleware.ts`, `REQ-AUTH-009`(액세스 토큰 클라이언트 메모리 전용), `resolveSession()`/`csrf_token` 쿠키 발급 로직은 한 글자도 바뀌지 않았다 — `git diff --stat` 무변경 확인 완료.
 
 ## 주문/체크아웃 (SPEC-ORDER-001)
 

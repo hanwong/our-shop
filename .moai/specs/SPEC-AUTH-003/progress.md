@@ -1,6 +1,6 @@
 ---
 id: SPEC-AUTH-003
-status: in-progress
+status: completed
 updated: 2026-09-05
 tier: M
 ---
@@ -411,7 +411,21 @@ m1_to_mN_commit_strategy: >
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+sync_complete_at: 2026-09-05
+sync_commit_sha: pending-backfill-sync-phase-artifacts
+sync_status: audit-ready
+b12_self_test_a: "grep -c 'SPEC-AUTH-003' CHANGELOG.md → 0 before write (verified twice — orchestrator pre-flight + this agent's own re-verification)"
+b12_self_test_b: "AC count match — grep -oE 'AC-AUTH-0(3[7-9]|4[0-7])' acceptance.md | sort -u | wc -l → 11 distinct AC-IDs (037/038/039/040/041/042/043a/043b/044/045/046/047), matches CHANGELOG entry's stated 11"
+b12_self_test_c: "file path verification — ls src/components/layout/SiteHeader.tsx src/components/layout/LogoutButton.tsx src/app/layout.tsx → all 3 exist"
+changelog_entry_position: "top of [Unreleased], before the SPEC-E2E-001 entry"
+frontmatter_status_transitions.spec_md: "in-progress → completed (this sync commit)"
+canary_compliance_check: "n/a — this SPEC does not define a forward-looking canary policy that its own sync tests"
+```
+
+sync-auditor 독립 재검증 결과: PASS — Functionality 98 / Security 95 / Craft 100 / Consistency 100, weighted 97.95. 전체 보고서: `.moai/reports/sync-audit/SPEC-AUTH-003-2026-09-05.md`.
+
+README.md 교차 참조 정정 완료: `SPEC-AUTH-002`의 "알려진 한계" 문단에서 "헤더·전역 내비게이션 부재로 로그인해도 화면이 달라지지 않는다"는 서술을 이 SPEC이 낡게 만들었으므로, 헤더 부분만 해소됐음을 밝히고 전역 내비게이션·검색·장바구니는 여전히 부재임을 정확히 남기는 보강 문단을 추가했다. 신규 "로그인 상태 헤더 (SPEC-AUTH-003)" 섹션도 README에 추가했다. `SPEC-STOREFRONT-001`/`SPEC-STOREFRONT-003`의 헤더·내비게이션 관련 서술은 각 SPEC 자신이 그 시점에 만들지 않았다는 역사적 사실을 그대로 서술하고 있어 여전히 정확하므로 수정하지 않았다(그 SPEC들 자신의 범위 밖 결정에 대한 서술이지, 저장소 현재 상태에 대한 서술이 아님).
 
 ## §F Phase 4 Mode Selection
 

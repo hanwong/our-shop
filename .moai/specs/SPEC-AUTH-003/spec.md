@@ -2,7 +2,7 @@
 id: SPEC-AUTH-003
 title: "서버 렌더링 로그인 상태 확인 방식의 정본화 및 공유 사이트 헤더"
 version: "0.1.0"
-status: in-progress
+status: completed
 created: 2026-09-05
 updated: 2026-09-05
 author: snake

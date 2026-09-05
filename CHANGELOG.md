@@ -4,6 +4,22 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+### 추가 — SPEC-AUTH-003: 서버 렌더링 로그인 상태 확인 방식의 정본화 및 공유 사이트 헤더
+
+**이 저장소에 하나도 없던 공유 사이트 헤더를 처음 만들었다.** 이 SPEC은 두 가지를 한다 — (1) 서버 렌더(SSR) 화면이 로그인 상태를 확인하는 방식으로 `resolveSession()`(`src/lib/auth/session-resolver.ts`)을 이 저장소의 정본 설계 결정으로 문서에 고정하고(새 메커니즘을 발명하지 않는다), (2) 그 정본 방식의 첫 레이아웃 레벨 소비자인 로그인 상태 표시 전용 헤더를 만든다. 원 카드의 전제("SSR 로그인 확인이 `SPEC-AUTH-001`의 메모리 전용 액세스 토큰과 구조적으로 충돌한다")는 착수 전 정찰로 **사실이 아님**이 확인됐다 — 읽기 측은 httpOnly `refresh_token` 쿠키를 통해 이미 풀려 있었고 `SPEC-REVIEW-001`이 프로덕션에서 쓰고 있었다. 이 SPEC의 일은 그것을 다시 푸는 게 아니라 정본화 + 최초 소비자 구축이었다(spec.md §1.1).
+
+- `src/components/layout/SiteHeader.tsx`(신규) — 서버 컴포넌트. `resolveSession()` 결과로 미로그인("로그인" 링크, `/login`) / 로그인("내 정보" + `<LogoutButton />`) 두 분기만 렌더한다. 쿠키 부재·매칭 없음·폐기·만료 4가지 null 사유가 이미 전부 같은 `null`로 수렴하므로(`resolveSession` 자체 설계), 이 컴포넌트는 `session !== null` 이상의 구분을 하지 않는다.
+- `src/components/layout/LogoutButton.tsx`(신규) — 클라이언트 아일랜드. `POST /api/auth/logout`(기존 엔드포인트, 무변경)에 `X-CSRF-Token` 헤더로 `csrf_token` 쿠키 값을 되돌려 보내는 더블서브밋 패턴을 쓴다 — `CancelOrderButton.tsx`/`ProductForm.tsx`가 이미 쓰던 동일한 인라인 `document.cookie` 파싱이며, 세 번째 소비자가 됐다고 별도 유틸로 추출하지는 않았다(추출하면 PRESERVE-listed staff 파일 2개를 건드려야 해서 이 SPEC의 범위를 관리자 화면까지 넓히는 대가가 이득보다 컸다). 200 응답 시 `router.refresh()`만 호출하고, 403/500 응답 시에는 이동·갱신 없이 버튼을 그대로 둔다 — `router.push`는 어떤 경로에서도 호출하지 않는다.
+- `src/app/layout.tsx`(수정, +23/-5줄) — `<body>` 안, `{children}` 위에 `<SiteHeader />`를 배선했다. 이 파일의 기존 주석("헤더·푸터·전역 내비게이션·검색·장바구니 아이콘 전부 제외")이 부분적으로 낡게 되어 `@MX:NOTE`로 그 사실을 소스에 고정했다 — 개정된 것은 헤더 한 줄뿐이고, 푸터·전역 내비게이션·검색·장바구니는 여전히 제외다(`spec.md` §1.4의 7행 표가 개정/유지를 항목별로 못 박는다).
+- `tests/unit/components/site-header.test.tsx`·`logout-button.test.tsx`·`site-header-boundary-static.test.ts`(신규 3종), `tests/unit/app/shell.test.tsx`(수정, 배치 검증 1건 추가) — `AC-AUTH-037~047`(043은 a/b 서브케이스 포함, 총 11항목) 전부 PASS. 정적 스캔 테스트가 신규 소스 2종에 `Authorization`/`Bearer`/`localStorage`/`sessionStorage`/`createContext`/`useContext`/`useAuth` 매치 0건, 그리고 별도로 `cart`/`장바구니`/`search`/`검색`/`<footer` 매치 0건 + 렌더 출력의 내비 링크 0개(게스트/회원 각각)를 기계적으로 고정한다.
+- **`resolveSession()` 호출자 개수, plan-phase 위임 요약의 근거 오류를 자체 재검증으로 정정.** 위임 요약은 프로덕션 호출자를 2곳(`page.tsx`의 표시 게이트, `route.ts`의 인증 게이트)이라고 전달했지만, plan-phase에서 소스 파일을 직접 재확인한 결과 이 SPEC이 신설하는 레이아웃 레벨 호출자를 더하면 3곳이 맞다 — 단일 파일 grep은 배타성을 증명하지 못한다는 것이 근거였다(`progress.md` §E.1의 grounding 검증). SPEC의 결론(헤더가 첫 **레이아웃 레벨** 소비자라는 것) 자체는 바뀌지 않았다.
+- **커밋 순서, 계획 대비 의도적 이탈.** `plan.md` §F는 M1(SiteHeader)을 M2(LogoutButton)보다 먼저 배치했지만, `SiteHeader.tsx`가 `LogoutButton.tsx`에 하드 임포트 의존성을 가지므로 M1을 문자 그대로 먼저 커밋하면 그 커밋 트리에서 `tsc --noEmit`이 모듈 미해결로 실패한다. 위임 지시(B9)가 "두 커밋, 합치지 않음"을 요구했으므로, 합치는 대신 **빌드 의존성 순서로 커밋**했다 — `LogoutButton.tsx`(M2)를 먼저, `SiteHeader.tsx`(M1)를 다음에. `status: draft→in-progress` 전이는 (시간순 두 번째지만) M1 레이블 커밋에 실었다.
+- `package.json` 무변경 — 신규 의존성 0건.
+
+인수 기준 11건(`AC-AUTH-037~047`, 043a/043b 서브케이스 포함) 전부 PASS. 전체 스위트 113 files/1489 tests 통과(회귀 0건, baseline 112/1485 대비 M3/M4 신규분만 증가). `npx tsc --noEmit`·`npm run lint` 전부 exit 0. 신규 소스 2종 커버리지 lines/statements/functions/branches 전부 100%. PRESERVE 목록(`src/middleware.ts`, `session-resolver.ts`, `csrf.ts`, `cookies.ts`, `logout/route.ts`, 리뷰 도메인 2개 파일, `src/app/staff/`, `prisma/schema.prisma`) `git diff --stat` 전부 무변경. sync-audit 독립 재검증 PASS(Functionality 98/Security 95/Craft 100/Consistency 100, weighted 97.95 — `.moai/reports/sync-audit/SPEC-AUTH-003-2026-09-05.md`).
+
+**여전히 범위 밖.** 푸터, 전역 내비게이션(카테고리/메뉴 링크), 검색창, 장바구니 아이콘/배지는 이 SPEC이 만들지 않았고 각각 별도 SPEC 대상으로 남는다(`spec.md` §1.4).
+
 ### 추가 — SPEC-E2E-001: 결제·주문 경로 E2E 테스트 시나리오 (게스트 전용)
 
 **이 저장소에 브라우저 E2E가 전무했던 공백을 채웠다.** `SPEC-STOREFRONT-001/002/003`·`SPEC-AUTH-002`가 각자 "브라우저 E2E 하네스 부재로 확인하지 않았다"고 이월해 둔 항목들의 원인이던 그 공백이다. Playwright(Chromium 전용)로 게스트 장바구니 담기 → `/checkout` → 결제 → `/checkout/complete/{orderId}`까지 하나의 실제 브라우저·실제 Next.js 서버·실제 PostgreSQL을 태우는 9개 시나리오를 구축했다(`e2e/`, `npm run test:e2e`, `AC-E2E-001~015`, 005a/005b 분기 포함 16항목 전부 PASS). **`src/` 프로덕션 소스는 0줄도 바뀌지 않았다** — 전 milestone에 걸쳐 `git diff --stat <base>... -- src/lib/payment/toss-server.ts`가 매번 빈 출력이었음을 반복 확인했다.
