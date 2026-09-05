@@ -2,7 +2,7 @@
 id: SPEC-ORDER-004
 title: "회원(로그인) 체크아웃 지원 — Order 회원 귀속과 쿠키 세션 기반 주문 생성"
 version: "0.1.0"
-status: draft
+status: in-progress
 created: 2026-09-05
 updated: 2026-09-05
 author: snake

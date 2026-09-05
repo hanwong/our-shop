@@ -44,6 +44,12 @@ model User {
   carts         Cart[]
   // SPEC-REVIEW-001 M1 — back-relation only; no existing field above changes.
   reviews       Review[]
+  // SPEC-ORDER-004 M1 — back-relation only. Prisma requires the opposite side
+  // of Order.user to be declared here; no existing field above changes.
+  // Modelled as a LIST and, unlike `carts` above, genuinely unbounded: Order.userId
+  // carries no uniqueness constraint because a member places MANY orders
+  // (design.md §1.2).
+  orders        Order[]
 }
 
 model OAuthAccount {
@@ -250,12 +256,19 @@ model CartItem {
 // design.md §1. Do not diverge from design.md without updating design.md first
 // (manager-develop is not the owner of SPEC body content).
 //
-// The scope boundary is enforced HERE rather than in prose: there is no
-// `userId`, no `user` relation, and `guestId` is NOT NULL, so a member-owned
-// order is not representable (design.md §1.4). Member checkout is excluded
-// because a server-rendered page cannot identify a member at all — the access
-// token lives only in client memory and the guest cookie is expired at login
-// (spec.md §3, research.md §6).
+// SPEC-ORDER-004 M1 LIFTED THAT BOUNDARY. SPEC-ORDER-001 wrote here that there
+// was no `userId`, no `user` relation, and a NOT NULL `guestId`, so that a
+// member-owned order was not representable — the boundary was enforced by the
+// schema rather than by prose. That statement described the schema until this
+// migration and is preserved as history, not as a live claim: the blocker it
+// named (a server-rendered page could not identify a member at all) was removed
+// by SPEC-AUTH-003's `resolveSession()`, and SPEC-ORDER-004 owns the migration
+// that adds `userId` and relaxes the NOT NULL — exactly the follow-up
+// 20260831120000_add_order_models/migration.sql:14-20 anticipated.
+//
+// What replaces it is NOT an absent column but an invariant the write path
+// holds: exactly one of (`guestId`, `userId`) is filled on every row
+// (REQ-ORDER-048). See the ownership-column comment inside the model.
 // ---------------------------------------------------------------------------
 
 enum OrderStatus {
@@ -267,17 +280,38 @@ enum OrderStatus {
 // @MX:ANCHOR fan-in target — every order write in this SPEC reaches the
 // database through the single transaction in order-service.ts, and both
 // checkout screens read this model.
-// @MX:REASON `guestId` is the whole authorization basis for reading an order
-// back (REQ-ORDER-020), so a change to its nullability or to the absence of a
-// member column is a scope-boundary change, not a modelling detail.
+// @MX:REASON the ownership columns are the whole authorization basis for
+// reading an order back (REQ-ORDER-020), so a change to their nullability or
+// uniqueness is a scope-boundary change, not a modelling detail. SPEC-ORDER-004
+// M1 made exactly such a change: `guestId` became nullable and `userId` joined
+// it, so ownership is now a two-column XOR held by the write path.
 model Order {
   id          String      @id @default(cuid())
   orderNumber String      @unique // human-readable, quotable in enquiries (REQ-ORDER-003)
   status      OrderStatus @default(pending_payment)
 
-  // The owning identity: the `guest_cart_id` value as of the order. NOT NULL,
-  // and there is deliberately no member counterpart (design.md §1.4).
-  guestId String
+  // SPEC-ORDER-004 M1 — two ownership dimensions, of which exactly ONE is
+  // filled on every row (REQ-ORDER-048). `guestId` still holds the
+  // `guest_cart_id` value as of the order; `userId` holds the owning member.
+  //
+  // Both are nullable for the same reason Cart's two are: "exactly one" cannot
+  // be expressed as a column constraint, so the invariant is held by the write
+  // path never constructing a row that violates it — the discriminated-union
+  // owner parameter makes "both" and "neither" unrepresentable at the type
+  // level (design.md §1.4, mirroring cart-repository.ts:68-77).
+  //
+  // `userId` deliberately carries NO @unique, UNLIKE Cart.userId. Cart's
+  // @unique encodes the domain rule "one cart per member"; orders have no such
+  // rule — a member may place a hundred — so copying it here would fail every
+  // member's SECOND order with a P2002 unique-constraint violation
+  // (design.md §1.2). Because nothing here doubles as an index the way Cart's
+  // @unique did, the member-lookup index is declared explicitly below.
+  guestId String?
+  userId  String?
+  // Restrict, deliberately UNLIKE Cart.user's Cascade and for the same reason
+  // OrderItem.product is Restrict: an order is an accounting record and must
+  // not be destroyed by a user deletion (design.md §1.3).
+  user    User?   @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   // Shipping snapshot — exactly the five fields REQ-ORDER-008 permits. No
   // email, no payment instrument (REQ-ORDER-009).
@@ -320,6 +354,9 @@ model Order {
   auditLogs PaymentAuditLog[]
 
   @@index([guestId])
+  // SPEC-ORDER-004 M1 — without this, every member-owned order lookup is a
+  // sequential scan; see the no-@unique note on `userId` above.
+  @@index([userId])
 }
 
 model OrderItem {

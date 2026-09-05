@@ -62,7 +62,11 @@ export async function createSpikeOrder(): Promise<SpikeOrderHandle> {
     },
   });
 
-  return { orderId: order.id, guestId: order.guestId, totalAmount: order.totalAmount };
+  // `guestId` is `String?` on the model (REQ-ORDER-047 — member orders carry
+  // `userId` instead), so Prisma types it `string | null`. This fixture always
+  // creates a guest order with `guestId` populated above, so the assertion is
+  // sound here.
+  return { orderId: order.id, guestId: order.guestId!, totalAmount: order.totalAmount };
 }
 
 export async function deleteSpikeOrder(orderId: string): Promise<void> {
