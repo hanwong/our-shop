@@ -58,11 +58,11 @@
 
 **AC-AUTH-054** — 테스트 변경이 정확히 12개이며 11개는 경로 전용이다
 
-> All 113 test files / 1489 tests pass. Exactly 12 test files change: 11 mechanical path-only rewrites with zero assertion deltas (verifiable — diff contains only path-string changes), and 1 structural assertion update in `shell.test.tsx`. No other test file is touched.
+> At least 113 test files / 1489 tests pass (floor, not an exact count — later SPECs may add tests; 0 regressions allowed). Exactly 12 test files change: 11 mechanical path-only rewrites with zero assertion deltas (verifiable — diff contains only path-string changes), and 1 structural assertion update in `shell.test.tsx`. No other test file is touched.
 
 - **Given** 구현 완료 후의 작업 트리에서
 - **When** `npx vitest run`을 실행하고 `git diff --stat -- tests/`로 변경 테스트 파일을 열거하면
-- **Then** 스위트가 **113 files / 1489 tests 전부 통과**해야 하고(baseline과 동일 — 신규 가드 추가분은 증가로 허용하되 감소·실패는 0), 변경된 테스트 파일이 **정확히 12개**여야 하며, 그중 `shell.test.tsx`를 제외한 **11개의 diff에는 경로 문자열 변경 외의 변경(단언·기대값·금지 토큰 목록·주석 의미 변경)이 0건**이어야 한다.
+- **Then** 스위트가 **113 files / 1489 tests 이상 통과**해야 하고(하한값 — 정확히 일치해야 하는 값이 아니라 baseline 최소치이며, 신규 가드 추가분은 증가로 허용하되 감소·실패는 0), 변경된 테스트 파일이 **정확히 12개**여야 하며, 그중 `shell.test.tsx`를 제외한 **11개의 diff에는 경로 문자열 변경 외의 변경(단언·기대값·금지 토큰 목록·주석 의미 변경)이 0건**이어야 한다.
 - **판정 방법**: 11개 파일의 `git diff`에서 제거 라인과 추가 라인을 짝지어, 각 짝이 경로 문자열(`@/app/…` 또는 `src/app/…`)만 다른지 확인한다. 짝이 맞지 않거나 경로 외 토큰이 다르면 실패다.
 
 **AC-AUTH-055** — 이동 파일의 내용이 변경되지 않았다
@@ -110,7 +110,7 @@
 ## §4. Definition of Done
 
 - [ ] AC-AUTH-048 ~ AC-AUTH-056 (9항목) 전부 PASS
-- [ ] `npx vitest run` — 113 files / 1489 tests 전부 통과, 실패 0
+- [ ] `npx vitest run` — 113 files / 1489 tests 이상 통과(하한값, 정확한 값 아님 — 신규 가드 추가 허용), 실패 0
 - [ ] `npx tsc --noEmit` exit 0
 - [ ] `npm run lint` exit 0
 - [ ] 변경 테스트 파일 정확히 12개, 그중 11개 경로 전용 diff 확인

@@ -443,3 +443,42 @@ README.md 교차 참조 정정 완료: `SPEC-AUTH-002`의 "알려진 한계" 문
 **Justification**: Coding-heavy implementation of a small, well-specified SPEC (7 files, all design decisions settled in plan-phase per §B.1-B.8). M1(SiteHeader)+M2(LogoutButton) are independent new components with no interdependency, batched into one delegation; M3(layout wiring)+M4(boundary/regression) both depend on M1/M2 existing and are mechanical, batched into a second delegation — 2 serial `Agent()` spawns rather than 4, reducing per-spawn worktree-isolation overhead for a SPEC this small.
 
 **Implementation Kickoff Approval**: user approved 2026-09-05 via AskUserQuestion (option: "지금 시작 (권장)"); progression mode = autonomous ("자동 진행 (권장)").
+
+## §G CodeRabbit Follow-up Cleanup (2026-09-05, cards t43/t46)
+
+Batch cleanup of a CodeRabbit finding against the merged PR #26 (SPEC-AUTH-003). No plan-phase applies — pre-diagnosed by the dispatching orchestrator. TDD discipline: t46 (RED test) written and confirmed failing first, then t43 (the fix) applied, then re-confirmed GREEN, per Reproduction-First / test-first requirement.
+
+### t43/t46 — `LogoutButton.tsx`: unhandled promise rejection on network failure
+
+**Claim**: `handleLogout`'s `await fetch(...)` had no try/catch — a network-level failure (offline, DNS failure) throws, producing an unhandled promise rejection. `LogoutButton`'s existing no-op-on-failure contract (REQ-AUTH-045) covered non-200 HTTP responses but not this rejection case.
+
+**Evidence — RED** (`npx vitest run tests/unit/components/logout-button.test.tsx`, pre-t43-fix code, new test added by t46 mocking `fetch` to reject):
+```
+ ✓ tests/unit/components/logout-button.test.tsx (6 tests) 143ms
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+Vitest caught 1 unhandled error during the test run.
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+Error: network error
+ ❯ tests/unit/components/logout-button.test.tsx:131:33
+...
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+     Errors  1 error
+```
+All 6 assertions still passed (the test doesn't directly assert on the rejection), but Vitest's unhandled-error capture proved the rejection was real and unhandled — matching the reported bug exactly.
+
+**Evidence — GREEN** (`npx vitest run tests/unit/components/logout-button.test.tsx`, post-t43-fix code — `fetch(...)` wrapped in try/catch, catch block deliberately empty per the no-op contract):
+```
+ ✓ tests/unit/components/logout-button.test.tsx (6 tests) 180ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+```
+Zero unhandled errors. Full test suite re-run afterward (`npx vitest run`, all files): 116 files / 1526 tests passed, 0 failures.
+
+**Baseline-attribution**: this-run, this-tree, branch `WT-coderabbit-cleanup-g1`, RED captured before the fix commit, GREEN captured after.
+
+**Gaps**: none — the RED/GREEN pair directly reproduces and closes the reported defect.
+
+**Residual-risk**: the catch block is deliberately empty (matching the existing non-200 no-op contract) — a future requirement to surface network failures to the user (e.g. a toast) would need a new AC and is out of this card's scope. `router.push()` remains never called on any path, unchanged.

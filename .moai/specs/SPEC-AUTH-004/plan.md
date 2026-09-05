@@ -105,7 +105,7 @@ SPEC-AUTH-003 `plan.md:204`는 `src/app/staff/**`를 PRESERVE로 열거하고, `
 
 SPEC-AUTH-003 `plan.md:204`/`:261`이 이 파일을 PRESERVE로 핀하고 `git diff --stat` 무변경을 검증했다. 이 SPEC은 그 파일을 `(shop)/` 안으로 **이동**한다 — 사용자 승인을 받은 예외다.
 
-**핵심 제약: 위치만 바뀌고 내용은 바뀌지 않는다.** 이동 후 `git diff --stat`으로 내용 diff가 비어 있음(rename 탐지 시 0 insertions/0 deletions)을 확인한다. git 설정이 깔끔한 rename으로 접지 못하면 그 사실을 `progress.md`에 **명시적으로 기록**하며, 조용히 넘어가지 않는다(AC-AUTH-053).
+**핵심 제약: 위치만 바뀌고 내용은 바뀌지 않는다.** 이동 후 `git diff --stat`으로 내용 diff가 비어 있음(rename 탐지 시 0 insertions/0 deletions)을 확인한다. git 설정이 깔끔한 rename으로 접지 못하면 그 사실을 `progress.md`에 **명시적으로 기록**하며, 조용히 넘어가지 않는다(AC-AUTH-055).
 
 ---
 
@@ -162,7 +162,7 @@ SPEC-AUTH-003에서 파일 수 오차가 발생한 선례가 있어, 모든 수�
 - **`tests/unit/app/product-detail-page.test.tsx`** — SPEC-AUTH-003 `plan.md:261`이 지명한 무회귀 가드다. 이 SPEC에서 바뀌는 것은 **이 테스트가 겨누는 파일 경로뿐**이다(`@/app/products/[productId]/page` → `@/app/(shop)/products/[productId]/page`, `roots = ["src/app/products", …]` → `["src/app/(shop)/products", …]`). 단언문·정적 스캔 금지 토큰 목록·기대값은 **한 글자도 바뀌지 않는다.** 따라서 SPEC-AUTH-003이 이 가드로 확보한 보장은 그대로 유효하며, 같은 대상을 새 위치에서 계속 감시한다.
 - **`tests/unit/auth/auth-boundary-static.test.ts`** — 보안 경계 정적 스캔이다(`:19-20`이 `login/page.tsx`·`signup/page.tsx`를 핀). 바뀌는 것은 **스캔 대상 경로 문자열 2개뿐**이며, 금지 토큰 집합과 단언은 불변이다. 스캔이 겨누는 실제 파일은 동일한 파일이고 내용도 동일하므로, 원 SPEC이 확보한 보안 보장은 축소되지 않는다.
 
-두 파일 모두 "경로 전용 11" 안에 있다. 이 성격은 **독립 검증 가능하다** — 두 파일의 diff에 경로 문자열 외 변경이 없어야 한다(AC-AUTH-052).
+두 파일 모두 "경로 전용 11" 안에 있다. 이 성격은 **독립 검증 가능하다** — 두 파일의 diff에 경로 문자열 외 변경이 없어야 한다(AC-AUTH-054).
 
 ### D.5 총계
 

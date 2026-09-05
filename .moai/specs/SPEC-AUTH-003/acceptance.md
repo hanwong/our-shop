@@ -62,7 +62,7 @@
 > **`<nav>` 태그 자체는 금지하지 않는다** (plan-audit D3). REQ-AUTH-046이 금지하는 것은 **카테고리 내비게이션 메뉴**라는 콘텐츠이지 `<nav>` 엘리먼트가 아니다. 로그인 상태 영역을 감싸는 시맨틱 래퍼로서의 `<nav>`는 접근성상 타당한 선택일 수 있으므로 허용한다 — 이 AC는 **내비게이션 링크가 실제로 존재하는지**를 판정하지 태그 이름을 판정하지 않는다.
 
 **AC-AUTH-045** — PRESERVE 대상이 변경되지 않았다
-- **Given** 구현 완료 후의 작업 트리에서
+- **Given** 구현 완료 후 고정된 베이스 커밋 대비
 - **When** `git diff --stat` 을 `src/middleware.ts`, `src/lib/auth/session-resolver.ts`, `src/lib/auth/csrf.ts`, `src/lib/auth/cookies.ts`, `src/app/api/auth/logout/route.ts`, `src/lib/auth/guest-identity.ts`에 대해 수행하면
 - **Then** 출력이 비어 있어야 하고(무변경), 추가로 `tests/unit/middleware.test.ts`와 `tests/unit/auth/session-resolver.test.ts`가 무회귀로 통과해야 한다.
 
@@ -72,7 +72,7 @@
 - **Then** `Authorization` / `Bearer` / `localStorage` / `sessionStorage` / `createContext` / `useContext` / `useAuth` 매치가 **0건**이어야 한다.
 
 **AC-AUTH-047** — 상품 상세의 리뷰 게이트가 그대로 동작한다 (특성화 회귀 가드)
-- **Given** 구현 완료 후의 작업 트리에서
+- **Given** 구현 완료 후 고정된 베이스 커밋 대비
 - **When** (a) `git diff --stat`을 `src/app/products/[productId]/page.tsx`와 `src/components/product/ProductDetailView.tsx`에 대해 수행하고, (b) `tests/unit/app/product-detail-page.test.tsx`와 `tests/unit/components/product-detail-view.test.tsx`를 실행하면
 - **Then** (a) 출력이 비어 있어야 하고(무변경), (b) 두 테스트 파일이 **plan-phase에서 실측한 baseline과 정확히 동일한 통과 개수**로 통과해야 한다 — 리뷰 게이트가 헤더 상태를 소비하도록 리팩터되지 않았음을 고정한다.
 

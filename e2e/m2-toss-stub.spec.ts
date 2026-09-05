@@ -45,13 +45,19 @@ test.describe("M2 — Toss stub SDK payment path", () => {
 
       await page.goto(`/checkout/complete/${order.orderId}`);
 
-      const confirmRequest = page.waitForRequest(
-        (req) => req.method() === "GET" && req.url().includes("/api/payments/confirm")
+      // t39 — waitForResponse (not waitForRequest) so this await only
+      // resolves once the server has actually RETURNED a response for the
+      // confirm request, meaning its markOrderPaid() write has completed.
+      // waitForRequest only guarantees the request was SENT; the finally
+      // block's deleteSpikeOrder() below could then race an in-flight write
+      // for the same order (progress.md M3 — left unfixed at the time).
+      const confirmResponse = page.waitForResponse(
+        (res) => res.request().method() === "GET" && res.url().includes("/api/payments/confirm")
       );
       await page.getByRole("button", { name: "결제하기" }).click();
-      const request = await confirmRequest;
+      const response = await confirmResponse;
 
-      const url = new URL(request.url());
+      const url = new URL(response.url());
       expect(url.pathname).toBe("/api/payments/confirm");
       // SPEC-E2E-001 M5 (REQ-E2E-015) — pinned to the derived-per-order
       // format (order-fixture.ts stubSuccessPaymentKey()), not merely
