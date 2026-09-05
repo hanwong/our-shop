@@ -1,6 +1,8 @@
 import { cookies } from "next/headers";
 
 import { GUEST_CART_COOKIE_NAME } from "@/lib/auth/guest-identity";
+import { resolveSession } from "@/lib/auth/session-resolver";
+import type { CartIdentity } from "@/features/cart/types/cart";
 import { getCart } from "@/features/cart/services/cart-service";
 import { CheckoutInteractive } from "@/components/checkout/CheckoutInteractive";
 import { CheckoutUnavailable } from "@/components/checkout/CheckoutUnavailable";
@@ -19,37 +21,63 @@ import {
  * HTTP would add a round trip, need a base-URL variable, and drop the CartDTO
  * contract at the JSON boundary.
  *
- * IDENTITY HERE IS ONE COOKIE READ, AND NOTHING ELSE (design.md §6.1). It does
- * not verify a token, does not apply a member/guest precedence rule, and does
- * not mint an id. That is not a shortcut — it is the whole reason this screen
- * does not become a second authorization surface able to drift from the one the
- * cart service owns. What remains is the identity `cookie value === guest id`,
- * which has nothing in it to judge. AC-ORDER-021 (c) pins this by name: the
- * identity-resolution helpers must not appear anywhere under this route.
+ * IDENTITY HERE IS TWO COOKIE READS AND NO JUDGEMENT BETWEEN THEM
+ * (SPEC-ORDER-004 M5, design.md §5.1). The screen still verifies no token,
+ * mints no id, and applies no precedence rule of its own — the session cookie
+ * and the guest cookie are read in a fixed order, and the first one that
+ * resolves is the identity. That is the whole reason this screen does not
+ * become a second ownership surface able to drift from the one the cart
+ * service owns. AC-ORDER-021 (c) still holds: the cart domain's own
+ * identity-resolution helpers appear nowhere under this route.
  *
- * The asymmetry is deliberate and explained in spec.md §3: cookies ride along
- * on a top-level navigation, so a guest identity always arrives, while the
- * member's access token — held in client memory — can never be attached to one.
- * That is why this SPEC builds guest checkout only.
+ * SPEC-ORDER-001 built the guest path only, on the reasoning that a member's
+ * access token lives in client memory and so cannot ride a top-level
+ * navigation. That reasoning was sound and its conclusion is now obsolete:
+ * SPEC-ORDER-004 resolves the member from the `refresh_token` COOKIE, which
+ * does ride one (design.md §3.2). Member checkout is in scope as of this SPEC.
  *
  * `cookies()` makes this a request-time render, which is what we want: a cached
  * checkout page would show one shopper's cart to another.
  */
 export default async function CheckoutPage() {
   const jar = await cookies();
-  // The NAME is imported, never re-typed: two copies of it are two places for
-  // the identity to diverge (AC-ORDER-021 (d)).
-  const guestId = jar.get(GUEST_CART_COOKIE_NAME)?.value ?? null;
 
-  // No cookie means no guest id, and no guest id means there is no cart to look
-  // up — a tautology rather than an inference, so nothing is queried. A server
-  // component cannot set cookies anyway, so minting one here would be doubly
-  // pointless; issuing is the route handler's job (design.md §6.2).
-  if (guestId === null) {
-    return <CheckoutUnavailable />;
+  // SESSION FIRST, GUEST COOKIE SECOND — and the order is load-bearing rather
+  // than stylistic (design.md §5.1). Reversed, a member still carrying a guest
+  // cookie for any reason would open the order form on their OLD guest cart
+  // instead of the member cart login merged their items into. Login expires
+  // the guest cookie unconditionally, so that should never arise — which is
+  // precisely why this must hold by construction rather than by that expiry
+  // happening to land. The read is a session lookup, not a judgement: it
+  // answers null for every failure reason alike.
+  const session = await resolveSession(jar);
+
+  let identity: CartIdentity;
+  if (session !== null) {
+    identity = { kind: "user", userId: session.userId };
+  } else {
+    // Reached ONLY when no session resolved, so for a member the guest cookie
+    // is never read at all — there are never two candidate identities in hand
+    // to choose between (AC-ORDER-065). The NAME is imported, never re-typed:
+    // two copies of it are two places for the identity to diverge
+    // (AC-ORDER-021 (d)).
+    const guestId = jar.get(GUEST_CART_COOKIE_NAME)?.value ?? null;
+
+    // No session and no cookie means no identity, and no identity means there
+    // is no cart to look up — a tautology rather than an inference, so nothing
+    // is queried. A server component cannot set cookies anyway, so minting one
+    // here would be doubly pointless; issuing is the route handler's job
+    // (design.md §6.2).
+    if (guestId === null) {
+      return <CheckoutUnavailable />;
+    }
+    identity = { kind: "guest", guestId };
   }
 
-  const cart = await getCart({ kind: "guest", guestId });
+  // One lookup, under whichever identity resolved. The empty-cart branch below
+  // is shared rather than duplicated per identity: having a session is not
+  // having something to order.
+  const cart = await getCart(identity);
   if (cart.items.length === 0) {
     return <CheckoutUnavailable />;
   }

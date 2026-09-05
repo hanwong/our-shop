@@ -2,30 +2,45 @@ import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 
 import { GUEST_CART_COOKIE_NAME } from "@/lib/auth/guest-identity";
-import { getOrderForGuest } from "@/features/orders/services/order-service";
+import { resolveSession } from "@/lib/auth/session-resolver";
+import type { OrderDTO } from "@/features/orders/types/order";
+import { getOrderForGuest, getOrderForUser } from "@/features/orders/services/order-service";
 import { PayButton } from "@/components/checkout/PayButton";
 
 /**
  * SPEC-ORDER-001 M6 — `/checkout/complete/[orderId]` (REQ-ORDER-018/020).
  *
- * Identity here is the same single cookie read as the order form (design.md
- * §6.1): no token verification, no precedence rule, no id minting. This page
- * deliberately reads no request header at all, so a member presenting a bearer
- * credential gains nothing by it — the direct consequence of member checkout
- * being out of scope, and the property AC-ORDER-020 (b) pins statically by
- * scanning this directory for the header-reading tokens.
+ * Identity here mirrors the order form exactly (SPEC-ORDER-004 M5, design.md
+ * §5.2): the session cookie is read first, the guest cookie second, and no
+ * token is verified, no id minted, no precedence rule invented. This page
+ * still reads no request header at all — so a member presenting a bearer
+ * credential gains nothing by it, and AC-ORDER-020 (b) keeps passing. That is
+ * no longer because member checkout is out of scope (SPEC-ORDER-004 brought it
+ * in) but because the member is resolved from the `refresh_token` COOKIE,
+ * which rides a top-level navigation where an in-memory access token cannot.
  *
- * KNOWING THE ORDER ID IS NOT ENOUGH. Ownership is part of the query itself
- * (getOrderForGuest), so there is no shape of this page that fetches a
- * stranger's order and then decides not to show it.
+ * KNOWING THE ORDER ID IS NOT ENOUGH, ON EITHER PATH. Ownership is part of the
+ * query itself — getOrderForUser scopes on userId, getOrderForGuest on guestId
+ * — so there is no shape of this page that fetches a stranger's order and then
+ * decides not to show it. The XOR invariant (design.md §4) is what makes the
+ * two scopes disjoint rather than merely different: a guest order carries a
+ * null userId, so a member-scoped query cannot match it, and vice versa.
+ *
+ * There is also no fallback between them. A member whose lookup comes back
+ * empty is refused; the guest lookup is NOT retried with whatever cookie also
+ * happened to be present, because that retry is exactly how a stale guest
+ * cookie would become a way around ownership.
  *
  * Every refusal is notFound(), and none is a "forbidden" status — the precedent
  * SPEC-CART-001's findOwnedItem() set. A distinguishable status would let
  * someone holding a guessed id learn that it is real (design.md §6.3).
  *
- * This screen is for the moment just after ordering. A guest whose cookie has
- * expired cannot return to it, which is accepted rather than overlooked: a
- * re-visit mechanism belongs to the order-history SPEC (spec.md §3).
+ * This screen is for the moment just after ordering. Neither a guest whose
+ * cookie has expired nor a member returning later has a way back to it, which
+ * is accepted rather than overlooked: a re-visit mechanism belongs to the
+ * order-history SPEC, and SPEC-ORDER-004 explicitly did not add one
+ * (acceptance.md §H — getOrderForUser is this screen's single-order ownership
+ * check, not an order-lookup surface).
  *
  * SPEC-PAYMENT-001 M4 EXTEND (plan.md §4.1) — exactly three additions beyond
  * the SPEC-ORDER-001 render above: the status-message branch below is now
@@ -35,7 +50,9 @@ import { PayButton } from "@/components/checkout/PayButton";
  * query param alone (design.md §6's "상태 우선 원칙", AC-PAYMENT-009 (ii)).
  * The guest-cookie read, the getOrderForGuest() call, and the notFound()
  * guard above are untouched by this EXTEND — diff on that block is 0 lines
- * (plan.md §4.1 DoD).
+ * (plan.md §4.1 DoD). That diff-0 claim is SPEC-PAYMENT-001's, about its own
+ * change, and remains true of it; the identity block was later widened by
+ * SPEC-ORDER-004 M5, which owns that edit.
  */
 
 /** Mirrors ProductDetailView.formatWon — a won integer, thousands grouped. */
@@ -65,15 +82,31 @@ export default async function CheckoutCompletePage({
   const paymentFailed = sp.payment_failed === "1";
 
   const jar = await cookies();
-  const guestId = jar.get(GUEST_CART_COOKIE_NAME)?.value ?? null;
 
-  // No cookie means nothing to match the order's owner against, so there is
-  // nothing to look up — the same tautology the order form relies on.
-  if (guestId === null) {
-    notFound();
+  // Session first, guest cookie second — the same fixed order the order form
+  // uses, for the same reason (design.md §5.1/§5.2).
+  const session = await resolveSession(jar);
+
+  let order: OrderDTO | null;
+  if (session !== null) {
+    // Scoped to this member in the query itself. A stranger's order is never
+    // fetched, so there is nothing here to leak by a later mistake.
+    order = await getOrderForUser(orderId, session.userId);
+  } else {
+    const guestId = jar.get(GUEST_CART_COOKIE_NAME)?.value ?? null;
+
+    // No session and no cookie means nothing to match the order's owner
+    // against, so there is nothing to look up — the same tautology the order
+    // form relies on.
+    if (guestId === null) {
+      notFound();
+    }
+
+    order = await getOrderForGuest(orderId, guestId);
   }
 
-  const order = await getOrderForGuest(orderId, guestId);
+  // One refusal for every miss: wrong owner, wrong owner KIND, and no such
+  // order are indistinguishable from out here, on both paths.
   if (order === null) {
     notFound();
   }

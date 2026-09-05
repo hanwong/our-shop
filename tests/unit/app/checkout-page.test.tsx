@@ -32,10 +32,18 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 const cartService = { getCart: vi.fn() };
 vi.mock("@/features/cart/services/cart-service", () => cartService);
 
+// SPEC-ORDER-004 M5 — the screen now resolves a MEMBER session before reading
+// the guest cookie (design.md §5.1). The real resolver is a database read, so
+// it is mocked here; every existing case below keeps the pre-SPEC behaviour by
+// defaulting to `null` (no session) in the shared beforeEach.
+const sessionResolver = { resolveSession: vi.fn() };
+vi.mock("@/lib/auth/session-resolver", () => sessionResolver);
+
 const { cookies } = await import("next/headers");
 const { default: CheckoutPage } = await import("@/app/(shop)/checkout/page");
 
 const GUEST = "guest-cookie-value";
+const MEMBER = { userId: "user-1", role: "customer" as const };
 
 /** A cookie jar presenting exactly the named cookies. */
 function jarWith(entries: Record<string, string>) {
@@ -100,6 +108,10 @@ afterEach(cleanup);
 beforeEach(() => {
   vi.mocked(cookies).mockReset();
   cartService.getCart.mockReset();
+  sessionResolver.resolveSession.mockReset();
+  // No session is the default: it is what every SPEC-ORDER-001/002 case below
+  // assumes, and what a guest actually presents.
+  sessionResolver.resolveSession.mockResolvedValue(null);
 });
 
 describe("SPEC-ORDER-001 M5 — the cart arrives already rendered (AC-ORDER-005)", () => {
@@ -387,5 +399,102 @@ describe("SPEC-ORDER-002 M3 — the screen informs but never blocks (AC-ORDER-03
     // guard that silently swallowed the submit would satisfy the assertion
     // above while still blocking the shopper.
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/orders", expect.anything()));
+  });
+});
+
+describe("SPEC-ORDER-004 M5 — a member opens the order form (AC-ORDER-064)", () => {
+  beforeEach(() => {
+    sessionResolver.resolveSession.mockResolvedValue(MEMBER);
+    // Login expires the guest cookie unconditionally, so the ordinary member
+    // arrives carrying a session and no guest cookie at all.
+    vi.mocked(cookies).mockResolvedValue(
+      jarWith({ refresh_token: "session-token" }) as unknown as Awaited<ReturnType<typeof cookies>>
+    );
+    cartService.getCart.mockResolvedValue(TWO_ITEMS);
+  });
+
+  it("renders the order form rather than the unavailable notice", async () => {
+    render(await CheckoutPage());
+
+    // The defect SPEC-ORDER-001 named by its own admission: a logged-in member
+    // reaching checkout and being told the screen has nothing for them.
+    expect(screen.getByLabelText(/수령인/)).toBeDefined();
+    expect(screen.getByRole("button", { name: /주문하기/ })).toBeDefined();
+  });
+
+  it("shows the items and amounts from THAT member's cart", async () => {
+    render(await CheckoutPage());
+
+    expect(screen.getByText("클래식 데님 재킷")).toBeDefined();
+    expect(screen.getByText("코튼 볼캡")).toBeDefined();
+    expect(document.body.textContent).toContain("139,000");
+  });
+
+  it("looks the cart up under the member identity", async () => {
+    render(await CheckoutPage());
+
+    // The member cart is where login's merge put the items
+    // (mergeGuestCartIntoUserCart, design.md §5.1), so this is the only
+    // identity under which they can be found.
+    expect(cartService.getCart).toHaveBeenCalledWith({ kind: "user", userId: MEMBER.userId });
+  });
+
+  it("still shows the guidance when the member's own cart is empty", async () => {
+    cartService.getCart.mockResolvedValue(cart([]));
+
+    render(await CheckoutPage());
+
+    // Having a session is not having something to order — the empty-cart
+    // branch is shared by both identities rather than duplicated per branch.
+    expect(screen.queryByLabelText(/수령인/)).toBeNull();
+  });
+});
+
+describe("SPEC-ORDER-004 M5 — the session is resolved BEFORE the guest cookie (AC-ORDER-065)", () => {
+  const STALE_GUEST = "stale-guest-cookie";
+
+  beforeEach(() => {
+    sessionResolver.resolveSession.mockResolvedValue(MEMBER);
+    // BOTH identities on one request. Login expires the guest cookie, so this
+    // should not arise in the normal flow — which is exactly why the ordering
+    // must hold by construction rather than by that expiry happening to land.
+    vi.mocked(cookies).mockResolvedValue(
+      jarWith({ refresh_token: "session-token", guest_cart_id: STALE_GUEST }) as unknown as Awaited<
+        ReturnType<typeof cookies>
+      >
+    );
+    cartService.getCart.mockResolvedValue(TWO_ITEMS);
+  });
+
+  it("shows the member cart, not the stale guest one", async () => {
+    render(await CheckoutPage());
+
+    expect(cartService.getCart).toHaveBeenCalledWith({ kind: "user", userId: MEMBER.userId });
+  });
+
+  it("never queries the guest cart", async () => {
+    render(await CheckoutPage());
+
+    expect(cartService.getCart).not.toHaveBeenCalledWith({
+      kind: "guest",
+      guestId: STALE_GUEST,
+    });
+    // One lookup, not two: a member cart fetched AFTER a guest fetch would
+    // still show the right cart while having queried the wrong one first.
+    expect(cartService.getCart).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not even READ the guest cookie when a session resolves", async () => {
+    const get = vi.fn((name: string) =>
+      name === "guest_cart_id" ? { name, value: STALE_GUEST } : undefined
+    );
+    vi.mocked(cookies).mockResolvedValue({ get } as unknown as Awaited<ReturnType<typeof cookies>>);
+
+    render(await CheckoutPage());
+
+    // The strongest form of the ordering claim: for a member the guest cookie
+    // is not consulted at all, so no later edit can reintroduce a precedence
+    // rule between two values it never both holds.
+    expect(get).not.toHaveBeenCalledWith("guest_cart_id");
   });
 });
