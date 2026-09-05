@@ -6,6 +6,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 
 import RootLayout, { metadata } from "@/app/layout";
 import HomePage from "@/app/page";
+import SiteHeader from "@/components/layout/SiteHeader";
 import { listProducts } from "@/features/catalog/services/product-service";
 import type { PaginatedProducts, ProductListItem } from "@/features/catalog/types/product";
 
@@ -52,6 +53,30 @@ describe("RootLayout — AC-STOREFRONT-001 / 002", () => {
     expect(readFileSync("src/app/globals.css", "utf8").trimStart()).toMatch(
       /^@import "tailwindcss";/
     );
+  });
+
+  it("places SiteHeader inside body, above children — AC-AUTH-040 (plan.md §B.7 pattern B)", () => {
+    // Call-only, no mount (same reasoning as the test above): SiteHeader is an
+    // async server component nested inside this synchronous RootLayout, so it
+    // cannot be reached via render(await Component()) (pattern A) — and
+    // mounting RootLayout itself would trigger the same <html>/<body> nesting
+    // warning the test above avoids. Inspecting the un-invoked element tree
+    // sidesteps both: <SiteHeader /> stays a not-yet-called element whose
+    // `type` is the component reference itself, so the comparison below is
+    // async-agnostic.
+    const MARKER = null;
+    const tree = RootLayout({ children: MARKER }) as ReactElement<{
+      lang?: string;
+      children?: ReactElement<{ children?: unknown[] }>;
+    }>;
+
+    const body = tree.props.children;
+    expect(body?.type).toBe("body");
+    const bodyChildren = body?.props.children;
+    expect(Array.isArray(bodyChildren)).toBe(true);
+    const [first, second] = bodyChildren as [ReactElement, unknown];
+    expect(first.type).toBe(SiteHeader);
+    expect(second).toBe(MARKER);
   });
 });
 
