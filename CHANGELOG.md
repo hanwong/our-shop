@@ -4,6 +4,17 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+### 추가 — SPEC-DESIGN-001: 공통 디자인 토큰 체계 수립과 전체 사이트 반영
+
+**전체 15개 화면(고객 9 + 스태프 6)에 공통 디자인 토큰 체계를 처음 도입했다.** 지금까지 각 SPEC이 개별적으로 정해 온 색상·타이포그래피·간격·둥근모서리 값을 `src/app/globals.css`의 Tailwind v4 `@theme` 블록 하나로 정본화하고(plan.md §D.1 — Classical 편집·서적풍 소스 프로젝트 값을 바이트 단위로 그대로 전사, 임의 변형 없음), outline 버튼(단색 채움이 아닌 테두리 스타일)과 세리프 타이포그래피(제목 Cormorant Garamond / 본문 Lora, 한글 폴백 스택은 보존)로 통일했다. 신규 공용 프리미티브 2개 — `Button.tsx`(fan-in 15)와 `FormField.tsx`(fan-in 9) — 를 만들어 15개 화면 전체가 소비하게 했다.
+
+- **부수적으로 발견한 실제 결함 하나도 고쳤다.** `ProductCard.tsx`에 하드코딩돼 있던 개별 포커스 링 스타일을 제거하고 Classical의 공유 `:focus-visible` 규칙으로 대체했다 — 이 SPEC의 범위는 아니었지만 토큰 체계 도입 과정에서 드러난 중복이라 함께 정리했다.
+- **PRESERVE 목록·의존성 모두 0줄 변경.** `middleware.ts`/`session-resolver.ts`/`csrf.ts`/`cookies.ts`/로그아웃 라우트/`admin-session.ts`/`prisma/schema.prisma`는 오케스트레이터와 sync-auditor가 각각 독립적으로 `git diff --stat` 무변경을 재확인했다. `package.json`/`package-lock.json`도 무변경 — Classical 소스가 언급하는 Lucide 아이콘은 의도적으로 이번 범위에서 제외했다(신규 의존성 0건).
+
+### 알려진 한계 — SPEC-DESIGN-001
+
+- **sync-audit 1차 통과(`--deep` 렌즈)가 실제 회귀를 하나 잡아냈다.** `body`가 자체 `font-family` 선언을 갖고 있어 `<html>`에 적용된 `next/font/google` 클래스를 덮어써 버렸고, 그 결과 `SiteHeader.tsx`를 제외한 사이트 전체에서 세리프 타이포그래피가 실제로는 렌더되지 않고 있었다(F1, AC-DESIGN-010/AC-DESIGN-003(b) FAIL). 어떤 테스트도 이 결함을 잡지 못했던 이유는 구조적이다 — 이 프로젝트의 테스트 설정에서는 렌더된 DOM의 실제 폰트를 단언할 방법이 없다. 수정은 `body`/`h1-h6` 규칙이 `var(--font-body)`/`var(--font-heading)`를 명시적으로 참조하도록 고치는 CSS 전용 변경이었고, 신규 회귀 테스트 `typography-cascade.test.tsx`가 CSS 소스 레벨에서 이 캐스케이드를 단언해 동일한 결함의 재발을 잡는다. sync-audit 재검증 PASS(Functionality 96/Security 95/Craft 90/Consistency 92, `.moai/reports/sync-audit/SPEC-DESIGN-001-2026-09-05.md`) — 토큰 체계 SPEC이 스스로 테스트 사각지대를 만들고, 스스로 그것을 잡아 닫은 사례로 남겨둔다.
+
 ### 수정 — SPEC-AUTH-004: staff 화면에서 고객용 사이트 헤더 노출 제거 — `(shop)` 라우트 그룹 분리
 
 **`SPEC-AUTH-003`이 만든 공유 헤더가 `/staff/*` 관리자 화면에도 그대로 노출되던 설계 결함을 구조적으로 닫았다.** 원 버그 리포트는 "staff 화면이 로그아웃된 것처럼 보인다"였지만, 코드를 직접 확인한 결과는 정반대였다 — `resolveSession()`과 `resolveAdminSession()`이 같은 쿠키·같은 테이블을 읽으므로 유효한 staff 세션에서 헤더는 "내 정보" + 로그아웃 버튼을 렌더했고, 그 버튼은 역할을 검사하지 않는 `POST /api/auth/logout`에 연결되어 있어 관리자가 자기도 모르게 자신의 세션을 종료할 수 있었다(`spec.md` §1.1-§1.2). 원인은 `src/app/layout.tsx`(루트 레이아웃)가 헤더를 조건 없이 렌더했고, `/staff/*`는 자신만의 레이아웃이 없어 이 루트 레이아웃을 그대로 상속받았기 때문이다 — staff 전용 헤더가 "아직 안 만들어진" 것이 아니라, 배제가 애초에 구조적으로 강제되지 않고 있었다.

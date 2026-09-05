@@ -1663,4 +1663,15 @@ m5_blocker_report: "none — no prior-milestone AC claim was found to be incorre
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+sync_complete_at: 2026-09-05
+sync_commit_sha: pending-backfill-SPEC-DESIGN-001-sync
+sync_status: completed
+b12_self_test_a: "grep -c 'SPEC-DESIGN-001' CHANGELOG.md → 0 before write (orchestrator-confirmed pre-flight)"
+b12_self_test_b: "AC count match — acceptance.md carries AC-DESIGN-001..016 (16 distinct IDs); CHANGELOG entry text references the full 16-item AC-DESIGN set via the F1 story (AC-DESIGN-010 / AC-DESIGN-003(b)) and the full 15-page/2-primitive scope narrative — count non-zero and consistent with acceptance.md SSOT"
+b12_self_test_c: "file-path verification — ls src/app/globals.css src/components/ui/Button.tsx src/components/ui/FormField.tsx src/components/product/ProductCard.tsx tests/unit/app/typography-cascade.test.tsx all resolved before drafting CHANGELOG/README prose"
+changelog_entry_position: "top of [Unreleased], immediately above the existing SPEC-AUTH-004 entry"
+frontmatter_status_transitions.spec_md: "in-progress → completed (status: + updated: only; body untouched)"
+canary_compliance_check: "n/a — this SPEC defines no forward-looking policy that its own sync tests"
+sync_auditor_final_verdict: "PASS (post-F1-fix re-verification) — Functionality 96/100, Security 95/100, Craft 90/100, Consistency 92/100 — report: .moai/reports/sync-audit/SPEC-DESIGN-001-2026-09-05.md. All 16 AC-DESIGN items PASS. Original audit HEAD a2b38fa (FAIL, F1 blocking); F1 fix commits 19659ee→766ca4a→ae875b4; re-verification HEAD ae875b4."
+```
