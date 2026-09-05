@@ -8,7 +8,7 @@
  * Creating the row directly via Prisma is the smaller, more direct fixture
  * for exactly that purpose.
  */
-import { PrismaClient } from "@prisma/client";
+import { DiscountType, PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
@@ -139,4 +139,68 @@ export async function clearStalePaymentKey(paymentKey: string): Promise<void> {
     where: { paymentKey },
     data: { paymentKey: null },
   });
+}
+
+/**
+ * SPEC-E2E-001 M4 (REQ-E2E-014) — a real, currently-valid PERCENTAGE Coupon
+ * row for the checkout-screen coupon-apply scenario.
+ *
+ * `prisma/seed-coupons.ts` (SPEC-DISCOUNT-001 M1) already defines a
+ * comparable "happy path" coupon (`WELCOME10`), but that script is
+ * "standalone, dev-only" (its own module doc) — it is not wired into
+ * `npm run test:e2e`'s webServer startup, so its rows are not guaranteed to
+ * exist in whatever database this suite runs against. This fixture creates
+ * its OWN row directly via Prisma instead, the same self-contained pattern
+ * `createSpikeOrder()` above already uses for Order rows: the scenario does
+ * not depend on a separate script having been run first.
+ *
+ * `code` is upserted rather than plain-created so re-running this suite
+ * against a database that already has a leftover row from a prior run
+ * (crash, interrupted test) does not collide on the `@unique` constraint
+ * (`prisma/schema.prisma` — `Coupon.code`).
+ *
+ * `minOrderAmount: 0` deliberately — this fixture does not know the seeded
+ * product's price (`getSeededProduct()` is independent), so the coupon must
+ * apply regardless of cart total.
+ */
+const E2E_COUPON_CODE = "E2E4M4COUPON";
+
+export interface DiscountCouponHandle {
+  code: string;
+}
+
+export async function createDiscountCoupon(): Promise<DiscountCouponHandle> {
+  const now = Date.now();
+  const startsAt = new Date(now - 24 * 60 * 60 * 1000);
+  const endsAt = new Date(now + 24 * 60 * 60 * 1000);
+
+  await prisma.coupon.upsert({
+    where: { code: E2E_COUPON_CODE },
+    create: {
+      code: E2E_COUPON_CODE,
+      type: DiscountType.PERCENTAGE,
+      value: 10,
+      minOrderAmount: 0,
+      maxRedemptions: 1000,
+      redeemedCount: 0,
+      startsAt,
+      endsAt,
+    },
+    update: {
+      // Reset in case a prior interrupted run left it exhausted or expired.
+      redeemedCount: 0,
+      startsAt,
+      endsAt,
+    },
+  });
+
+  return { code: E2E_COUPON_CODE };
+}
+
+export async function deleteDiscountCoupon(code: string): Promise<void> {
+  try {
+    await prisma.coupon.delete({ where: { code } });
+  } catch {
+    // Best-effort cleanup — already gone (or never committed) is fine.
+  }
 }

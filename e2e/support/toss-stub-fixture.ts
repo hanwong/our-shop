@@ -30,6 +30,22 @@ export interface TossPaymentStub {
    * current document.
    */
   setMode(mode: TossPaymentMode): Promise<void>;
+  /**
+   * SPEC-E2E-001 M4 (REQ-E2E-011, plan.md §D: "실패 -> 재시도 시나리오는
+   * 같은 페이지에서 모드를 성공으로 바꾼 뒤 결제를 다시 누른다" — switch
+   * mode on the SAME page, then retry).
+   *
+   * `setMode()` above only takes effect on a FUTURE navigation
+   * (`addInitScript` re-runs on document creation, never retroactively on an
+   * already-loaded document). The retry flow needs the opposite: change the
+   * mode on the page the browser is ALREADY on, with no reload, so the next
+   * `requestPayment()` call the retry click triggers reads the new value.
+   * `page.evaluate()` writes the same global the stub script already reads
+   * (toss-sdk-stub.js `window.__E2E_PAYMENT_MODE__`) — this is stub control,
+   * not an assertion on application state (REQ-E2E-015 binds assertions,
+   * not test setup).
+   */
+  setModeOnCurrentPage(mode: TossPaymentMode): Promise<void>;
 }
 
 /** Installs the CDN-script route on `page` and returns the mode-switch handle. */
@@ -41,6 +57,11 @@ export async function installTossPaymentStub(page: Page): Promise<TossPaymentStu
   return {
     setMode: async (mode) => {
       await page.addInitScript((m) => {
+        (window as unknown as Record<string, unknown>).__E2E_PAYMENT_MODE__ = m;
+      }, mode);
+    },
+    setModeOnCurrentPage: async (mode) => {
+      await page.evaluate((m) => {
         (window as unknown as Record<string, unknown>).__E2E_PAYMENT_MODE__ = m;
       }, mode);
     },

@@ -144,30 +144,63 @@ M5의 일반 시드·격리 정리로 확장하지 않고, **M3 자신의 시나
 | M1/M2 회귀 없음 | 기존 3개 시나리오가 계속 통과 | PASS | 전체 `npm run test:e2e` 5/5 통과, 3회 연속 재확인(§E2) |
 | 기존 Vitest 스위트 불변 (REQ-E2E-002) | `npm test` 수집 파일 수·테스트 수가 M2 이후와 동일 | PASS | 110 files / 1478 tests, 변경 없음(§E2) |
 
+### M4 — 실패·재시도와 엣지 경로 (완료)
+
+**작업 위치**: 오케스트레이터가 `.claude/worktrees/agent-a5bfbe039671bad9d`로 격리 배치했다(위임 시점 HEAD가 `31396dc8...`가 아닌 별도 워크트리 — 위임 프롬프트 §A.0의 예상된 격리 시나리오). `git checkout -b m4-edge-cases 31396dc8...`로 t14의 M3 머지 커밋에서 분기해 작업했다. 최종 통합(머지)은 오케스트레이터가 t14 워크트리에서 수행한다.
+
+**cycle_type=tdd — RED-GREEN 실행 기록**: `e2e/m4-edge-cases.spec.ts` 4개 시나리오를 먼저 작성했다 — 시나리오 1(실패→재시도)이 아직 존재하지 않는 `tossPaymentStub.setModeOnCurrentPage()`를 호출하고, 시나리오 4(쿠폰)가 아직 존재하지 않는 `createDiscountCoupon()`을 import한 상태로 실행해 두 건의 RED를 확보했다(§E8 참조) — `TypeError: tossPaymentStub.setModeOnCurrentPage is not a function`, `TypeError: (0, _orderFixture.createDiscountCoupon) is not a function`. 시나리오 2(빈 장바구니)·3(필수 필드 누락)은 새 애플리케이션 코드에 의존하지 않고 이미 존재하는 동작(`CheckoutUnavailable`, 서버 측 `validate()` 400 거부)을 검증하므로 첫 실행에서 바로 GREEN이었다 — 이 두 시나리오에서는 어떤 새 구현도 작성되지 않았으므로 test-after 위반이 아니다.
+
+이후 두 헬퍼를 구현하자 — `toss-stub-fixture.ts`에 `setModeOnCurrentPage()`(즉시 페이지 이동 없이 `page.evaluate()`로 현재 문서의 `window.__E2E_PAYMENT_MODE__`를 직접 덮어씀 — `setMode()`의 `addInitScript()`는 미래 내비게이션에만 적용되어 실패 화면에 이미 도달한 현재 문서에는 소급 적용되지 않기 때문), `order-fixture.ts`에 `createDiscountCoupon()`/`deleteDiscountCoupon()`(Prisma `Coupon.upsert` 직접 생성, `prisma/seed-coupons.ts`의 `WELCOME10`을 재사용하지 않음 — 그 스크립트는 "standalone, dev-only"로 `test:e2e` 기동에 연결되어 있지 않아 존재를 보장할 수 없음) — 시나리오 1이 여전히 실패했다(재시도 클릭 후에도 `?payment_failed=1`에 머무름). 원인은 재하이드레이션 타이밍(plan.md §G 위험표의 동일 부류): `failUrl` 내비게이션이 전체 페이지 로드이므로 재시도 버튼의 `onClick` 리스너가 붙기 전에 클릭이 발생했다. M3가 `CheckoutForm` 제출 버튼에 적용한 것과 동일한 `page.waitForLoadState("networkidle")` 가드를 재시도 버튼 클릭 직전에 추가해 해결 — 이후 4개 시나리오 모두 GREEN, 3회 연속 단독 실행 및 전체 스위트 3회 연속 실행 모두 안정적으로 통과했다.
+
+**설계**:
+- **REQ-E2E-011 (실패→재시도)**: `createSpikeOrder()`로 만든 `pending_payment` 주문에서 스텁을 실패 모드로 결제 시도 → `?payment_failed=1` 도달, `role="alert"` 재시도 배너와 `role="status"` "아직 결제 전 단계입니다"가 함께 표시됨(design.md §6 "상태 우선 원칙" — 배너는 대체가 아니라 병기)을 확인 → `clearStalePaymentKey`(M3와 동일한 좁은 방어) → `setModeOnCurrentPage("success")`로 같은 페이지에서 모드 전환(plan.md §D가 명시한 방식) → 재시도 클릭 → 결제 완료 상태 도달.
+- **REQ-E2E-012 (빈 장바구니)**: Playwright의 테스트별 기본 격리 컨텍스트를 그대로 사용 — 게스트 쿠키를 한 번도 발급받지 않은 상태로 `/checkout`에 직접 진입하면 `CheckoutPage`의 `guestId === null` 분기가 `<CheckoutUnavailable />`을 렌더링함(src/app/checkout/page.tsx)을 확인.
+- **REQ-E2E-013 (필수 필드 누락)**: `CheckoutForm`은 `<form noValidate>`이므로 브라우저 네이티브 검증은 절대 개입하지 않는다 — 서버(`order-service.ts`의 `validate()`)가 400 + `fieldErrors`로 거부하고, `CheckoutForm.handleSubmit`이 `response.ok`일 때만 `router.push()`하므로(src/components/checkout/CheckoutForm.tsx) 브라우저가 `/checkout`에 머무름을 확인. `recipientName`을 비워 제출하고 `role="alert"` "배송 정보를 다시 확인해 주세요"(order-service.ts의 고정 문구)가 표시됨도 함께 검증.
+- **REQ-E2E-014 (쿠폰 적용)**: `createDiscountCoupon()`으로 자체 생성한 PERCENTAGE 10%·`minOrderAmount: 0` 쿠폰을 `CheckoutInteractive`의 쿠폰 입력에 적용 → `role="status"` "쿠폰이 적용되었습니다" 표시, `OrderSummary`에 할인 행(`dt:has-text("할인 금액")`)이 DOM에 나타남(REQ-DISCOUNT-023 규칙 그대로 재사용), "결제 예정 금액" 값이 적용 전과 달라짐을 확인. 이 시나리오는 "주문하기"를 전혀 클릭하지 않으므로 주문이 생성되지 않는다는 AC-E2E-012의 둘째 절은 그 부재 자체가 증거다.
+
+**Toss 호스트 무접촉 재확인 (프로덕션 소스 불변)**: `git diff --stat 31396dc8... -- src/lib/payment/toss-server.ts`가 빈 출력 — M1~M3에서 확정된 0줄 diff가 M4에서도 유지됨을 재확인했다(§E4).
+
+**M2 잔여 위험(P2002) 재확인 — M4 범위 내 무재발**: 전체 스위트 실행 로그에서 `P2002` 문자열이 정확히 1건 나타났으나, 스택트레이스 위치(`tx.order.updateMany` at test 1→2 경계, M4 시나리오 실행 이전)를 확인한 결과 progress.md §E.2 M3절이 이미 기록한 **M2 자신의 두 시나리오**가 원인인 기존 잔여 노이즈였다 — M4가 새로 유발한 발생이 아니다. M4 자신의 재시도 시나리오는 M3와 동일한 `clearStalePaymentKey` 좁은 방어를 사용했고, 그 시나리오 실행 구간에서는 P2002가 전혀 나타나지 않았다. 이 잔여 노이즈의 프로젝트 전역 정리는 여전히 M5의 몫이며(위임 프롬프트 Section A의 명시적 지침대로), M4에서 M2 자신의 두 시나리오를 고치는 일은 하지 않았다.
+
+## §E.2d M4 AC/REQ PASS 매트릭스
+
+| # | 항목 | 판정 | 근거 |
+|---|---|---|---|
+| REQ-E2E-011 / AC-E2E-009 | 결제 실패 → `?payment_failed=1` + 재시도 가능 상태 → 재시도 성공 시 결제 완료 상태 도달 | PASS | `role="alert"` 배너 "결제가 완료되지 않았습니다" + `role="status"` "아직 결제 전 단계입니다" + 결제 버튼 표시 확인 → 재시도 후 `role="status"` "결제가 완료되었습니다" 표시, 결제 버튼 미표시, URL에 `payment_failed` 없음 |
+| REQ-E2E-012 / AC-E2E-010 | 빈 게스트 장바구니로 `/checkout` 진입 시 체크아웃 불가 화면, 주문서 미표시 | PASS | `getByRole("heading", {name: "주문서를 열 수 없습니다"})` visible, `getByLabel("수령인 이름")` count 0 |
+| REQ-E2E-013 / AC-E2E-011 | 필수 필드(수령인 이름) 누락 제출 → 서버 거부 → `/checkout` 유지, `/checkout/complete/`로 미이동 | PASS | 제출 후 `role="alert"` "배송 정보를 다시 확인해 주세요" 표시, URL이 `/checkout`에 머무름, `/checkout/complete/` 패턴 미매칭 |
+| REQ-E2E-014 / AC-E2E-012 | 유효 쿠폰 적용 → 주문 요약 갱신(할인 행 등장 + 결제 예정 금액 변경), 이 시점까지 주문 미생성 | PASS | `role="status"` "쿠폰이 적용되었습니다" 표시, `dt:has-text("할인 금액")` visible, "결제 예정 금액" `dd` 텍스트가 적용 전후 상이함, `주문하기` 미클릭(URL이 `/checkout`에 계속 머무름) |
+| REQ-E2E-005 (재확인, M4 결제 시나리오) | 이 milestone의 결제·비결제 시나리오 전체에서 Toss 호스트로 나가는 요청이 0건 | PASS | 4개 시나리오 모두 `expect(tossHostHits).toHaveLength(0)` |
+| 프로덕션 소스 불변 | `src/lib/payment/toss-server.ts` diff 0줄 유지 | PASS | `git diff --stat 31396dc8... -- src/lib/payment/toss-server.ts` 빈 출력(§E4) |
+| M1/M2/M3 회귀 없음 | 기존 5개 시나리오가 계속 통과 | PASS | 전체 `npm run test:e2e` 9/9 통과, 3회 연속 재확인(§E2) |
+| 기존 Vitest 스위트 불변 (REQ-E2E-002) | `npm test` 수집 파일 수·테스트 수가 M3 이후와 동일 | PASS | 110 files / 1478 tests, 변경 없음(§E2) |
+| M2 잔여 위험(P2002) 무재발 (M4 자신의 시나리오 한정) | M4의 재시도 시나리오가 P2002를 새로 유발하지 않음 | PASS | 전체 로그 중 P2002 1건은 M2 자신의 시나리오 구간(test 1→2 경계)에서 발생 — M4 시나리오 실행 구간에는 없음. 프로젝트 전역 정리는 M5 몫으로 유지 |
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 ```yaml
-run_milestone: M3
-run_status: milestone-complete   # M1, M2, M3 완료 — M4~M6은 미착수
+run_milestone: M4
+run_status: milestone-complete   # M1, M2, M3, M4 완료 — M5~M6은 미착수
 m1_spike_points_pass: 4   # / 4 (M1 그대로 유지)
-ac_verified_this_milestone: [AC-E2E-001, AC-E2E-006, AC-E2E-007, AC-E2E-008]
-ac_verified_cumulative: [AC-E2E-001, AC-E2E-002, AC-E2E-003, AC-E2E-005a, AC-E2E-005b, AC-E2E-006, AC-E2E-007, AC-E2E-008]
+ac_verified_this_milestone: [AC-E2E-009, AC-E2E-010, AC-E2E-011, AC-E2E-012]
+ac_verified_cumulative: [AC-E2E-001, AC-E2E-002, AC-E2E-003, AC-E2E-005a, AC-E2E-005b, AC-E2E-006, AC-E2E-007, AC-E2E-008, AC-E2E-009, AC-E2E-010, AC-E2E-011, AC-E2E-012]
 baseline_vitest_files_before: 110
 baseline_vitest_files_after: 110
 baseline_vitest_tests_after: 1478
 toss_server_ts_diff_lines: 0
 typecheck_status: pass
 lint_status: pass
-e2e_status: pass   # 5/5 (m1-spike ×1, m2-toss-stub ×2, m3-happy-path ×1, smoke ×1) — 3회 연속 재확인
+e2e_status: pass   # 9/9 (m1-spike ×1, m2-toss-stub ×2, m3-happy-path ×1, m4-edge-cases ×4, smoke ×1) — 3회 연속 재확인
 new_files:
-  - e2e/m3-happy-path.spec.ts
+  - e2e/m4-edge-cases.spec.ts
 modified_files:
-  - e2e/support/order-fixture.ts   # getSeededProduct, STUB_SUCCESS_PAYMENT_KEY, clearStalePaymentKey 신설; 기존 export는 불변
+  - e2e/support/order-fixture.ts   # createDiscountCoupon, deleteDiscountCoupon 신설 (DiscountType import 추가); 기존 export는 불변
+  - e2e/support/toss-stub-fixture.ts   # setModeOnCurrentPage 신설 (page.evaluate 기반, 같은 페이지에서 즉시 모드 전환); 기존 setMode는 불변
 residual_risk_m2_paymentkey_collision:
-  status: reproduced-and-guarded   # M3 착수 전 사전 실행에서 P2002 실제 재현, M3 전용 방어(clearStalePaymentKey)로 해결
-  scope: m3-only   # M2 자신의 두 시나리오는 수정하지 않음 — M5 일반 정리로 확장하지 않음
-worktree_case: isolated-recovery   # A.0 — 별도 워크트리(agent-a66a658e8f0d757fe)에서 m3-happy-path 브랜치로 작업, t14로 머지 예정
-next_milestone: M4   # 실패·재시도와 엣지 경로 (plan.md §F)
+  status: reproduced-in-log-not-in-own-scenario   # 전체 로그에 P2002 1건 — M2 자신의 두 시나리오 구간(test 1→2 경계)에서 발생, M4 시나리오 구간에는 무재발(clearStalePaymentKey 재사용)
+  scope: m4-guard-reused   # M3가 신설한 clearStalePaymentKey를 M4의 재시도 시나리오도 재사용 — M2 자신의 두 시나리오는 여전히 미수정, M5 일반 정리로 확장하지 않음
+worktree_case: isolated-recovery   # A.0 — 별도 워크트리(agent-a5bfbe039671bad9d)에서 m4-edge-cases 브랜치로 작업, t14로 머지 예정
+next_milestone: M5   # 시드·격리 정리 (plan.md §F)
 ```
 
 ## §E.4 Sync-phase Audit-Ready Signal
