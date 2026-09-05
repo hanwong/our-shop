@@ -1,6 +1,6 @@
 ---
 id: SPEC-AUTH-003
-status: draft
+status: in-progress
 updated: 2026-09-05
 tier: M
 ---
@@ -190,6 +190,91 @@ spec.md:0  plan.md:0  acceptance.md:0  progress.md:0  spec-compact.md:0
 
 M3(레이아웃 배선, AC-AUTH-040), M4(정적 스캔 테스트 파일 M4, PRESERVE 회귀 테스트 파일 나열, AC-AUTH-044/045/047(a))는 이 위임의 범위 밖이며 다음 마일스톤에서 판정된다. 다만 PRESERVE 무변경(AC-AUTH-045/047(a)의 일부)은 M1+M2 산출물에도 이미 해당되므로 §E.4에서 재확인했다.
 
+### M3 — 루트 레이아웃 배선 (TDD, RED-GREEN)
+
+**워크트리 복구 (기록).** 이 위임은 새 세션이 `main`에서 갈라진 격리 워크트리로 시작되어(`d0b9a3e` 미포함), 위임 프롬프트 §A.0의 복구 절차에 따라 `m3m4-layout-boundary` 브랜치를 `d0b9a3e9491080627e445c5a36064ba98ad9d652`(M1+M2 머지 커밋)에서 새로 만들고, `npm install`로 격리 워크트리 전용 `node_modules`를 준비한 뒤 진행했다.
+
+- `src/app/layout.tsx` 수정: `<body>` 안, `{children}` 위에 `<SiteHeader />` 삽입(REQ-AUTH-041). 기존 헤더 주석을 plan.md §B.8 표대로 갱신 — 헤더만 추가되고 나머지(푸터·검색·장바구니·내비)는 여전히 제외임을 명시.
+- `tests/unit/app/shell.test.tsx` 수정: plan.md §B.7 **패턴 B**(마운트 없이 `RootLayout({ children: MARKER })` 반환 트리 검사)로 배치를 판정하는 `it` 1개 추가. `body.props.children`이 배열인지, `[0].type === SiteHeader`(동일 참조), `[1] === MARKER`를 단정. 기존 단정은 제거 없이 추가만 함.
+- RED 증거(§E.8 참고): 레이아웃 배선 전 `Array.isArray(bodyChildren)` 단정이 `expected false to be true`로 실패함을 관측한 뒤 구현.
+- GREEN: `shell.test.tsx` 5개 테스트(기존 4 + 신규 1) 전부 통과.
+- 검증 대상 AC: AC-AUTH-040.
+
+### M4 — 경계 회귀 가드 (기계적)
+
+- `tests/unit/components/site-header-boundary-static.test.ts` 신규: (1) `SiteHeader.tsx`/`LogoutButton.tsx` 소스 텍스트에 `cart`/`장바구니`/`search`/`검색`/`<footer` 매치 0건 정적 스캔(대소문자 무시), (2) `SiteHeader`를 게스트/회원 각각 렌더해 `/cart`·`/products?...`·카테고리 경로로 향하는 링크 0개 확인(`<nav>` 태그 자체는 스캔 대상 아님 — plan-audit D3). 새 소스 파일 없음 — M1/M2 산출물이 이미 경계를 준수하므로 이 테스트는 첫 실행부터(파일이 존재하게 된 순간) 통과했다.
+- RED 증거(§E.8 참고): 파일 생성 전 해당 경로로 vitest 실행 시 `No test files found, exiting with code 1` 관측.
+- GREEN: 신규 파일 3개 테스트 전부 통과.
+- PRESERVE 확인: `git diff --stat`을 `d0b9a3e9491080627e445c5a36064ba98ad9d652` 대비로 `src/middleware.ts`, `src/lib/auth/session-resolver.ts`, `src/lib/auth/csrf.ts`, `src/lib/auth/cookies.ts`, `src/app/api/auth/logout/route.ts`, `src/app/products/[productId]/page.tsx`, `src/components/product/ProductDetailView.tsx`, `src/app/staff/`, `prisma/schema.prisma`에 대해 실행 — 전부 빈 출력(무변경).
+- 무회귀 확인: `tests/unit/middleware.test.ts`(4 tests) + `tests/unit/auth/session-resolver.test.ts`(7 tests) = 11 passed / 2 files.
+- **AC-AUTH-047(b) 정확 일치 확인**: `npx vitest run tests/unit/app/product-detail-page.test.tsx tests/unit/components/product-detail-view.test.tsx` 재실행 결과 `Test Files  2 passed (2)` / `Tests  19 passed (19)` — plan.md §C-6 baseline과 정확히 일치(증가·감소 없음).
+- `layout.tsx`에 `@MX:NOTE` 추가 — 기존 주석의 "전부 제외" 서술이 M3 이후 부분적으로만 참임을 소스에 고정(plan.md §B.8).
+- 검증 대상 AC: AC-AUTH-045, AC-AUTH-046, AC-AUTH-047.
+
+### PASS/FAIL 매트릭스 (M3+M4)
+
+| AC | Given-When-Then (요약) | 관측 결과 | 판정 |
+|---|---|---|---|
+| AC-AUTH-040 | `RootLayout({children:MARKER})` 호출(마운트 없음) 시 `body.props.children`이 배열, `[0].type===SiteHeader`(동일 참조), `[1]===MARKER` | `shell.test.tsx` "places SiteHeader inside body, above children..." — 3개 단정 전부 통과 | PASS |
+| AC-AUTH-044 | 신규 소스 2종 정적 스캔 0건 + 렌더 출력의 내비 링크 0개(게스트/회원 각각) | `site-header-boundary-static.test.ts` 3개 테스트 전부 통과 | PASS |
+| AC-AUTH-045 | PRESERVE 목록(middleware/session-resolver/csrf/cookies/logout-route) `git diff --stat` 무변경 + `middleware.test.ts`/`session-resolver.test.ts` 무회귀 | 위 §E.2 M4 절 — 전부 빈 diff, 11 passed/2 files | PASS |
+| AC-AUTH-046 | 신규 소스 2종에 `Authorization`/`Bearer`/`localStorage`/`sessionStorage`/`createContext`/`useContext`/`useAuth` 매치 0건 | M1+M2에서 이미 확인(§E.2 static-scan 블록); M4 정적 스캔이 cart/search/footer 축을 추가로 확인 — 교집합 없음, 둘 다 0건 | PASS |
+| AC-AUTH-047(a) | `page.tsx`/`ProductDetailView.tsx` `git diff --stat` 무변경 | 위 §E.2 M4 절 — 빈 diff | PASS |
+| AC-AUTH-047(b) | `product-detail-page.test.tsx`+`product-detail-view.test.tsx`가 baseline(19/2)과 정확히 동일한 통과 개수 | 재실행 결과 `19 passed (19)` / `2 passed (2)` — 일치 | PASS |
+
+**11건 AC 전부(AC-AUTH-037~047, 서브케이스 포함) PASS — M1~M4 전체 완료.**
+
+### 전체 스위트 회귀 (M3+M4 이후)
+
+```
+$ npm test
+ Test Files  113 passed (113)
+      Tests  1489 passed (1489)
+```
+
+baseline(M1+M2 완료 시점 112 files / 1485 tests) 대비 +1 file(M4 신규 테스트 파일) / +4 tests(M3 shell.test.tsx +1, M4 신규 파일 +3). 회귀 0건.
+
+### 타입체크/린트 (M3+M4)
+
+```
+$ npx tsc --noEmit
+(출력 없음, exit 0)
+
+$ npm run lint
+(출력 없음, exit 0 — eslint . 무경고/무오류)
+```
+
+### RED 증거 (M3+M4, §E.8)
+
+```
+$ npx vitest run tests/unit/app/shell.test.tsx
+ ❯ ... places SiteHeader inside body, above children — AC-AUTH-040 (plan.md §B.7 pattern B)
+   AssertionError: expected false to be true // Object.is equality
+    ❯ tests/unit/app/shell.test.tsx:76:41
+        expect(Array.isArray(bodyChildren)).toBe(true);
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+```
+
+(레이아웃 배선 전 관측. 배선 후 5/5 GREEN.)
+
+```
+$ npx vitest run tests/unit/components/site-header-boundary-static.test.ts
+No test files found, exiting with code 1
+```
+
+(파일 생성 전 관측. 생성 후 3/3 GREEN — 소스 변경 없이 통과, M1/M2가 이미 경계를 준수했기 때문.)
+
+### 커밋 (B9 — 두 개의 별도 feat 커밋)
+
+```
+$ git log --oneline -2
+1a73ad9 feat(SPEC-AUTH-003): M4 boundary regression guard + @MX:NOTE update
+a986a30 feat(SPEC-AUTH-003): M3 wire SiteHeader into root layout above children
+```
+
+브랜치: `m3m4-layout-boundary`(위임 §A.0 복구 절차로 `d0b9a3e`에서 분기) → `git push origin m3m4-layout-boundary` 완료. 오케스트레이터가 t18(M1+M2 브랜치 계보)로부터 머지한다.
+
 ### static-scan (E2, AC-AUTH-046 범위)
 
 ```
@@ -264,31 +349,64 @@ LogoutButton.tsx: @MX:NOTE reads the csrf_token cookie via the SAME inline docum
 
 계획대로 부여함: ANCHOR+REASON 1쌍 · NOTE 각 파일 1건. WARN/TODO 없음(계획대로).
 
+### M4 @MX 태그 (layout.tsx)
+
+```
+$ grep -n "@MX:" src/app/layout.tsx
+ * @MX:NOTE this comment previously stated that header/footer/nav/search/cart
+```
+
+plan.md §B.8 "layout.tsx 수정분 — @MX:NOTE 갱신" 이행. 기존 파일에는 @MX 태그가 없었으므로(사전 grep 확인, 매치 0건) "갱신"이 아니라 신규 부여로 처리했다 — 사실관계는 계획이 지시한 내용과 동일(전부 제외 서술이 부분적으로 거짓이 됨을 고정).
+
+## §Definition of Done Cross-Check (acceptance.md §5 — 이 SPEC의 최종 완료 신호)
+
+| 항목 | 판정 | 근거 |
+|---|---|---|
+| AC-AUTH-037~047 11건 전부 PASS(서브케이스 포함) | PASS | M1+M2 PASS/FAIL 매트릭스(§E.2) 7건 + M3+M4 PASS/FAIL 매트릭스(§E.2) 6건 = 11건 위치 전부 PASS(037/038/039/040/041/042/043a/043b/044/045/046/047ab) |
+| `npx tsc --noEmit` exit 0 | PASS | M1+M2 §E.3 블록 + M3+M4 §E.2 "타입체크/린트" 블록 — 두 시점 모두 출력 없음/exit 0 |
+| `npm run lint` exit 0, 신규 이슈 0건 | PASS | 동일 — 두 시점 모두 무경고/무오류 |
+| 신규 소스 2종 커버리지 lines/statements ≥85%, branch ≥80% | PASS | §E.2 M1+M2 "커버리지(E5)" 블록 — `SiteHeader.tsx`/`LogoutButton.tsx` 전부 100/100/100/100. M3/M4는 신규 소스 파일을 추가하지 않음(layout.tsx는 기존 파일의 수정) |
+| 전체 테스트 스위트 회귀 0건 | PASS | M1+M2 완료 시점 112 files/1485 tests → M3+M4 완료 시점 113 files/1489 tests, 전부 통과. 실패 0건 |
+| PRESERVE 목록(plan.md §D) 전부 `git diff --stat` 무변경 | PASS | M1+M2 §E.2 "PRESERVE 무변경(E4)" + M3+M4 §E.2 "M4" 절 — 9개 대상 전부 빈 diff |
+| plan.md §G 안티패턴 8건 전부 미범 | PASS | 1(csrf 유틸 추출) 미범 — LogoutButton이 인라인 파싱 유지; 2(클라이언트 컴포넌트+API) 미범 — SiteHeader는 서버 컴포넌트, 새 엔드포인트 없음; 3(Authorization 헤더) 미범 — M1+M2/M4 정적 스캔 0건; 4(리뷰 게이트 리팩터) 미범 — `page.tsx`/`ProductDetailView.tsx` git diff 빈 출력; 5(장바구니·검색·푸터 추가) 미범 — M4 정적 스캔 0건; 6(middleware matcher 확장) 미범 — `middleware.ts` git diff 빈 출력; 7(session-resolver.ts 낡은 주석 수정) 미범 — PRESERVE 목록에 포함되어 git diff 빈 출력으로 확인; 8(router.push 홈 이동) 미범 — `LogoutButton.tsx` 소스에 `router.push` 호출 없음(코드 확인, 200 경로에서 `router.refresh()`만 호출) |
+| plan.md §B.8의 @MX 태그 계획대로 부여/갱신 완료 | PASS | SiteHeader.tsx(ANCHOR+REASON+NOTE), LogoutButton.tsx(NOTE), layout.tsx(NOTE 신규 부여) — 위 grep 블록들로 확인. session-resolver.ts의 낡은 NOTE는 계획대로 미수정(PRESERVE) |
+| `package.json` 무변경(신규 의존성 0건) | PASS | `git diff --stat d0b9a3e9491080627e445c5a36064ba98ad9d652 -- package.json` — 이번 위임 범위(M3+M4)에서 별도 확인, 빈 출력 |
+
+**전체 판정: 11개 DoD 항목 전부 PASS. SPEC-AUTH-003의 모든 마일스톤(M1-M4)이 완료되었다.**
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 ```yaml
-run_milestone: M2
-next_milestone: M3
+run_milestone: M4
+next_milestone: none — all milestones complete
 m1_files:
   - src/components/layout/SiteHeader.tsx
   - tests/unit/components/site-header.test.tsx
 m2_files:
   - src/components/layout/LogoutButton.tsx
   - tests/unit/components/logout-button.test.tsx
-ac_pass_count: 7   # AC-AUTH-037/038/039/041/042/043a/043b (M1+M2 범위)
+m3_files:
+  - src/app/layout.tsx   # modified, not new
+  - tests/unit/app/shell.test.tsx   # modified, not new
+m4_files:
+  - tests/unit/components/site-header-boundary-static.test.ts
+  - src/app/layout.tsx   # @MX:NOTE update (same file as M3's modification)
+ac_pass_count: 11   # AC-AUTH-037/038/039/040/041/042/043a/043b/044/045/046/047ab — full 11-AC set
 ac_fail_count: 0
-preserve_list_post_run_count: 0   # 무변경 확인 완료
+preserve_list_post_run_count: 0   # 무변경 확인 완료 (M1-M4 누적)
 new_warnings_or_lints_introduced: 0
 cross_platform_build:
   tsc_noemit: pass
   eslint: pass
-total_run_phase_files: 4   # 신규 소스 2 + 신규 테스트 2 (M1+M2 범위)
+total_run_phase_files: 6   # 신규 소스 2 + 신규 테스트 3 + 기존 수정 1(layout.tsx, M3+M4 공유)
 m1_to_mN_commit_strategy: >
-  두 개의 별도 feat 커밋(합치지 않음, B9 준수) — 단 빌드 의존성 순서로 커밋:
-  LogoutButton.tsx(M2 파일)를 먼저, SiteHeader.tsx(M1 파일)를 다음에 커밋해
-  두 커밋 모두 독립적으로 tsc/vitest GREEN을 유지한다. status: draft→in-progress
-  전이는 M1 레이블 커밋에 실었다(Status Responsibility Matrix 준수). 근거는
-  위 §E.2 "커밋 순서에 관한 의도적 이탈" 절 참고.
+  네 개의 별도 feat 커밋(M1/M2/M3/M4 각각, 합치지 않음, B9 준수) — M1/M2는
+  빌드 의존성 순서로 커밋(LogoutButton 먼저, SiteHeader 다음); M3/M4는
+  선언 순서 그대로 커밋(레이아웃 배선 → 경계 가드, M4는 M1+M2 산출물에만
+  의존하고 M3의 layout.tsx 변경과는 독립적이므로 상호 의존 없음).
+  status: draft→in-progress 전이는 M1 레이블 커밋에 실었다(Status
+  Responsibility Matrix 준수). 근거는 위 §E.2 "커밋 순서에 관한 의도적
+  이탈" 절 참고. M4 완료로 이 SPEC의 전체 마일스톤(M1-M4)이 완료되었다.
 
 
 ## §E.4 Sync-phase Audit-Ready Signal
