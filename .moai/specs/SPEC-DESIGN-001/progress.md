@@ -1754,3 +1754,33 @@ frontmatter_status_transitions.spec_md: "in-progress → completed (status: + up
 canary_compliance_check: "n/a — this SPEC defines no forward-looking policy that its own sync tests"
 sync_auditor_final_verdict: "PASS (post-F1-fix re-verification) — Functionality 96/100, Security 95/100, Craft 90/100, Consistency 92/100 — report: .moai/reports/sync-audit/SPEC-DESIGN-001-2026-09-05.md. All 16 AC-DESIGN items PASS. Original audit HEAD a2b38fa (FAIL, F1 blocking); F1 fix commits 19659ee→766ca4a→ae875b4; re-verification HEAD ae875b4."
 ```
+
+## §G CodeRabbit Follow-up Cleanup (2026-09-05, card t51)
+
+Batch cleanup of a CodeRabbit finding against the merged PR #28 (SPEC-DESIGN-001). No plan-phase applies — pre-diagnosed by the dispatching orchestrator. This subsection is a separate follow-up from, and does not modify, the FormField-fix subsection above (that is card t54, handled by a different delegation).
+
+### t51 — `globals.css`: `--font-heading`/`--font-body` referenced literal strings instead of next/font's generated CSS variables
+
+**Claim**: the `@theme` block's `--font-heading`/`--font-body` tokens hardcoded literal font-name strings (`"Cormorant Garamond"`, `"Lora"`) that happen to match next/font's internally-generated `@font-face` family names. This works today (independently re-verified by sync-audit against the compiled CSS output, per `.moai/reports/sync-audit/SPEC-DESIGN-001-2026-09-05.md` and this file's own F1-fix Residual-risk note above) but is not a documented next/font contract — a future next/font internal-naming change could silently break it with no compile-time signal.
+
+**Evidence**:
+- `git diff -- src/app/globals.css` shows ONLY the `--font-heading`/`--font-body` RHS changed (from the literal strings to `var(--font-heading-nf), system-ui, sans-serif` / `var(--font-body-nf), system-ui, sans-serif`) plus an explanatory comment — no other line in the `@theme` block or the rest of the file moved or changed.
+- `layout.tsx`: both font loader calls gained a `variable` option (`--font-heading-nf` for Cormorant Garamond, `--font-body-nf` for Lora); `<html className=...>` gained `${cormorantGaramond.variable} ${lora.variable}` (additive — the existing `.className` usage is unchanged).
+- `npm run build` (with `DATABASE_URL` set) → compiled successfully, 29/29 static pages generated, no new build errors (one pre-existing, unrelated CSS-optimizer warning about a `.bg-[var(--color-accent...)]` bracket-notation utility class, present before this change).
+- Compiled CSS grep (`.next/static/css/*.css`):
+  - `--font-heading-nf:"Cormorant Garamond","Cormorant Garamond Fallback"` (next/font's own generated value)
+  - `--font-body-nf:"Lora","Lora Fallback"`
+  - `--font-heading:var(--font-heading-nf),system-ui,sans-serif` (the `@theme` token now correctly indirects through the next/font variable)
+  - `--font-body:var(--font-body-nf),system-ui,sans-serif`
+  - `body{font-family:var(--font-body),ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;...}` — full chain resolves correctly, Korean fallback intact.
+  - `h1,h2,h3,h4,h5,h6{font-family:var(--font-heading),...}` — same, heading rule intact.
+- `npx vitest run tests/unit/app/typography-cascade.test.tsx` → 2 passed, unchanged (the test scans the `body`/heading rules for `var(--font-body)`/`var(--font-heading)` usage, which is untouched by this fix — it does not assert on the `@theme` block's RHS literal values, so no test update was needed).
+- `npx tsc --noEmit` → clean.
+- `npx eslint .` → clean.
+- Full suite `npx vitest run` → 116 files / 1526 tests passed, 0 failures.
+
+**Baseline-attribution**: this-run, this-tree, branch `WT-coderabbit-cleanup-g1`, built on top of the merged F1-fix (`3fb8050`) and FormField-fix (`de0a772`) history.
+
+**Gaps**: no test directly asserts the compiled `@font-face` family-name string next/font generates (e.g. `"Cormorant Garamond","Cormorant Garamond Fallback"`) — that string is next/font-internal and out of this repository's control; asserting it would pin to next/font's implementation detail, the exact coupling this fix removes. The build-output grep above is a one-time manual verification, not an automated regression guard.
+
+**Residual-risk**: the rendered font family is unchanged (still Cormorant Garamond / Lora) — this fix only changes the value-sourcing mechanism from a literal-string coincidence to a next/font-controlled CSS variable, which is strictly more robust against internal next/font changes than before. No new residual risk introduced; the F1-fix Residual-risk note above (documenting the *prior* literal-string coupling) is superseded by this fix for the specific hazard it named, though it is left in place above as historical record rather than edited (per this card's scope: append-only, do not touch the F1/FormField subsections).
