@@ -158,11 +158,138 @@ spec.md:0  plan.md:0  acceptance.md:0  progress.md:0  spec-compact.md:0
 
 ## §E.2 Run-phase Evidence
 
-_<pending run-phase>_
+### M1+M2 — 헤더 상태 표현 + 로그아웃 어포던스 (TDD, RED-GREEN)
+
+**커밋 순서에 관한 의도적 이탈 (기록).** plan.md §F는 M1(SiteHeader)을 M2(LogoutButton)보다 먼저 배치했고, 위임 지시(B9)는 "M1 커밋 → M2 커밋" 순서의 별도 두 커밋을 요구했다. 그런데 M1 자신의 마일스톤 서술("로그인: '내 정보' 표시 + `<LogoutButton />`")이 이미 M2의 산출물을 참조하므로, `SiteHeader.tsx`는 `LogoutButton.tsx`에 대한 하드 임포트 의존성을 갖는다. M1을 문자 그대로 먼저 커밋하면 그 커밋 트리에서 `npx tsc --noEmit`이 모듈 미해결로 실패한다 — 저장소의 기존 선례(commit `2322409`, "M3 product detail review section + M4 ReviewForm island")는 동일한 부모→자식 마일스톤 결합을 **하나의 커밋으로 합쳐** 처리했으나, 위임 지시는 "두 커밋, 합치지 않음"을 명시적으로 요구했다.
+
+**결정**: 합치지 않고, 대신 **빌드 의존성 순서로 커밋**했다 — `LogoutButton.tsx`(M2 파일)를 먼저 커밋하고 `SiteHeader.tsx`(M1 파일)를 다음에 커밋했다. 두 커밋 모두 각자 독립적으로 `tsc --noEmit` 통과 + 자신의 테스트 파일 GREEN 상태를 유지한다. `git log`는 최신 커밋을 위에 보여 주므로, 이 순서는 `git log --oneline` 출력에서 오히려 "M1 다음 M2"로 읽힌다(최신인 M1 커밋이 위에 표시됨). 이 저장소의 시스템 프롬프트(Status Responsibility Matrix)가 "M1 커밋에서" 상태 전이를 명시하므로, `status: draft → in-progress` 전이는 (시간순으로는 두 번째지만) **M1 레이블 커밋**에 실었다.
+
+**M2 — LogoutButton.tsx (RED 먼저 커밋)**:
+- 신규: `src/components/layout/LogoutButton.tsx`, `tests/unit/components/logout-button.test.tsx`.
+- RED 증거(§E.8 참고): 파일 부재로 인한 모듈 해석 실패를 관측한 뒤 구현.
+- GREEN: 4개 테스트 전부 통과(AC-AUTH-041, 042, 043a, 043b).
+
+**M1 — SiteHeader.tsx**:
+- 신규: `src/components/layout/SiteHeader.tsx`, `tests/unit/components/site-header.test.tsx`.
+- RED 증거(§E.8 참고): 파일 부재로 인한 모듈 해석 실패를 관측한 뒤 구현.
+- GREEN: 3개 테스트 전부 통과(AC-AUTH-037, 038, 039). AC-AUTH-038 검증 중 `LogoutButton`이 실제로 렌더되므로 `next/navigation`의 `useRouter`를 모킹해야 했다(product-detail-page.test.tsx가 `ReviewForm`에 대해 이미 쓰는 것과 동일한 이유).
+
+### PASS/FAIL 매트릭스
+
+| AC | Given-When-Then (요약) | 관측 결과 | 판정 |
+|---|---|---|---|
+| AC-AUTH-037 | `resolveSession()`→null 상태에서 렌더 시 접근 가능한 이름 "로그인" 링크가 정확히 1개, `href="/login"` | `site-header.test.tsx` "shows exactly one login link..." — 1개, href `/login` 확인 | PASS |
+| AC-AUTH-038 | `resolveSession()`→`{userId,role:"customer"}`에서 렌더 시 "내 정보" + "로그아웃" 버튼 존재, "로그인" 링크 부재 | 동일 파일 "shows account status and a logout button..." — 3개 단정 전부 통과 | PASS |
+| AC-AUTH-039 | 3가지 null 사유(쿠키 부재/폐기/만료) 각각에서 렌더 출력이 서로 동일 | 동일 파일 "renders identically for every null-session reason..." — `outputs[0]===outputs[1]===outputs[2]`, 게스트 상태 포함 확인 | PASS |
+| AC-AUTH-041 | 클릭 시 `fetch`가 `/api/auth/logout`에 POST 1회, `X-CSRF-Token` 헤더 값이 쿠키 값과 일치 | `logout-button.test.tsx` "sends the csrf_token cookie value..." — 1회 호출, 헤더 일치 확인 | PASS |
+| AC-AUTH-042 | 200 응답 시 `router.refresh()` 정확히 1회, `router.push` 미호출 | 동일 파일 "refreshes the screen exactly once..." — 확인 | PASS |
+| AC-AUTH-043(a) | 403 응답 시 이동/갱신 없음, 버튼 문서에 유지 | 동일 파일 "(a) does not navigate and keeps the button on a 403..." — 확인 | PASS |
+| AC-AUTH-043(b) | 500 응답 시 이동/갱신 없음, 버튼 문서에 유지 | 동일 파일 "(b) does not navigate and keeps the button on a 500..." — 확인 | PASS |
+| AC-AUTH-046(M1+M2 범위) | 신규 소스 2종에 금지 패턴(`Authorization`/`Bearer`/`localStorage`/`sessionStorage`/`createContext`/`useContext`/`useAuth`) 매치 0건 | §E.2 static-scan 명령 — 0건 확인(아래 §E.2 static-scan 블록) | PASS |
+| AC-AUTH-047(b)(M1+M2 범위 회귀 가드) | `product-detail-page.test.tsx`+`product-detail-view.test.tsx`가 baseline과 동일한 통과 개수로 통과 | 재실행 결과 `19 passed / 2 files` — plan.md §C-6 baseline과 정확히 일치 | PASS |
+
+M3(레이아웃 배선, AC-AUTH-040), M4(정적 스캔 테스트 파일 M4, PRESERVE 회귀 테스트 파일 나열, AC-AUTH-044/045/047(a))는 이 위임의 범위 밖이며 다음 마일스톤에서 판정된다. 다만 PRESERVE 무변경(AC-AUTH-045/047(a)의 일부)은 M1+M2 산출물에도 이미 해당되므로 §E.4에서 재확인했다.
+
+### static-scan (E2, AC-AUTH-046 범위)
+
+```
+$ grep -niE "Authorization|Bearer|localStorage|sessionStorage|createContext|useContext|useAuth" src/components/layout/SiteHeader.tsx src/components/layout/LogoutButton.tsx
+(매치 없음, exit 1)
+```
+
+### 타입체크/린트 (E3)
+
+```
+$ npx tsc --noEmit
+(출력 없음, exit 0)
+
+$ npm run lint
+(출력 없음, exit 0 — eslint . 무경고/무오류)
+```
+
+### PRESERVE 무변경 (E4)
+
+```
+$ git diff --stat 0a6d491 -- src/middleware.ts src/lib/auth/session-resolver.ts src/lib/auth/csrf.ts src/lib/auth/cookies.ts src/app/api/auth/logout/route.ts
+(빈 출력)
+$ git diff --stat 0a6d491 -- "src/app/products/[productId]/page.tsx" src/components/product/ProductDetailView.tsx
+(빈 출력)
+$ git diff --stat 0a6d491 -- src/app/staff/ prisma/schema.prisma
+(빈 출력)
+```
+
+### 커버리지 (E5)
+
+```
+$ npx vitest run --coverage tests/unit/components/site-header.test.tsx tests/unit/components/logout-button.test.tsx
+ src/components/layout | 100 | 100 | 100 | 100 |
+  LogoutButton.tsx      | 100 | 100 | 100 | 100 |
+  SiteHeader.tsx        | 100 | 100 | 100 | 100 |
+```
+(전역 threshold 오류는 이 targeted 실행이 나머지 `src/**`를 0%로 집계하기 때문이며, 신규 파일 2종 자체는 lines/statements/functions/branches 전부 100% — 요구 기준 85%/80%를 상회한다.)
+
+### 전체 스위트 회귀 (D9/DoD)
+
+```
+$ npx vitest run
+ Test Files  112 passed (112)
+      Tests  1485 passed (1485)
+```
+
+회귀 0건. baseline 대비 파일 수 2개 증가(신규 테스트 2종)는 예상된 변화.
+
+### RED 증거 (E8)
+
+```
+$ npx vitest run tests/unit/components/logout-button.test.tsx tests/unit/components/site-header.test.tsx
+ FAIL  tests/unit/components/logout-button.test.tsx [ tests/unit/components/logout-button.test.tsx ]
+Error: Failed to resolve import "@/components/layout/LogoutButton" from "tests/unit/components/logout-button.test.tsx". Does the file exist?
+ FAIL  tests/unit/components/site-header.test.tsx [ tests/unit/components/site-header.test.tsx ]
+Error: Failed to resolve import "@/components/layout/SiteHeader" from "tests/unit/components/site-header.test.tsx". Does the file exist?
+ Test Files  2 failed (2)
+      Tests  no tests
+```
+
+이 실패를 관측한 뒤에만 `LogoutButton.tsx`(먼저) → `SiteHeader.tsx`(다음)를 구현했다. 각 구현 직후 해당 테스트 파일만 재실행해 GREEN을 확인했다(로그: 위 §E.2 M1/M2 절 참고).
+
+### @MX 태그 (plan.md §B.8 계획 이행)
+
+```
+$ grep -n "@MX:" src/components/layout/SiteHeader.tsx src/components/layout/LogoutButton.tsx
+SiteHeader.tsx:  @MX:ANCHOR rendered by layout.tsx on every route ...
+SiteHeader.tsx:  @MX:REASON layout.tsx renders this on every route ...
+SiteHeader.tsx:  @MX:NOTE calls resolveSession() ... (dynamic-rendering 귀결 포함)
+LogoutButton.tsx: @MX:NOTE reads the csrf_token cookie via the SAME inline document.cookie parse ...
+```
+
+계획대로 부여함: ANCHOR+REASON 1쌍 · NOTE 각 파일 1건. WARN/TODO 없음(계획대로).
 
 ## §E.3 Run-phase Audit-Ready Signal
 
-_<pending run-phase>_
+```yaml
+run_milestone: M2
+next_milestone: M3
+m1_files:
+  - src/components/layout/SiteHeader.tsx
+  - tests/unit/components/site-header.test.tsx
+m2_files:
+  - src/components/layout/LogoutButton.tsx
+  - tests/unit/components/logout-button.test.tsx
+ac_pass_count: 7   # AC-AUTH-037/038/039/041/042/043a/043b (M1+M2 범위)
+ac_fail_count: 0
+preserve_list_post_run_count: 0   # 무변경 확인 완료
+new_warnings_or_lints_introduced: 0
+cross_platform_build:
+  tsc_noemit: pass
+  eslint: pass
+total_run_phase_files: 4   # 신규 소스 2 + 신규 테스트 2 (M1+M2 범위)
+m1_to_mN_commit_strategy: >
+  두 개의 별도 feat 커밋(합치지 않음, B9 준수) — 단 빌드 의존성 순서로 커밋:
+  LogoutButton.tsx(M2 파일)를 먼저, SiteHeader.tsx(M1 파일)를 다음에 커밋해
+  두 커밋 모두 독립적으로 tsc/vitest GREEN을 유지한다. status: draft→in-progress
+  전이는 M1 레이블 커밋에 실었다(Status Responsibility Matrix 준수). 근거는
+  위 §E.2 "커밋 순서에 관한 의도적 이탈" 절 참고.
+
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
