@@ -25,7 +25,7 @@ const cartService = { getCart: vi.fn() };
 vi.mock("@/features/cart/services/cart-service", () => cartService);
 
 const { cookies } = await import("next/headers");
-const { default: CartPage } = await import("@/app/cart/page");
+const { default: CartPage } = await import("@/app/(shop)/cart/page");
 
 const GUEST = "guest-cookie-value";
 
@@ -68,7 +68,7 @@ const TWO_ITEMS = cart([
 
 /** Every source file under this SPEC's own cart route and components. */
 function cartSources(): string[] {
-  const roots = ["src/app/cart", "src/components/cart"];
+  const roots = ["src/app/(shop)/cart", "src/components/cart"];
   return roots.flatMap((root) =>
     readdirSync(root, { recursive: true, encoding: "utf8" })
       .filter((entry) => entry.endsWith(".tsx"))
@@ -86,9 +86,9 @@ function cartSources(): string[] {
  */
 function firstRenderSources(): string[] {
   return [
-    ...readdirSync("src/app/cart", { recursive: true, encoding: "utf8" })
+    ...readdirSync("src/app/(shop)/cart", { recursive: true, encoding: "utf8" })
       .filter((e) => e.endsWith(".tsx"))
-      .map((e) => readFileSync(join("src/app/cart", e), "utf8")),
+      .map((e) => readFileSync(join("src/app/(shop)/cart", e), "utf8")),
     readFileSync("src/components/cart/EmptyCart.tsx", "utf8"),
   ];
 }

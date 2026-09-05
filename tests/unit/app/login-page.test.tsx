@@ -18,7 +18,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 const push = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 
-const { default: LoginPage } = await import("@/app/login/page");
+const { default: LoginPage } = await import("@/app/(shop)/login/page");
 
 const fetchMock = vi.fn();
 
@@ -109,7 +109,7 @@ describe("AC-AUTH-027 — 로그인 실패 시 서버 오류 메시지 표시, �
 
 describe("AC-AUTH-028 — redirect/next 쿼리 파라미터 처리 부재 (정적 검사)", () => {
   it("useSearchParams/redirect/next 쿼리 조작 패턴이 소스에 없다 — 이동 대상은 리터럴 '/' 하나뿐", () => {
-    const source = readFileSync(path.resolve(__dirname, "../../../src/app/login/page.tsx"), "utf8");
+    const source = readFileSync(path.resolve(__dirname, "../../../src/app/(shop)/login/page.tsx"), "utf8");
     expect(source).not.toMatch(/useSearchParams/);
     expect(source).not.toMatch(/[?&]next=/);
     expect(source).toMatch(/router\.push\(["']\/["']\)/);

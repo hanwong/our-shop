@@ -4,6 +4,21 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+### 수정 — SPEC-AUTH-004: staff 화면에서 고객용 사이트 헤더 노출 제거 — `(shop)` 라우트 그룹 분리
+
+**`SPEC-AUTH-003`이 만든 공유 헤더가 `/staff/*` 관리자 화면에도 그대로 노출되던 설계 결함을 구조적으로 닫았다.** 원 버그 리포트는 "staff 화면이 로그아웃된 것처럼 보인다"였지만, 코드를 직접 확인한 결과는 정반대였다 — `resolveSession()`과 `resolveAdminSession()`이 같은 쿠키·같은 테이블을 읽으므로 유효한 staff 세션에서 헤더는 "내 정보" + 로그아웃 버튼을 렌더했고, 그 버튼은 역할을 검사하지 않는 `POST /api/auth/logout`에 연결되어 있어 관리자가 자기도 모르게 자신의 세션을 종료할 수 있었다(`spec.md` §1.1-§1.2). 원인은 `src/app/layout.tsx`(루트 레이아웃)가 헤더를 조건 없이 렌더했고, `/staff/*`는 자신만의 레이아웃이 없어 이 루트 레이아웃을 그대로 상속받았기 때문이다 — staff 전용 헤더가 "아직 안 만들어진" 것이 아니라, 배제가 애초에 구조적으로 강제되지 않고 있었다.
+
+- **채택한 메커니즘 — `(shop)` 라우트 그룹.** 헤더를 루트 레이아웃에서 새 `src/app/(shop)/layout.tsx`(신규)로 내렸다. Next.js의 라우트 그룹은 괄호 폴더가 URL 경로에 포함되지 않으므로(`nextjs.org/docs/app/api-reference/file-conventions/route-groups` — "should not be included in the route's URL path") `(shop)/cart/page.tsx`는 여전히 `/cart`로 응답하며, 같은 문서가 이 용도를 "특정 라우트 세그먼트만 레이아웃을 공유하도록 선택하고 나머지는 제외하는" 정규 활용 사례로 명시한다. staff는 이 그룹 밖에 있으므로 헤더를 애초에 만나지 않는다 — `src/app/staff/`에는 파일을 한 개도 추가하지 않았다(REQ-AUTH-057).
+- **기각한 메커니즘 2가지, 순서대로.** (1) `src/app/staff/layout.tsx`를 새로 만들어 `{children}`만 렌더하는 안 — Next.js 공식 문서상 세그먼트 자체 레이아웃은 **중첩** 레이아웃이라 부모(루트) 레이아웃이 렌더한 UI를 걷어낼 수단이 없어 동작하지 않는다(§B.1). 착수 지시가 처음 제시했다가 plan-phase 검증에서 기각된 안이다. (2) 미들웨어가 경로를 주입하고 헤더가 스스로 숨는 안 — 현재 matcher(`["/admin/:path*"]`)가 `/staff`에서 아예 실행되지 않고, matcher 확장은 `SPEC-AUTH-003` REQ-AUTH-047이 명시적으로 금지한 PRESERVE 핀이라 기각했다(§B.2).
+- `src/app/layout.tsx`(수정) — `<SiteHeader />` 배선과 그 임포트를 제거하고 문서 셸(`<html><body>{children}</body></html>`)만 남겼다. `@MX:WARN` 주석을 추가해 이 파일에 다시 헤더를 넣으면 이 SPEC의 결함이 재발함을 경고하되, **AC-AUTH-049(이 파일에 "SiteHeader" 리터럴 문자열 0회)를 만족하도록 컴포넌트명을 직접 쓰지 않고 "공유 로그인 상태 헤더 컴포넌트"로 에둘러 지칭**했다 — sync-audit이 직접 읽고 경고의 명확성이 저하되지 않았음을 확인했다.
+- 소스 이동 10개 파일(`page.tsx`/`cart/`/`checkout/`/`login/`/`orders/`/`products/`/`signup/`)을 `git mv`로 `(shop)/` 아래로 옮겼다 — 일반 삭제+재생성이 아니라 `git mv`를 쓴 것은 rename 탐지를 보존해 내용 무변경(0/0 diff)을 기계적으로 증명하기 위함이다. `src/app/products/[productId]/page.tsx`는 `SPEC-AUTH-003`이 PRESERVE로 핀했던 파일이라 위치 이동에 대해 별도 사용자 승인을 받았다 — 내용은 한 글자도 바뀌지 않았다.
+- 테스트 파일 12개(경로 문자열 전용 재작성 11개 + `shell.test.tsx` 구조 변경 1개) — 경로 전용 11개는 단언·의미를 손대지 않고 임포트/파일시스템 경로 문자열만 갱신했다. `shell.test.tsx`는 "루트 레이아웃이 SiteHeader를 렌더하지 않는다"·"`(shop)/layout.tsx`가 렌더한다"·"staff는 레이아웃 자체가 없다"는 3개의 신규 회귀 가드(AC-AUTH-048/049/051)를 추가했다 — 이는 행위 테스트가 아니라 **구조적 구성 증명**이라, 훗날 루트와 고객 라우트 사이에 새 레이아웃이 끼어들어도 즉시 실패한다(sync-audit Security 92/100 평가 근거).
+- **PRESERVE 목록 8개, `git diff --stat` 전부 무변경 재확인.** `src/middleware.ts`, `session-resolver.ts`, `admin-session.ts`, `logout/route.ts`, `SiteHeader.tsx`, `LogoutButton.tsx`, `prisma/schema.prisma`, `src/app/staff/`(13개 파일) — 이번 SPEC은 이 중 어느 것도 한 글자도 바꾸지 않았다. `SiteHeader.tsx`의 기존 `@MX:` 주석 3개(모두 "모든 라우트에서 렌더된다"/"루트 레이아웃을 통해" 전제)는 이 변경으로 사실상 낡았지만, PRESERVE 핀(AC-AUTH-056, 파일 diff 0줄)을 지키기 위해 의도적으로 손대지 않았다 — 후속 정리 후보로 `plan.md` §E에만 기록해 둔다.
+- **spec-level 긴장 2건, run-phase 내에서 blocker 없이 해소.** (1) `@MX:WARN` 주석이 AC-AUTH-049의 리터럴-0-매치 요구와 충돌했던 것 — 컴포넌트명을 에둘러 지칭해 해결(위 참고). (2) AC-AUTH-054의 "정확히 12개 테스트 파일" 요구와 M4 신규 가드 초안이 13번째 파일을 만들려던 것 — 이미 12개 안에 있던 `shell.test.tsx`에 새 가드 3개를 접어 넣어 파일 수를 유지하며 해결했다.
+- **미해결 잔여 위험 — 명시적으로 disclosed, 이 SPEC이 고친 것 아님.** `POST /api/auth/logout`은 여전히 역할을 검사하지 않고 토큰을 폐기한다 — 이 SPEC이 닫은 것은 staff 화면에서 그 버튼이 **보이는** 경로일 뿐, 엔드포인트 자체의 역할 비인지 폐기 로직은 그대로다. 향후 다른 UI 경로가 그 버튼을 staff 화면에 다시 노출시키면 같은 위험이 재발한다(`spec.md` §1.2/§3/§4).
+
+인수 기준 9건(`AC-AUTH-048~056`) 전부 PASS. 전체 스위트 113 files/1493 tests 통과(baseline 1489 대비 +4 — `shell.test.tsx` 단언 분리 +1, 신규 가드 +3, 회귀 0건). `npx tsc --noEmit`·`npm run lint` 전부 exit 0. sync-audit 독립 재검증 PASS(Functionality 98/Security 92/Craft 95/Consistency 93 — `.moai/reports/sync-audit/SPEC-AUTH-004-2026-09-05.md`).
+
 ### 추가 — SPEC-AUTH-003: 서버 렌더링 로그인 상태 확인 방식의 정본화 및 공유 사이트 헤더
 
 **이 저장소에 하나도 없던 공유 사이트 헤더를 처음 만들었다.** 이 SPEC은 두 가지를 한다 — (1) 서버 렌더(SSR) 화면이 로그인 상태를 확인하는 방식으로 `resolveSession()`(`src/lib/auth/session-resolver.ts`)을 이 저장소의 정본 설계 결정으로 문서에 고정하고(새 메커니즘을 발명하지 않는다), (2) 그 정본 방식의 첫 레이아웃 레벨 소비자인 로그인 상태 표시 전용 헤더를 만든다. 원 카드의 전제("SSR 로그인 확인이 `SPEC-AUTH-001`의 메모리 전용 액세스 토큰과 구조적으로 충돌한다")는 착수 전 정찰로 **사실이 아님**이 확인됐다 — 읽기 측은 httpOnly `refresh_token` 쿠키를 통해 이미 풀려 있었고 `SPEC-REVIEW-001`이 프로덕션에서 쓰고 있었다. 이 SPEC의 일은 그것을 다시 푸는 게 아니라 정본화 + 최초 소비자 구축이었다(spec.md §1.1).

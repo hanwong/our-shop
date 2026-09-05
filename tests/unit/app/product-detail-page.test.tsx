@@ -67,8 +67,8 @@ const { notFound } = await import("next/navigation");
 const { getProductDetail } = await import("@/features/catalog/services/product-service");
 const { resolveSession } = await import("@/lib/auth/session-resolver");
 const { getProductReviewSummary } = await import("@/features/reviews/services/review-service");
-const { default: ProductDetailPage } = await import("@/app/products/[productId]/page");
-const { default: ProductNotFound } = await import("@/app/products/[productId]/not-found");
+const { default: ProductDetailPage } = await import("@/app/(shop)/products/[productId]/page");
+const { default: ProductNotFound } = await import("@/app/(shop)/products/[productId]/not-found");
 
 const EMPTY_REVIEW_SUMMARY = { aggregate: { averageRating: null, count: 0 }, reviews: [] };
 
@@ -86,7 +86,7 @@ const product: ProductDetail = {
 
 /** Every .tsx source this SPEC adds under the detail route and product UI. */
 function storefrontSources(): string[] {
-  const roots = ["src/app/products", "src/components/product"];
+  const roots = ["src/app/(shop)/products", "src/components/product"];
   return roots.flatMap((root) =>
     readdirSync(root, { recursive: true, encoding: "utf8" })
       .filter((entry) => entry.endsWith(".tsx"))
@@ -102,7 +102,7 @@ function storefrontSources(): string[] {
  * CheckoutForm.tsx.
  */
 function firstRenderSources(): string[] {
-  const roots = ["src/app/products", "src/components/product"];
+  const roots = ["src/app/(shop)/products", "src/components/product"];
   const excluded = ["AddToCartButton.tsx", "ReviewForm.tsx"];
   return roots.flatMap((root) =>
     readdirSync(root, { recursive: true, encoding: "utf8" })

@@ -30,7 +30,7 @@ vi.mock("@/features/orders/services/order-service", () => orderService);
 
 const { notFound } = await import("next/navigation");
 const { cookies } = await import("next/headers");
-const { default: OrderLookupByNumberPage } = await import("@/app/orders/lookup/[orderNumber]/page");
+const { default: OrderLookupByNumberPage } = await import("@/app/(shop)/orders/lookup/[orderNumber]/page");
 
 const OWNER_GUEST = "guest-cookie-owner";
 const OTHER_GUEST = "guest-cookie-someone-else";
@@ -70,7 +70,7 @@ function renderPage() {
 }
 
 function pageSources(): string[] {
-  const root = "src/app/orders/lookup/[orderNumber]";
+  const root = "src/app/(shop)/orders/lookup/[orderNumber]";
   return readdirSync(root, { recursive: true, encoding: "utf8" })
     .filter((entry) => entry.endsWith(".tsx") || entry.endsWith(".ts"))
     .map((entry) => readFileSync(join(root, entry), "utf8"));
