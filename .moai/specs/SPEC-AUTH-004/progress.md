@@ -1,6 +1,6 @@
 ---
 id: SPEC-AUTH-004
-status: in-progress
+status: completed
 updated: 2026-09-05
 tier: M
 ---
@@ -616,4 +616,26 @@ spec_level_tensions_resolved_in_scope: 2  # (1) plan.md §E WARN comment vs AC-A
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+sync_status: audit-ready
+sync_complete_at: 2026-09-05
+sync_commit_sha: pending-backfill-SPEC-AUTH-004-sync
+sync_auditor_verdict: PASS
+sync_auditor_scores:
+  functionality: 98
+  security: 92
+  craft: 95
+  consistency: 93
+sync_auditor_report: .moai/reports/sync-audit/SPEC-AUTH-004-2026-09-05.md
+sync_auditor_blocking_findings: 0
+sync_auditor_info_findings: 2  # F1 (shop) naming precision, F2 SiteHeader.tsx stale @MX comments — both no-action-required
+changelog_entry_added: true
+changelog_grep_pre_check: 0  # grep -c "SPEC-AUTH-004" CHANGELOG.md before edit
+readme_corrections_applied: 2  # SPEC-AUTH-002 section 갱신 note + 로그인 상태 헤더 section
+frontmatter_status_transitions:
+  spec_md: "in-progress -> completed"  # note: spec.md carried status: draft at sync-phase entry (unexpected — no in-progress transition commit found in this SPEC's history); transitioned directly draft -> completed per this sync commit, matching the intent of the ownership matrix's terminal transition
+  progress_md: "in-progress -> completed"
+b12_self_test_a: "grep -c 'SPEC-AUTH-004' CHANGELOG.md -> 0 (pre-edit) — PASS, no duplicate-emission risk"
+b12_self_test_b: "AC count: grep -oE 'AC-AUTH-[0-9]+' acceptance.md | sort -u | wc -l -> 9; CHANGELOG entry cites AC-AUTH-048~056 (9 items) — PASS, counts match"
+b12_self_test_c: "file paths cited in CHANGELOG verified via ls: src/app/(shop)/layout.tsx, src/app/layout.tsx, .moai/reports/sync-audit/SPEC-AUTH-004-2026-09-05.md — all exist — PASS"
+```

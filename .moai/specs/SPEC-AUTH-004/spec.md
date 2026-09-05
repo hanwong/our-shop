@@ -2,7 +2,7 @@
 id: SPEC-AUTH-004
 title: "staff 화면에서 고객용 사이트 헤더 노출 제거 — (shop) 라우트 그룹 분리"
 version: "0.1.0"
-status: draft
+status: completed
 created: 2026-09-05
 updated: 2026-09-05
 author: snake
