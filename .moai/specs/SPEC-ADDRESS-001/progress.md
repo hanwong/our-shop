@@ -178,4 +178,25 @@ m1_to_mN_commit_strategy: "M1(4d9a06c) → M2/M3 합본(29e83dc) → M4/M5 합�
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+sync_complete_at: 2026-09-07
+sync_commit_sha: pending-backfill-sync-address-001
+sync_status: completed
+sync_audit_verdict: PASS
+sync_audit_score: 95.1/100 (Functionality 96, Security 95, Craft 93, Consistency 95 — weighted 0.40/0.25/0.20/0.15)
+sync_audit_report: .moai/reports/sync-audit/SPEC-ADDRESS-001-2026-09-07.md
+sync_audit_blocking_findings: 0
+changelog_entry_position: "CHANGELOG.md [Unreleased], top entry (added ahead of prior SPEC-ORDER-004 entry)"
+frontmatter_status_transitions:
+  spec_md: "in-progress → completed (sync commit; only spec.md carries canonical 12-field frontmatter — plan.md/acceptance.md/spec-compact.md carry no status: field, confirmed via grep)"
+```
+
+sync-audit(2026-09-07)는 코드 변경 없이 PASS로 판정했다(15/15 AC 재검증 PASS, blocking 0건, optional 정보성 5건 — F1~F5, 전부 조치 불필요로 판정). 이 세션에서 sync-audit 보고서 파일을 커밋에 포함해 미커밋 상태를 해소했다(직전 2개 SPEC에서 반복된 누락 패턴 — 이번에는 재발하지 않도록 조치).
+
+재검증 결과(이 세션 직접 실행):
+- `npx eslint .` → exit 0, clean.
+- `npx vitest run --reporter=dot` → 124 files / 1634 tests, 0 failures.
+- `npx tsc --noEmit` → 41 errors, 전부 `e2e/**`/`playwright.config.ts`(0 in `src/`) — `@playwright/test`가 `package.json`에는 선언돼 있으나 공유 `node_modules`에 미설치된 사전 존재 환경 결함(이 SPEC과 무관, §E.3에서 이미 3중 확인).
+- `npx prisma validate` → valid.
+
+README.md는 변경하지 않았다 — 저장소의 README.md 전체에 `mypage`/`address` 관련 언급이 0건이라(grep 확인), 이 SPEC이 갱신할 기존 사용자 대상 섹션이 없다.

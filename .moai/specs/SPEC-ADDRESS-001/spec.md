@@ -2,7 +2,7 @@
 id: SPEC-ADDRESS-001
 title: "배송지 주소록 관리(회원 전용)"
 version: "0.1.0"
-status: in-progress
+status: completed
 created: 2026-09-07
 updated: 2026-09-07
 author: snake

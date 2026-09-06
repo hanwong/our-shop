@@ -4,6 +4,18 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+### 추가 — SPEC-ADDRESS-001: 마이페이지 주소록 — 회원 배송지 저장/관리
+
+**로그인한 회원이 배송지를 여러 건 저장해 두고 `/mypage/addresses`에서 추가·수정·삭제·기본 지정을 할 수 있게 됐다.** 새 `Address` 모델(`userId` FK, `onDelete: Cascade`, `@unique` 없음)과 5개 API 엔드포인트, 회원 전용 페이지 1개로 구성된다(REQ-ADDRESS-001~015, AC-ADDRESS-001~015, 15항목 전부 PASS).
+
+- **스키마 — `Address`(신규) + 손으로 작성한 마이그레이션.** 4개 배송 필드(`recipientName`/`recipientPhone`/`postalCode`/`address`) + `isDefault`. `deliveryMemo`는 의도적으로 제외했다 — 배송 메모는 *장소*가 아니라 *배송 건*의 속성이라는 판단으로, 기존처럼 `Order.deliveryMemo`에 남긴다. `userId`에 `@unique`를 걸지 않아 회원당 여러 주소 저장이 가능하다(`Cart`의 "회원당 1개" 규칙과 의도적으로 다름).
+- **API 5개(`src/app/api/addresses/`) — CSRF 최우선 순서.** `POST /api/addresses`(생성, 첫 주소는 자동 기본), `PATCH /api/addresses/[addressId]`(수정), `DELETE /api/addresses/[addressId]`(삭제), `PATCH /api/addresses/[addressId]/default`(기본 지정), `GET /api/addresses`(목록). 게스트 분기가 없는 이 SPEC은 `verifyCsrfRequest`를 문자 그대로 첫 번째 문장으로 둔다(`resolveSession()` 호출보다도 먼저) — `staff/api/orders/[orderId]/status`와 동형의 CSRF-first 순서다.
+- **소유권 조건부 쓰기 — `where: {id, userId}` 자체가 인가 메커니즘.** `address-repository.ts`의 모든 쓰기가 `userId`를 `where` 절에 넣어 남의 주소에 대한 조작은 매치 0건 → 404로 수렴한다("존재하지 않음"과 "내 것이 아님"을 응답으로 구별할 수 없다).
+- **기본 배송지 트랜잭션 — 설정 먼저, 해제 나중(순서가 load-bearing).** `setDefault`는 대상 주소를 먼저 `true`로 세팅하고, 그 `updateMany`가 매치되었을 때만 기존 기본값을 `false`로 되돌린다. 소유권 실패 시 첫 `updateMany`가 0건 매치로 끝나 어떤 행도 바뀌지 않는다(롤백이 아니라 애초에 무변경).
+- **화면 — `src/app/(shop)/mypage/addresses/page.tsx` + `AddressForm.tsx`/`AddressList.tsx`(신규).** 미로그인 방문자는 데이터를 읽기도 전에 `redirect("/login")`으로 게이트되며, 로그인 복귀 파라미터(`next=`/`redirect=`)는 만들지 않았다(`SPEC-AUTH-002`의 REQ-AUTH-029 금지를 그대로 따름 — 로그인 성공 시 이동 대상은 항상 고정된 `/`).
+- **체크아웃 통합은 범위 밖.** `CheckoutForm`에 회원 신원을 흘려보내는 통로를 만드는 일은 이 SPEC이 하지 않는다 — 마이페이지 관리 전용.
+- **테스트 8개 신규(124 files/1634 tests, 기준선 대비 +8/+62, 실패 0).** sync-audit 검증(`.moai/reports/sync-audit/SPEC-ADDRESS-001-2026-09-07.md`) — Functionality 96 / Security 95 / Craft 93 / Consistency 95(가중 95.1/100), blocking 결함 0건, 코드 변경 불필요.
+
 ### 추가 — SPEC-ORDER-004: 회원(로그인) 체크아웃 지원 — Order 회원 귀속과 쿠키 세션 기반 주문 생성
 
 **로그인한 회원이 자신의 계정으로 귀속된 주문을 만들 수 있게 됐다.** 지금까지 `POST /api/orders`는 회원 세션이 있으면 오히려 409로 거부했고(`Order`에 `userId` 컬럼이 아예 없었다), 신원 판단은 게스트 쿠키 하나로만 이뤄졌다. 이번 SPEC은 `Order`에 두 번째 소유 축(`userId`, nullable)을 추가하고, 신원 해석을 `resolveSession()` 쿠키 방식으로 옮겨 회원/게스트 두 경로를 명시적으로 분기시켰다(AC-ORDER-050~073, 24항목).
