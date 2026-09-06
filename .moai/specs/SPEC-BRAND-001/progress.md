@@ -183,6 +183,10 @@ M3 (evidence backfill — this continuation): AC-BRAND-011=PASS, AC-BRAND-012=PA
 
 M4-M6 (this continuation): AC-BRAND-014=PASS, AC-BRAND-015=PASS, AC-BRAND-016=PASS, AC-BRAND-017=PASS, AC-BRAND-018=PASS, AC-BRAND-019=PASS, AC-BRAND-020=PASS, AC-BRAND-021=PASS, AC-BRAND-022=PASS | evidence: see M4/M5/M6 commits below (this session) | M4: `node prisma/seed-products.ts` run twice against the live local Postgres (`DATABASE_URL` in `.env`) — first run creates 4 categories (derby/loafer/boots/monk) + 6 products; second run is a no-op re-upsert (category count 7→7, product count 16→16 across both runs, no duplicates) — idempotency (AC-BRAND-022) mechanically observed, not assumed; DB values read back directly via a one-off Prisma query confirming all 6 product names/prices/categories/image URLs match research.md §3.1 + design.md §2.1 exactly; no `i % 3`-derived size-range string written to any field (REQ-BRAND-024, confirmed by reading the script — no such field exists in the schema to write to) | M5: `npx vitest run tests/unit/app/shop-page.test.tsx` → 9/9 passing, incl. an add/remove-category mock proving the filter list is derived from `findAllCategories()` not hardcoded (AC-BRAND-016) | M6: `npx vitest run tests/unit/app/bespoke-story-pages.test.tsx` → 4/4 passing, incl. a static source-scan for zero `<form>`/submit/cart/client-interactivity tokens (AC-BRAND-020) | `npx tsc --noEmit` → exit 0 after each milestone | fold-at: 2026-09-07T08:15:00+09:00
 
+M7 (this continuation): AC-BRAND-022=PASS, AC-BRAND-023=PASS | evidence: commit f4257b0 | `src/components/product/SizeSelector.tsx` added, wired into `ProductDetailView.tsx` between the stock indicator and `AddToCartButton` | `npx vitest run tests/unit/components/size-selector.test.tsx tests/unit/components/product-detail-view.test.tsx` → 12/12 passing, incl. a uniform-disabled-state property check across stock=0/1/5/100 (no mixed per-size state is producible by construction — REQ-BRAND-023) | `npx tsc --noEmit` and `npx eslint` clean on every touched file | fold-at: 2026-09-07T08:06:15+09:00
+
+M8 (this continuation — verification close-out, WHOLE SPEC M0-M8): full AC-BRAND-001..025 matrix — see the dedicated close-out report below. Full test suite `npx vitest run` at HEAD f4257b0: **130 files / 1665 tests, 0 failures** — evidence: `.moai/state/verify/brand-001-m8/full-suite.log`. Captured baseline (`acceptance.md` §B, `.moai/state/verify/brand-001/baseline-test.txt`, pre-M0): 124 files / 1635 tests, 1 known-flaky failure (AC-AUTH-021 timing). Delta: +6 files / +30 tests, net regressions = 0 (the baseline's own AC-AUTH-021 flake did not reproduce in this run — consistent with pre-existing timing contention, not a regression; independently re-confirmed in isolation earlier in this session at both the M5 and M6 commit points). `npx tsc --noEmit` → exit 0 (`.moai/state/verify/brand-001-m8/tsc.log`). `npx eslint .` → exit 0, 0 findings (`.moai/state/verify/brand-001-m8/lint.log`). `npx prisma validate` → "The schema at prisma/schema.prisma is valid". `git diff 9e788e9..HEAD --stat -- prisma/migrations/` → empty (0 migrations across the FULL SPEC, AC-BRAND-025). `grep -c 'accent-2-' src/app/globals.css` → `0`. §4 immutable-list re-verification across the FULL SPEC scope (9e788e9..HEAD): `@theme` property-name SET diff (before vs after, sorted+deduped) → empty (20=20, REQ-BRAND-007); font tokens still `var(--font-heading-nf)`/`var(--font-body-nf)` form; `SiteHeader`'s session-branch JSX byte-identical to the pre-M3 source (only relocated into a `sessionBranch` variable); `SiteHeader` import scope unchanged (`(shop)/layout.tsx` only — the one hit in `bespoke/page.tsx` is a doc-comment string, not an import); `prisma/schema.prisma` diff 9e788e9..HEAD → empty. `git diff 9e788e9..HEAD --stat` (full SPEC scope) and `git diff 8155283..HEAD --stat` (this continuation's scope) both recorded in the close-out report. Branch `WT-our-brand-pivot`, HEAD `f4257b0369f9a876edd21be499da13d56e991433`, working tree clean, NOT pushed to `main` per B9. | fold-at: 2026-09-07T08:20:00+09:00
+
 ## §F Phase 4 Mode Selection
 
 **Input parameters**: tier=L; scope≈? files across 9 milestones(M0-M8) — 브랜드 문자열 치환(M0), 정적 에셋(M1), 토큰(M2), SiteHeader 확장(M3), 제품 시드(M4), `/shop` 페이지(M5), `/bespoke`·`/story` 정적 페이지(M6), 사이즈 UI(M7), 검증 마감(M8); domain count=6(브랜드 문자열/에셋, 디자인 토큰, 내비게이션 컴포넌트, DB 시드, 카탈로그 화면, 정적 페이지); file language mix=TypeScript + CSS + seed 스크립트; concurrency benefit=LOW(마일스톤이 순차 의존적 — M2 토큰이 M3/M5 시각 요소의 전제, M4 시드가 M5 목록 페이지의 전제).
@@ -201,7 +205,24 @@ M4-M6 (this continuation): AC-BRAND-014=PASS, AC-BRAND-015=PASS, AC-BRAND-016=PA
 
 ## §E.3 Run-phase Audit-Ready Signal
 
-_<pending run-phase>_
+```yaml
+spec_id: SPEC-BRAND-001
+phase: run
+status: audit-ready
+milestones_complete: [M0, M1, M2, M3, M4, M5, M6, M7, M8]
+head_sha: f4257b0369f9a876edd21be499da13d56e991433
+branch: WT-our-brand-pivot
+ac_matrix: 25/25 PASS (AC-BRAND-001..025 — full matrix in the M8 close-out report referenced from §E.2)
+provisional_carryover: 7   # design.md §8.3 — unresolved, requires live DesignSync re-confirmation post-close
+test_suite: "130 files / 1665 tests, 0 failures (baseline: 124/1635, +6/+30, 0 net regressions)"
+typecheck: clean
+lint: clean
+migrations: 0
+immutable_list_violations: 0   # design.md §4, re-verified across the FULL SPEC scope (9e788e9..HEAD)
+pushed_to_main: false   # per B9 — orchestrator/manager-git owns the PR
+next_gate: sync-phase (manager-docs) — the 7 PROVISIONAL items (design.md §8.3) should be raised as a
+  post-close backlog card once DesignSync access is restored, per design.md §8.3's own recommendation
+```
 
 ---
 
