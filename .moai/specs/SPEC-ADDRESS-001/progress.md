@@ -13,6 +13,20 @@ plan-phase 산출물 4종(`spec.md`, `plan.md`, `acceptance.md`, `spec-compact.m
 1. **CSRF 적용 여부** — 모든 상태 변경 주소록 엔드포인트에 적용(확정).
 2. **체크아웃 통합 범위** — 마이페이지 관리 전용, 체크아웃 연동 제외(확정).
 
+## §F Phase 4 Mode Selection
+
+**Input parameters**: tier=M; scope≈14 files (1 migration, `features/addresses/{types,repositories,services}` 3, API 라우트 3, 페이지 1, 컴포넌트 2, 신규 테스트 3, `prisma/schema.prisma` 1); domain count=4(DB/마이그레이션, API+CSRF+소유권 보안, 프런트엔드 게이트+화면, 테스트); file language mix=TypeScript + Prisma; concurrency benefit=LOW(마일스톤이 순차 의존 — M1 스키마가 M2/M3의 전제, M4 게이트가 M5 화면의 전제).
+
+**Mode evaluation**:
+- `direct` — 선택 안 함(타이포/단순 변경 범위를 크게 초과).
+- `fanout` — 선택 안 함(코딩 중심 작업이라 Anthropic의 coding-task parallelism caveat에 해당, 마일스톤 간 순차 의존).
+- `sweep` — 선택 안 함(균일 기계적 변환 1개가 아니라 도메인마다 다른 5개 변환 규칙).
+- `serial`(manager-develop 직접 위임) — **선택**. Tier M, 6마일스톤, ~14파일 — SPEC-ORDER-004(Tier L, 7마일스톤, 15+파일)보다 작은 규모라 manager-lead 조율 없이 manager-develop 단일 위임으로 충분(orchestration-mode-selection.md §B.2 tie-breaker: 문턱 근접 시 더 단순한 모드 우선).
+
+**Decision: serial**
+
+**Justification**: Tier M SPEC로 6개 마일스톤이 M1(스키마)→M6(테스트)까지 순차 의존한다. Anthropic의 coding-task parallelism caveat에 따라 코딩 중심 작업은 병렬화 이득이 낮으므로 serial이 정답이며, 규모(Tier M, ~14파일)가 manager-lead의 진입 문턱(≥3마일스톤 AND ≥10파일 AND 교차 도메인)을 명목상 넘지만 SPEC-ORDER-004 대비 작은 범위라 조율 오버헤드 없이 manager-develop 단일 위임이 더 단순하고 적절하다.
+
 미해결 명료화 마커 없음. REQ-ADDRESS-001~015(15개), AC-ADDRESS-001~015(15개) — Tier M 예산 16/16 이내이며 각 1칸 여유.
 
 ### plan-auditor iteration 1 — PASS 0.92, 7건 조치 완료
