@@ -44,6 +44,24 @@ design phase는 라이브 Claude Design 프로젝트 **"OUR"**(`projectId: aa126
 
 **미확보 항목이 해소되지 않은 채 run-phase에 진입하면 M2(토큰 램프)와 M4(제품 시드)가 추정값으로 채워진다** — `design.md` §5의 종료 조건이 이를 막는다.
 
+### 2026-09-07 갱신 — DesignSync 부재, 사용자 승인 하 code-based fallback으로 진행
+
+design phase(`manager-design`)가 D1 진입 시도에서 DesignSync MCP 도구가 이 세션에 노출되어 있지 않음을 확인했다(`.mcp.json`에 미등록; `design.md` §7). **사용자가 이 상황에서 명시적 "비권장" 경고를 받고도 code-based fallback(추정값 사용)으로 진행하기로 결정**했다(`design.md` §8).
+
+**PROVISIONAL로 해소된 항목 7건 — run-phase 완료 후 라이브 Claude Design 원천("OUR", `projectId: aa1263c0-57a7-4d65-8670-f5cb5e9daae7`) 확보 시 재확인 필수**:
+
+1. **로고 파일** — `logo_mono_black.png` 채택(`plan.md` §B.2 잠정 기본값 유지). 픽셀 미검증(`design.md` §2.3).
+2. **제품 이미지 경로** — `picsum.photos/seed/<제품 로마자>/800/800` (기존 저장소 placeholder 컨벤션 재사용, `design.md` §2.1).
+3. **카테고리 slug** — `derby`/`loafer`/`boots`/`monk` (표준 로마자 표기, `design.md` §2.1).
+4. **`/story` 카피** — 신중히 작성된 대체 본문("한 켤레에 나흘", `design.md` §2.5). 원천 축자 전사 아님.
+5. **제작 기간 "약 4주"** — `plan.md` §B.3 판단 유지, 미재확인(`design.md` §2.4).
+6. **시로코 → 더비** — `plan.md` §B.7 판단 유지, 옥스퍼드 대립 가설 미해소(`design.md` §2.6).
+7. **카테고리 4개(몽크 신설)** — `plan.md` §B.7 판단 유지, 목업 3-버튼 필터와 불일치 미해소(`design.md` §3.5).
+
+시각 설계 결정 4건(`design.md` §3.1-§3.4)은 이 문서 자신이 제시했던 후보안을 그대로 채택 확정했다 — PROVISIONAL 아님, §4 불변 항목 미위반.
+
+**run-phase는 이제 진입 가능**하다 — `design.md` §5의 12개 종료 조건 항목이 전부 (PROVISIONAL 포함) 해소되었다. run-phase manager-develop 위임 시 위 7건 PROVISIONAL 목록을 알려야 한다(`design.md` §8.4 D5 재위임 패키지 참조).
+
 ---
 
 ## plan-audit 이력
@@ -140,7 +158,7 @@ audit_history:
     score: 0.94      # Tier L 임계 0.85 초과
     scope: D1-only
     disposition: addressed   # 명령 교체 + 재실행 관찰 + 헤더 정정 + HISTORY 과장 정정
-next_gate: Implementation Kickoff Approval → design phase(D1-D5, design.md §5 차단 항목 4건)
+next_gate: run-phase (design phase D1-D5 완료 — code-based fallback, PROVISIONAL 7건, design.md §8)
 ```
 
 **감사자를 위한 주의 사항**:
