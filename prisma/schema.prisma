@@ -50,6 +50,11 @@ model User {
   // carries no uniqueness constraint because a member places MANY orders
   // (design.md §1.2).
   orders        Order[]
+  // SPEC-ADDRESS-001 M1 — back-relation only. Prisma requires the opposite
+  // side of Address.user to be declared here; no existing field above
+  // changes. Modelled as a LIST, unbounded — a member may save many
+  // addresses (`Address.userId` carries no @unique; see the model below).
+  addresses     Address[]
 }
 
 model OAuthAccount {
@@ -479,4 +484,47 @@ model Coupon {
   // not a foreign key (see the Order model comment above, and OrderItem's
   // productName/unitPrice for the established precedent).
   @@index([code])
+}
+
+// ---------------------------------------------------------------------------
+// SPEC-ADDRESS-001 M1 — saved delivery-address domain (member-only). A pure
+// addition on top of the foundation SPEC-ORDER-004 already established
+// (`User.id`, `resolveSession()`, `Order.userId`) — no existing table's shape
+// changes; only this new table and the `User.addresses` back-relation above
+// are added (spec.md §1.1, plan.md §A).
+// ---------------------------------------------------------------------------
+
+// @MX:ANCHOR every address read and write converges on this model — `userId`
+// ownership is the entire authorization boundary for the domain (M3's
+// conditional-write pattern depends on it being present and indexed here).
+// @MX:REASON nullability/uniqueness changes to `userId` are a security-
+// boundary change, not a modelling detail — plan.md §H.
+model Address {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Order's delivery-snapshot fields, minus `deliveryMemo` (REQ-ADDRESS-002):
+  // a saved address is a PLACE, and a delivery memo is an instruction for one
+  // particular shipment, not a property of the place it targets — that stays
+  // on `Order.deliveryMemo`. See the field-selection rationale in plan.md M1.
+  recipientName  String
+  recipientPhone String
+  postalCode     String
+  address        String
+
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // `onDelete: Cascade` — this table joins Review/Cart/RefreshToken's
+  // classification ("member-convenience data with no reason to outlive the
+  // account"), NOT Order/OrderItem's Restrict ("accounting record"):
+  // REQ-ADDRESS-001, plan.md M1.
+  //
+  // No `@unique` on `userId` — deliberately, unlike Cart.userId. A member
+  // saves MANY addresses; copying Cart's "one row per member" @unique here
+  // would fail every second address with P2002. Same judgement Order.userId
+  // already made for the same reason (plan.md M1).
+  @@index([userId])
 }
