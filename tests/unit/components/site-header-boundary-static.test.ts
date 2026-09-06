@@ -9,11 +9,19 @@ import { cleanup, render, screen } from "@testing-library/react";
  * `src/components/layout/LogoutButton.tsx` (REQ-AUTH-046, AC-AUTH-044).
  *
  * Two halves, per acceptance.md AC-AUTH-044:
- * (1) a static source-text scan of both files for zero occurrences
- *     (case-insensitive) of cart / 장바구니 / search / 검색 / `<footer`;
+ * (1) a static source-text scan of the header's source files for zero
+ *     occurrences (case-insensitive) of 장바구니 / search / 검색 / `<footer`;
  * (2) a rendered-output scan confirming SiteHeader emits no navigation
- *     links to /cart, /products?..., or a category path, for either the
- *     guest or the logged-in branch.
+ *     links to /products?... or a category path, for either the guest or
+ *     the logged-in branch.
+ *
+ * SPEC-BRAND-001 REQ-BRAND-010 intentionally supersedes the original
+ * "no cart token / no /cart link" half of AC-AUTH-044 — a CART nav link
+ * (English label, href `/cart`) is now a required part of the header, so
+ * both the `cart` token pattern and the `/^\/cart\b/` link pattern were
+ * removed below (with an explanatory comment at each removal site). Every
+ * other AC-AUTH-044 guarantee (no Korean 장바구니 text, no search, no
+ * footer, no /products? or /categories menu) is unchanged.
  *
  * The `<nav>` tag itself is NOT scanned for (plan-audit D3 /
  * acceptance.md AC-AUTH-044 note) — REQ-AUTH-046 forbids the category
@@ -39,14 +47,24 @@ beforeEach(() => {
 const SOURCE_FILES = [
   "src/components/layout/SiteHeader.tsx",
   "src/components/layout/LogoutButton.tsx",
+  "src/components/layout/SiteHeaderNav.tsx",
 ];
 
-const FORBIDDEN_TOKEN_PATTERNS = [/cart/i, /장바구니/i, /search/i, /검색/i, /<footer/i];
+// SPEC-BRAND-001 REQ-BRAND-010 intentionally supersedes the "no cart token"
+// half of AC-AUTH-044 — the header now requires a visible "CART" nav link
+// (English label; no Korean 장바구니 text is added, so that token stays
+// forbidden alongside search/footer).
+const FORBIDDEN_TOKEN_PATTERNS = [/장바구니/i, /search/i, /검색/i, /<footer/i];
 
-const FORBIDDEN_LINK_PATTERNS = [/^\/cart\b/, /^\/products\?/, /^\/categories\b/];
+// SPEC-BRAND-001 REQ-BRAND-010 intentionally supersedes the "no /cart link"
+// half of AC-AUTH-044 — a `/cart` nav link is now required. `/^\/products\?/`
+// and `/^\/categories\b/` stay forbidden: SHOP links to `/shop`, a distinct
+// route matching neither pattern, and no product-listing or category menu
+// is added to the header.
+const FORBIDDEN_LINK_PATTERNS = [/^\/products\?/, /^\/categories\b/];
 
 describe("SiteHeader / LogoutButton — AC-AUTH-044 static source scan", () => {
-  it("contains no cart, search, or footer tokens (case-insensitive)", () => {
+  it("contains no 장바구니, search, or footer tokens (case-insensitive)", () => {
     for (const path of SOURCE_FILES) {
       const source = readFileSync(path, "utf8");
       for (const pattern of FORBIDDEN_TOKEN_PATTERNS) {
@@ -57,7 +75,7 @@ describe("SiteHeader / LogoutButton — AC-AUTH-044 static source scan", () => {
 });
 
 describe("SiteHeader — AC-AUTH-044 rendered navigation link scan", () => {
-  it("renders no links to /cart, /products?..., or a category path for a guest visitor", async () => {
+  it("renders no links to /products?... or a category path for a guest visitor", async () => {
     vi.mocked(resolveSession).mockResolvedValue(null);
 
     render(await SiteHeader());
@@ -72,7 +90,7 @@ describe("SiteHeader — AC-AUTH-044 rendered navigation link scan", () => {
     }
   });
 
-  it("renders no links to /cart, /products?..., or a category path for a logged-in visitor", async () => {
+  it("renders no links to /products?... or a category path for a logged-in visitor", async () => {
     vi.mocked(resolveSession).mockResolvedValue({ userId: "u1", role: "customer" });
 
     render(await SiteHeader());
