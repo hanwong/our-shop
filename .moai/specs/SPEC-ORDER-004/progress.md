@@ -251,7 +251,7 @@ _<pending run-phase>_
 ```yaml
 sync_status: audit-ready
 sync_complete_at: 2026-09-06
-sync_commit_sha: pending-backfill-sync-order-004
+sync_commit_sha: 9b8bf53
 sync_audit:
   verdict: PASS-WITH-DEBT
   report: .moai/reports/sync-audit/SPEC-ORDER-004-2026-09-06.md
