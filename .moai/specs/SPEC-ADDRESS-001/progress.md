@@ -72,11 +72,109 @@ Tier M이므로 `research.md`는 필수 산출물이 아니다. 대신 착수 �
 
 ## §E.2 Run-phase Evidence
 
-_<pending run-phase>_
+### 마일스톤별 완료 근거
+
+| M | 내용 | 커밋 | 근거 |
+|---|---|---|---|
+| M1 | `Address` 모델 + 손 작성 마이그레이션 | `4d9a06c` | `prisma migrate deploy` 성공(로컬 데모 Postgres `localhost:5433`), `prisma migrate status` clean, `prisma migrate diff` 빈 결과(스키마-마이그레이션 무drift) |
+| M2 | API 계약 5개 엔드포인트 | `29e83dc` | 3개 라우트 파일, CSRF-first 순서, 15개 라우트 테스트 PASS |
+| M3 | 소유권 조건부 쓰기 + 기본 배송지 트랜잭션 | `29e83dc` | `address-repository.test.ts` 8개 테스트 — set-먼저/unset-나중 순서와 소유권 실패 시 0회 unset 직접 검증 |
+| M4 | `/mypage/addresses` 페이지 게이트 | `17efdff` | `mypage-addresses-page.test.tsx` 5개 테스트 — 게이트가 데이터 읽기보다 먼저(mock 호출 0회), `next=`/`redirect=`/`returnUrl=` 파라미터 부재 |
+| M5 | `AddressList`/`AddressForm` 컴포넌트 | `17efdff` | `address-form.test.tsx` 6개 + `address-list.test.tsx` 8개 — CSRF 헤더, 인라인 수정 토글, 기본 지정/삭제 액션 |
+| M6 | 테스트·회귀 확인 | 위 3개 커밋에 포함(개별 M6 커밋 없음 — 구현과 동일 커밋에 테스트 포함) | 전체 스위트 124 files/1634 tests all pass (기준선 116/1572 대비 +8 files/+62 tests, 실패 0건) |
+
+### AC-ADDRESS-001~015 PASS/FAIL 매트릭스
+
+| AC | 검증 명령 | 실제 출력 | 상태 |
+|---|---|---|---|
+| AC-ADDRESS-001 | `prisma/schema.prisma`의 `Address` 모델 직접 열람 | `userId` FK `onDelete: Cascade`, `@unique` 없음, `@@index([userId])` 존재 확인 | PASS |
+| AC-ADDRESS-002 | 동일 | 4개 필드(recipientName/recipientPhone/postalCode/address) + isDefault 존재, `deliveryMemo` 없음 | PASS |
+| AC-ADDRESS-003 | `route.test.ts` "POST /api/addresses — AC-ADDRESS-003" | PASS — 201 + `createAddress`가 올바른 userId·body로 호출됨 | PASS |
+| AC-ADDRESS-004 | `address-id-route.test.ts` + `address-service.test.ts` "updateAddress — AC-ADDRESS-004" | PASS — 200 + 갱신된 필드 반환 | PASS |
+| AC-ADDRESS-005 | `address-id-route.test.ts`/`address-service.test.ts` "DELETE — AC-ADDRESS-005" | PASS — 성공 응답, count 0 → 404로 이후 조회 안 됨(서비스 레벨 확인) | PASS |
+| AC-ADDRESS-006 | `address-repository.test.ts` "setDefault — AC-ADDRESS-006" + `default-route.test.ts` | PASS — 대상 true, 기존 기본값 false로 전환(2회 updateMany 호출·순서 확인) | PASS |
+| AC-ADDRESS-007 | `address-repository.test.ts` "setDefault — AC-ADDRESS-007" | PASS — 소유권 실패 시 `updateMany` **정확히 1회만** 호출(2번째 미도달) → 기존 기본값 불변 | PASS |
+| AC-ADDRESS-008 | `address-repository.test.ts` "createForUser — AC-ADDRESS-008" | PASS — 첫 주소 `isDefault: true`, 두 번째는 `false` | PASS |
+| AC-ADDRESS-009 | `address-service.test.ts`/`route.test.ts` 검증 케이스 6개 | PASS — 4개 필드 각각의 빈 문자열/공백/비문자열 입력이 400, 저장소 미호출 | PASS |
+| AC-ADDRESS-010 | `route.test.ts`/`address-id-route.test.ts`/`default-route.test.ts`의 "CSRF first" describe 4개(4개 엔드포인트) | PASS — 403, `resolveSession`/서비스 함수 호출 횟수 0 | PASS |
+| AC-ADDRESS-011 | 동일 파일들의 "AC-ADDRESS-011" describe(GET 포함 5개 엔드포인트) | PASS — 401, 서비스 함수 미호출 | PASS |
+| AC-ADDRESS-012 | `address-id-route.test.ts`/`default-route.test.ts`의 "not owned → 404" + `address-service.test.ts` "AC-ADDRESS-012" | PASS — 3개 엔드포인트 전부 404, count 0 매핑 | PASS |
+| AC-ADDRESS-013 | `mypage-addresses-page.test.tsx` 5개 테스트 | PASS — 미로그인 시 리다이렉트 + `listAddresses` 미호출(0회); 로그인 시 목록·기본 배지·추가 폼 렌더링 확인 | PASS |
+| AC-ADDRESS-014 | `git diff --stat main...HEAD -- <8개 PRESERVE 경로>` + `grep -rn "next=\|redirect=\|returnUrl" "src/app/(shop)/mypage" "src/features/addresses"` | 둘 다 **빈 출력**(첫 명령 exit 0, 둘째 exit 1=매치없음) | PASS |
+| AC-ADDRESS-015 | `npx vitest run` 전체 스위트 + `npx tsc --noEmit` + `npx eslint .` | 스위트 124 files/1634 tests all pass(기준선 대비 +8/+62, 실패 0); tsc는 src/ 신규 오류 0건(기존 e2e/playwright 41건 불변, 근거는 §E.3); eslint 전체 clean(exit 0) | PASS |
+
+**15/15 PASS. FAIL 0건.**
+
+### M1 마이그레이션 — migration.sql ↔ schema.prisma 수기 대조 기록
+
+**도달 가능한 데이터베이스가 발견되었다** (`.env`의 `DATABASE_URL=postgresql://postgres:demo@localhost:5433/our_shop`, `nc -z localhost 5433` 성공) — plan.md 작성 시점의 "도달 불가 가정"과 달리, 이 run-phase 세션에서는 로컬 데모 Postgres가 실제로 살아 있었다.
+
+- `npx prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --script`로 Prisma가 자체 생성할 SQL을 먼저 뽑아, 손으로 쓴 `migration.sql`과 **필드 단위로 동일함**을 확인(CREATE TABLE 9개 컬럼, 1개 인덱스, 1개 FK — 완전 일치).
+- `npx prisma migrate deploy` 성공 → `npx prisma migrate status` "Database schema is up to date!" → `npx prisma migrate diff`(동일 명령 재실행) **빈 결과**("This is an empty migration.") — schema.prisma와 실제 DB 사이에 drift 없음을 3중으로 확인.
+- 추가로 실제 데이터를 넣어 두 불변식을 직접 관측: (a) Cascade — 임시 User 생성 → Address 1건 연결 → User 삭제 → Address count `1`→`0` 확인(스크립트 실행 후 즉시 삭제, 커밋되지 않음). (b) `userId`에 `@unique` 없음 — 동일 User에 Address 2건 연속 생성이 P2002 없이 성공(`{"secondAddressSucceeded":true}`).
+- 이 두 스크립트는 검증 전용 임시 파일로, 실행 직후 `rm`으로 제거했고 `git status --short`로 워킹 트리에 흔적이 없음을 확인했다 — 커밋된 산출물에는 포함되지 않는다.
+
+### `git diff --stat` — 전체 변경 범위 (baseline `5731187` 대비)
+
+```
+ .moai/specs/SPEC-ADDRESS-001/spec.md               |   2 +-
+ .../20260906160000_add_address_model/migration.sql |  36 ++++
+ prisma/schema.prisma                               |  48 +++++
+ src/app/(shop)/mypage/addresses/page.tsx           |  62 ++++++
+ src/app/api/addresses/[addressId]/default/route.ts |  55 ++++++
+ src/app/api/addresses/[addressId]/route.ts         |  84 ++++++++
+ src/app/api/addresses/route.ts                     |  70 +++++++
+ src/components/address/AddressForm.tsx             | 165 ++++++++++++++++
+ src/components/address/AddressList.tsx             | 156 +++++++++++++++
+ .../addresses/repositories/address-repository.ts   | 114 +++++++++++
+ src/features/addresses/services/address-service.ts | 153 +++++++++++++++
+ src/features/addresses/types/address.ts            |  42 ++++
+ tests/unit/api/addresses/address-id-route.test.ts  | 154 +++++++++++++++
+ tests/unit/api/addresses/default-route.test.ts     |  84 ++++++++
+ tests/unit/api/addresses/route.test.ts             | 136 +++++++++++++
+ tests/unit/app/mypage-addresses-page.test.tsx      | 106 ++++++++++
+ tests/unit/components/address-form.test.tsx        | 126 ++++++++++++
+ tests/unit/components/address-list.test.tsx        | 122 ++++++++++++
+ .../features/addresses/address-repository.test.ts  | 212 ++++++++++++++++++++
+ .../features/addresses/address-service.test.ts     | 215 +++++++++++++++++++++
+ 20 files changed, 2141 insertions(+), 1 deletion(-)
+```
+
+plan.md §F가 예정한 "수정 1 + 신규 구현 10 + 신규 테스트 3"과 실제 구현 파일 수는 정확히 일치(수정 1: `schema.prisma`, 신규 구현 10: 마이그레이션 1 + types/repositories/services 3 + 라우트 3 + 페이지 1 + 컴포넌트 2). 테스트는 plan.md가 예정한 3개 파일보다 **8개 파일로 분할**했다 — 저장소의 실제 관행(`tests/unit/api/<domain>/route.test.ts`처럼 라우트별 분리, `tests/unit/app/<name>-page.test.tsx` 페이지 전용 디렉터리)을 그대로 따른 판단이며, AC 커버리지 총량은 동일하다.
+
+### `spec.md` frontmatter 전이
+
+`status: draft → in-progress`를 M1 첫 커밋(`4d9a06c`)에서 수행(`updated:`는 이미 오늘 날짜라 갱신 불필요). body 내용은 변경하지 않았다.
 
 ## §E.3 Run-phase Audit-Ready Signal
 
-_<pending run-phase>_
+```yaml
+run_complete_at: 2026-09-07
+run_commit_sha: 17efdff
+run_status: PASS
+ac_pass_count: 15
+ac_fail_count: 0
+preserve_list_post_run_count: 0   # git diff --stat의 8개 PRESERVE 경로, 변경 0건
+l44_pre_commit_fetch: "git fetch origin main → 0 behind, 2 ahead (plan-phase 커밋 2개, 계획된 상태)"
+l44_post_push_fetch: "N/A — 이 세션은 push하지 않음(오케스트레이터가 독립 재검증 후 merge/PR 라우팅)"
+new_warnings_or_lints_introduced: 0
+cross_platform_build:
+  npm_run_build: "실패 — 원인은 이 SPEC과 무관한 사전 존재 환경 결함(아래 상술). typescript.ignoreBuildErrors를 임시로 켠 진단 빌드에서 4개 신규 라우트(/api/addresses, /api/addresses/[addressId], /api/addresses/[addressId]/default, /mypage/addresses) 전부 빌드 산출물에 등장 확인 후 next.config.ts를 즉시 원복(git diff 없음)"
+  tsc_noEmit: "src/ 전역 신규 오류 0건. 41건은 기준선과 완전 동일(e2e/*.ts 8건 + playwright.config.ts 1건 — @playwright/test가 package.json/lock에는 있으나 공유 node_modules(원본 체크아웃)에 실제 설치돼 있지 않음, 이 SPEC과 무관한 환경 결함)"
+total_run_phase_files: 20   # 수정 1(spec.md) + 신규 19(구현 10: migration.sql/schema 변경분 제외한 신규 파일 9 + schema.prisma는 수정으로 카운트했으므로 마이그레이션 1 포함 구현 10, 테스트 8 + spec.md 1) — 위 git diff --stat의 20파일과 정확히 일치
+m1_to_mN_commit_strategy: "M1(4d9a06c) → M2/M3 합본(29e83dc) → M4/M5 합본(17efdff), 3개 점진 커밋. M6은 별도 커밋 없이 M2-M5 구현 커밋에 테스트 동봉(각 커밋이 자기 마일스톤의 구현+테스트를 함께 포함)"
+```
+
+### Gaps (미검증)
+
+- **동시 첫-주소 생성 경합** — acceptance.md §E가 이미 잔여 위험으로 명시. `address-repository.ts`의 `@MX:TODO`로 코드에도 표시했다. 검증하지 않음(의도적, AC 없음).
+- **`npm run build`의 정식 통과** — 위 `cross_platform_build.npm_run_build` 참고. 이 SPEC이 원인이 아님을 (a) `tsc --noEmit`의 41건 오류가 M1 착수 전 baseline capture(Step 2.5, `Prisma generate` 재생성 직후)에서도 동일하게 41건이었고, (b) 실패 파일이 전부 `e2e/**`·`playwright.config.ts`(이 SPEC이 손대지 않은 디렉터리)이며, (c) `@playwright/test`가 `package.json`/`package-lock.json`에는 선언돼 있으나 공유 `node_modules`(원본 체크아웃)에 실제로는 설치돼 있지 않다는 사실로 3중 확인했다. 이 gap을 해소하는 것(playwright 재설치)은 이 SPEC의 범위 밖이라 손대지 않았다.
+- **실제 동시성 부하 하에서의 기본 배송지 트랜잭션** — 유닛 테스트는 mock으로 호출 순서만 검증했다. 실제 DB 트랜잭션 격리 수준 하의 동시 요청 테스트는 수행하지 않음(M3가 이미 이 트레이드오프를 인지하고 애플리케이션 트랜잭션을 선택).
+
+### Residual-risk (잔여 위험)
+
+- 위 Gaps의 동시 첫-주소 경합과 build 환경 결함은 그대로 잔여 위험으로 이어진다.
+- `AddressForm`/`AddressList`의 클라이언트 fetch 오류 처리는 유닛 테스트로 커버했으나, 실제 브라우저 네트워크 실패(타임아웃, CORS 등)의 엣지 케이스는 검증하지 않았다 — 기존 `ReviewForm`/`CancelOrderButton`과 동일한 처리 수준으로 맞췄을 뿐, 이 SPEC이 새로운 위험을 추가하지는 않는다.
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
