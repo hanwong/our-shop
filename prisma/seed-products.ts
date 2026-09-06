@@ -13,14 +13,20 @@
  * to a value invented here:
  *
  * - Category names/slugs: design.md §2.1 (PROVISIONAL — standard Korean-to-
- *   romanization slugs, code-based fallback; the 4th category "몽크"/"monk"
- *   is plan.md §B.7's explicit judgment call, itself PROVISIONAL per
- *   design.md §3.5/§8.3 item 7).
+ *   romanization slugs, code-based fallback). **3 categories only** — the
+ *   live DesignSync re-query (design.md §2.6/§3.5, CONFIRMED 2026-09-07)
+ *   found exactly 3 filter buttons on the live mockup (derby/loafer/boots),
+ *   reversing plan.md §B.7's earlier PROVISIONAL 4th-category ("몽크"/"monk")
+ *   judgment call.
  * - Product name/subtitle/price: research.md §3.1 (`renderVals()` verbatim
  *   transcription).
  * - Category assignment: research.md §3.2 / plan.md §B.7 (4 source-explicit,
- *   2 judgment calls — 시로코→더비 is PROVISIONAL per design.md §2.6/§8.3
- *   item 6; 하야마→몽크 follows the same PROVISIONAL 4th-category call).
+ *   2 judgment calls). 시로코→더비 remains PROVISIONAL per design.md §2.6/§8.3
+ *   item 6 (Oxford counter-hypothesis unresolved). 하야마→더비 is a NEW
+ *   provisional-derby assignment (design.md §2.6, this correction cycle) —
+ *   for the SAME underlying reason as 시로코: no dedicated category exists
+ *   in the live source for either product's specific closure/toe style, now
+ *   that the 4th "monk" category has been confirmed absent from the source.
  * - Image paths: design.md §2.1 (PROVISIONAL — picsum.photos seed mapping,
  *   code-based fallback; `next.config.ts` already allow-lists this host).
  *
@@ -56,11 +62,15 @@ interface SeedCategory {
   slug: string;
 }
 
+/**
+ * 3 categories (design.md §2.6/§3.5, CONFIRMED 2026-09-07 — live DesignSync
+ * re-query found exactly 3 filter buttons: 더비/로퍼/부츠, no "몽크"). This
+ * reverses the earlier PROVISIONAL 4th-category ("몽크"/"monk") judgment.
+ */
 const SEED_CATEGORIES: SeedCategory[] = [
   { id: "brand-category-derby", name: "더비", slug: "derby" },
   { id: "brand-category-loafer", name: "로퍼", slug: "loafer" },
   { id: "brand-category-boots", name: "부츠", slug: "boots" },
-  { id: "brand-category-monk", name: "몽크", slug: "monk" },
 ];
 
 /** research.md §3.1 (name/subtitle/price) + §3.2 (category, PROVISIONAL for 2 of 6). */
@@ -120,7 +130,7 @@ const SEED_PRODUCTS: SeedProduct[] = [
     name: "하야마",
     subtitle: "몽크 스트랩 · 버건디",
     price: 225000,
-    categorySlug: "monk", // PROVISIONAL — design.md §3.5, 4th category 신설
+    categorySlug: "derby", // PROVISIONAL — design.md §2.6, no dedicated "monk" category in live source (4th category reversed 2026-09-07)
     imageSeed: "hayama",
   },
 ];

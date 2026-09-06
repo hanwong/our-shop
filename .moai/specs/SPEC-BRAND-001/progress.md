@@ -226,6 +226,109 @@ next_gate: sync-phase (manager-docs) — the 7 PROVISIONAL items (design.md §8.
 
 ---
 
+## §E.2b Correction Cycle (2026-09-07) — DesignSync-confirmed corrections applied post-M8
+
+After M0-M8 closed (§E.2/§E.3 above), the sync-phase peer session gained live
+DesignSync access to Claude Design project "OUR" and re-confirmed/reversed
+several items previously PROVISIONAL per `design.md` §8.3. This entry records
+the resulting correction cycle, applied on top of HEAD `f4257b036...` (M8
+close-out commit, tagged `60eb9e0` locally in this worktree's parent lineage).
+
+**Corrections applied**:
+
+1. **Category count reversed 4 → 3** (`design.md` §2.6/§3.5, CONFIRMED). Live
+   re-query found exactly 3 filter buttons (더비/로퍼/부츠) — no "몽크"
+   category exists in the source. `prisma/seed-products.ts`: removed the
+   `brand-category-monk` `SEED_CATEGORIES` entry; re-mapped
+   `brand-product-hayama`'s `categorySlug` from `"monk"` to `"derby"` (same
+   PROVISIONAL treatment as `brand-product-siroko`, for the same reason — no
+   dedicated category exists in the source for either product's closure/toe
+   style). `tests/unit/app/shop-page.test.tsx`: updated the doc-comment
+   referencing the old 4-category/monk seed to reflect 3 categories — the
+   test's actual assertions were unaffected (they already used an ARBITRARY
+   mocked category set to prove derivation, AC-BRAND-016, never a literal
+   4-count assertion).
+2. **Logo file CONFIRMED** (`design.md` §2.3) — `logo_mono_black.png` pixel-
+   verified by the sync session against the live source. No code change (M1
+   wiring was already correct).
+3. **`/story` copy replaced with the live source's actual text**
+   (`design.md` §2.5) — `src/app/(shop)/story/page.tsx` body replaced
+   verbatim. This uncovered a **new, unresolved size-range conflict**: the
+   confirmed `/story` text states "240–330mm", which contradicts
+   `/bespoke`'s REQ-BRAND-017/AC-BRAND-018-locked "285mm부터 330mm까지".
+   `/bespoke/page.tsx` was **deliberately left unchanged** — REQ-BRAND-017
+   (`spec.md` L185) and AC-BRAND-018 (`acceptance.md` L133, with a literal
+   `/285mm/` assertion in `tests/unit/app/bespoke-story-pages.test.tsx`)
+   lock this value at the SPEC-body level, which is outside this correction
+   cycle's editing authority (`manager-develop-prompt-template.md` §
+   Forbidden modifications). **This is a genuine SPEC-body-level conflict
+   requiring a manager-spec-owned follow-up** to REQ-BRAND-017 (decide which
+   value is authoritative, then update `acceptance.md` AC-BRAND-018 and the
+   locked test assertion together). Recorded as a residual item in
+   `design.md` §8.3.
+   - Side effect: `tests/unit/app/bespoke-story-pages.test.tsx`'s
+     `StoryPage — AC-BRAND-019` test asserted the literal (now-removed)
+     phrase `/손으로 꿰맵니다/` from the old PROVISIONAL copy. AC-BRAND-019's
+     actual Gherkin text only requires "a brand-story copy landmark" (no
+     specific literal phrase is SPEC-locked), so this one assertion was
+     updated to check a landmark phrase (`/갑피를 꿰매고/`) from the new
+     CONFIRMED copy instead — a minimal, unavoidable consequence of the
+     mandatory verbatim copy replacement, not a scope-discipline violation.
+4. **Production lead time "약 4주" — re-queried, unchanged** (`design.md`
+   §2.4). The live source itself was re-confirmed to be internally
+   inconsistent (4 weeks in 3 places, 4 months in 1 place); the
+   majority-rule decision stands. No code change.
+5. **Product image paths / category slugs (derby/loafer/boots): unchanged**
+   per explicit instruction — no live product-photo assets exist yet.
+
+**Live-DB seed re-run** (`node prisma/seed-products.ts` against the same
+local Postgres used in M4, `docker` container `our-shop-demo-pg` on
+`localhost:5433`):
+
+- Before: 7 `Category` rows total in the dev DB (`boots`, `bottoms`, `derby`,
+  `loafer`, `m4-fa83d560-cat`, `monk`, `tops` — several belong to unrelated
+  SPECs/fixtures, not this seed script's concern). `brand-product-hayama` →
+  category `monk`.
+- After re-run: same 7 `Category` rows still present (the script is
+  upsert-only and never deletes categories it doesn't list — by design, so
+  it cannot accidentally delete another SPEC's category rows). `monk` is now
+  an **orphaned row** (0 products reference it). `brand-product-hayama` →
+  category `derby` (confirmed via direct Prisma query, before/after).
+- **Judgment call on the orphaned `monk` row**: left in place, no explicit
+  delete step added. Rationale: the script's own documented contract is
+  additive/upsert-only (see its header comment); the dev DB visibly holds
+  categories from other SPECs/fixtures unrelated to this seed script
+  (`bottoms`, `tops`, `m4-fa83d560-cat`), so adding delete-by-exclusion logic
+  here would risk deleting rows this script does not own. An unused orphaned
+  dev-DB row with zero product references violates no AC (AC-BRAND-025 is
+  about migrations=0, not data hygiene) and is cheap to clean up by hand or
+  in a future admin-side SPEC.
+
+**Verification**:
+
+- `npx vitest run tests/unit/app/shop-page.test.tsx tests/unit/app/bespoke-story-pages.test.tsx` → 13/13 passing.
+- Full suite `npx vitest run` → **130 files / 1665 tests, 1 failure**
+  (`AC-AUTH-021` rate-limit timing test — re-run in isolation:
+  `npx vitest run tests/unit/api/auth/login.test.ts -t "AC-AUTH-021"` → PASS,
+  confirming pre-existing contention flakiness, not a regression; this is
+  one of the 3 known-flaky AUTH timing tests already on record). **0 files
+  changed outside the declared touch list; 0 new regressions** vs the M8
+  baseline (130 files / 1665 tests).
+- `npx tsc --noEmit` → 46 pre-existing errors, all in `e2e/**` /
+  `playwright.config.ts` (`Cannot find module '@playwright/test'` and related
+  implicit-any diagnostics) — confirmed pre-existing via `git stash` + re-run
+  against the unmodified M8 tree (identical 46 errors). Zero errors in any
+  file this correction cycle touched.
+- `npx eslint prisma/seed-products.ts "src/app/(shop)/story/page.tsx" tests/unit/app/shop-page.test.tsx tests/unit/app/bespoke-story-pages.test.tsx` → clean, 0 findings.
+
+**Files touched**: `prisma/seed-products.ts`,
+`src/app/(shop)/story/page.tsx`, `tests/unit/app/shop-page.test.tsx`,
+`tests/unit/app/bespoke-story-pages.test.tsx` (unlisted in the original
+touch-list, edited as a direct, unavoidable consequence of the mandatory
+`/story` copy replacement — see item 3 above), `design.md`, `progress.md`
+(this entry). `src/app/(shop)/bespoke/page.tsx` was considered but
+deliberately **not modified** (see item 3).
+
 ## §E.4 Sync-phase Audit-Ready Signal
 
 _<pending sync-phase>_
