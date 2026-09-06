@@ -248,4 +248,24 @@ _<pending run-phase>_
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+sync_status: audit-ready
+sync_complete_at: 2026-09-06
+sync_commit_sha: pending-backfill-sync-order-004
+sync_audit:
+  verdict: PASS-WITH-DEBT
+  report: .moai/reports/sync-audit/SPEC-ORDER-004-2026-09-06.md
+  scores:
+    functionality: 96
+    security: 96
+    craft: 93
+    consistency: 82
+  blocking_findings: 2 (both fixed by manager-spec in commit caff593127d99c59e6a57c52d46351b6d4c31403, pre-sync-commit)
+b12_self_test_a: "grep -c 'SPEC-ORDER-004' CHANGELOG.md → 0 before emission (verified before append)"
+b12_self_test_b: "grep -oE 'AC-([A-Z0-9]+-)*[0-9]+' acceptance.md | sort -u | wc -l → 24 (matches acceptance.md header claim, 24개 기준 AC-ORDER-050~073)"
+b12_self_test_c: "file paths in CHANGELOG entry verified via ls: prisma/schema.prisma, src/app/api/orders/route.ts, src/app/(shop)/checkout/, src/components/checkout/, src/features/orders/{types,repositories,services}/ — all present"
+changelog_entry_position: "CHANGELOG.md [Unreleased] section, top entry (most-recent-first ordering)"
+frontmatter_status_transitions:
+  spec.md: "in-progress → completed (this sync commit; plan.md/acceptance.md/design.md/research.md carry no status: frontmatter field in this project's convention — verified via grep across all 5 artifacts, only spec.md declares the canonical 12-field schema)"
+canary_compliance_check: "n/a — this SPEC does not define a forward-looking policy that its own sync tests"
+```
