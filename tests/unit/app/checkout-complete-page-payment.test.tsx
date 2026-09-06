@@ -30,7 +30,12 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("next/headers", () => ({ cookies: vi.fn() }));
 
-const orderService = { getOrderForGuest: vi.fn() };
+// `getOrderForUser` joins the mock in SPEC-ORDER-004 M5: the page imports it
+// for the member branch, and a factory mock omitting a real export throws on
+// import. These SPEC-PAYMENT-001 cases stay on the guest path — no session
+// cookie is presented, so the real resolveSession() answers null without a
+// query and the member branch is never entered.
+const orderService = { getOrderForGuest: vi.fn(), getOrderForUser: vi.fn() };
 vi.mock("@/features/orders/services/order-service", () => orderService);
 
 const payButtonSpy = vi.fn();

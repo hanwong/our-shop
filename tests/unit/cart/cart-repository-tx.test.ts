@@ -85,6 +85,36 @@ describe("SPEC-ORDER-001 §4.1 — findCartByGuestId accepts a transaction clien
   });
 });
 
+describe("SPEC-ORDER-004 §6.1 — findCartByUserId accepts a transaction client", () => {
+  it("still defaults to the module singleton, so cart-service.ts is unchanged", async () => {
+    await repo.findCartByUserId("user-1");
+
+    expect(singleton.cart.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: "user-1" } })
+    );
+  });
+
+  it("runs the query on the given client instead", async () => {
+    const tx = fakeTx();
+    await repo.findCartByUserId("user-1", tx as never);
+
+    expect(tx.cart.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: "user-1" } })
+    );
+    expect(singleton.cart.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("keeps the same projection on both paths — behaviour is unchanged", async () => {
+    const tx = fakeTx();
+    await repo.findCartByUserId("user-1");
+    await repo.findCartByUserId("user-1", tx as never);
+
+    const viaSingleton = singleton.cart.findUnique.mock.calls[0]![0];
+    const viaTx = tx.cart.findUnique.mock.calls[0]![0];
+    expect(viaTx).toEqual(viaSingleton);
+  });
+});
+
 describe("SPEC-ORDER-001 §4.1 — deleteCart accepts a transaction client", () => {
   it("still defaults to the module singleton", async () => {
     await repo.deleteCart("cart-1");
@@ -114,11 +144,19 @@ describe("SPEC-ORDER-001 §4.1 — the exception does not widen", () => {
     expect(paramsOf("deleteCart")).toMatch(/client/);
   });
 
-  it("leaves findCartByUserId alone — the member path is out of scope", () => {
-    // It was on the list in an earlier draft and came off when member checkout
-    // left the scope. Opening an invariant for a function this SPEC never calls
-    // would widen the hole for nothing (plan.md §4.1, design.md §2.1).
-    expect(paramsOf("findCartByUserId")).not.toMatch(/client/);
+  it("opens findCartByUserId too — SPEC-ORDER-004's second exception", () => {
+    // SPEC-ORDER-001 asserted the OPPOSITE here, and correctly so: member
+    // checkout was out of scope, so opening an invariant for a function that
+    // SPEC never called would have widened the hole for nothing.
+    //
+    // SPEC-ORDER-004 is what makes the member path real. Its order transaction
+    // reads and empties the MEMBER cart inside the transaction, which is the
+    // identical argument that opened the first two (design.md §6.1). The
+    // property this suite exists to hold is "the exception does not widen
+    // SILENTLY" — not "the list is frozen at two" — so the list is updated in
+    // step with the SPEC that widens it, and the next assertion is what keeps
+    // the widening bounded.
+    expect(paramsOf("findCartByUserId")).toMatch(/client/);
   });
 
   it("leaves every other function's signature untouched", () => {
@@ -141,5 +179,8 @@ describe("SPEC-ORDER-001 §4.1 — the exception does not widen", () => {
     // merely intended — a required parameter would break every caller.
     expect(paramsOf("findCartByGuestId")).toMatch(/client\s*:\s*[^=]+=\s*prisma/);
     expect(paramsOf("deleteCart")).toMatch(/client\s*:\s*[^=]+=\s*prisma/);
+    // SPEC-ORDER-004 M3 — the same shape, which is what keeps cart-service.ts
+    // at zero changed lines (plan.md M3 DoD).
+    expect(paramsOf("findCartByUserId")).toMatch(/client\s*:\s*[^=]+=\s*prisma/);
   });
 });

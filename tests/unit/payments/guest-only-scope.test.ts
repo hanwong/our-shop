@@ -52,8 +52,15 @@ describe("SPEC-PAYMENT-001 — no member/customer payment path exists (AC-PAYMEN
     expect(grepFiles("resolveCartIdentity", ...PAYMENT_SRC_PATHS)).toBe("");
   });
 
-  it("adds no userId column to the Order model", () => {
-    expect(modelBody("Order")).not.toMatch(/\buserId\b/);
+  it("keeps the payment domain guest-only even though Order.userId now exists", () => {
+    // This guard was written as "Order has no userId column" — a regression
+    // guard resting on SPEC-ORDER-001's schema as it stood then, NOT on an
+    // invariant PAYMENT-001 owns. SPEC-ORDER-004 M1 added `Order.userId`, so
+    // that premise can no longer be true; the INTENT survives intact and is
+    // restated here: the payment domain stays guest-only regardless of what
+    // the order schema grows (research.md §2.7).
+    expect(modelBody("Order")).toMatch(/^\s*userId\s+String\?/m);
+    expect(grepFiles("userId", ...PAYMENT_SRC_PATHS)).toBe("");
   });
 
   it("adds no userId column to the PaymentAuditLog model", () => {

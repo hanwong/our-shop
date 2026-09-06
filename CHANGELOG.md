@@ -4,6 +4,24 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+### 추가 — SPEC-ORDER-004: 회원(로그인) 체크아웃 지원 — Order 회원 귀속과 쿠키 세션 기반 주문 생성
+
+**로그인한 회원이 자신의 계정으로 귀속된 주문을 만들 수 있게 됐다.** 지금까지 `POST /api/orders`는 회원 세션이 있으면 오히려 409로 거부했고(`Order`에 `userId` 컬럼이 아예 없었다), 신원 판단은 게스트 쿠키 하나로만 이뤄졌다. 이번 SPEC은 `Order`에 두 번째 소유 축(`userId`, nullable)을 추가하고, 신원 해석을 `resolveSession()` 쿠키 방식으로 옮겨 회원/게스트 두 경로를 명시적으로 분기시켰다(AC-ORDER-050~073, 24항목).
+
+- **스키마 — `Order.userId` (nullable) + `guestId` (기존, nullable) 이 배타적으로 정확히 하나만 채워지는 불변식.** `Cart`와 달리 `userId`에는 `@unique`를 걸지 않았다 — 회원은 여러 건을 주문할 수 있으므로, Cart의 "회원당 카트 1개" 규칙을 그대로 복사하면 두 번째 주문부터 P2002로 깨진다(`prisma/schema.prisma`, `onDelete: Restrict` — 계정 삭제로 주문 기록이 함께 지워지지 않도록 Cart의 Cascade와 의도적으로 다르게 뒀다).
+- **`POST /api/orders`(`src/app/api/orders/route.ts`) — 신원 해석을 `resolveSession()` 우선으로 재작성.** 세션이 있으면 회원 경로(CSRF 필수, 트랜잭션 전에 검증), 없으면 게스트 경로(쿠키 판독/발급, CSRF 없음 — 게스트 쿠키는 인증자가 아니라 식별자이므로)로 갈라진다. `Authorization` 헤더는 이 라우트에서 더 이상 회원 판정 근거가 아니며(REQ-ORDER-055), 회원 세션이 있어도 더 이상 409로 거부하지 않는다(REQ-ORDER-056, 기존 거부 로직 제거).
+- **화면 2개 — 회원 체크아웃 진입과 완료 화면(`src/app/(shop)/checkout/`, `src/components/checkout/`)** 을 회원 신원을 인식하도록 갱신했다.
+- **`src/features/orders/{types,repositories,services}/`** — `OrderOwner` 판별 유니언(회원/게스트)을 서비스·리포지토리 계층까지 관통시켜, 두 경로가 하나의 트랜잭션 안에서 처리되도록 했다.
+- **`CheckoutUnavailable.tsx` 문구 갱신 — "회원 체크아웃 미지원" 범위 고지를 제거.** 이 SPEC이 그 범위 제한 자체를 없앴으므로 대체 문구 없이 삭제하고, "이 요청에 연결된 카트를 찾을 수 없다"는 관찰 사실만 남겼다(로그인 직후 게스트 쿠키가 만료돼 신원 없이 이 화면에 닿는 회원에게도 참인 문장이기 때문).
+- **게스트 경로는 관측 가능한 회귀 0건.** 기존 게스트 주문 생성·멱등성 로직은 그대로 두고 회원 분기만 추가했다(REQ-ORDER-065, AC-ORDER-071/072).
+
+<details>
+<summary>SPEC-ORDER-004 sync-audit 요약 (PASS-WITH-DEBT)</summary>
+
+sync-audit 검증(`.moai/reports/sync-audit/SPEC-ORDER-004-2026-09-06.md`) — Functionality 96 / Security 96 / Craft 93 / Consistency 82, 코드 변경 불필요. 전체 vitest 스위트 116개 파일 · 1572개 테스트 전부 통과, `tsc --noEmit` / `eslint` / `prisma validate` 모두 클린, 커버리지 96.98%(문장)/93.63%(분기)/98.69%(함수)/96.98%(라인). 문서 결함 2건은 manager-spec이 이미 수정했다(`caff593`).
+
+</details>
+
 ### 추가 — SPEC-DESIGN-001: 공통 디자인 토큰 체계 수립과 전체 사이트 반영
 
 **전체 15개 화면(고객 9 + 스태프 6)에 공통 디자인 토큰 체계를 처음 도입했다.** 지금까지 각 SPEC이 개별적으로 정해 온 색상·타이포그래피·간격·둥근모서리 값을 `src/app/globals.css`의 Tailwind v4 `@theme` 블록 하나로 정본화하고(plan.md §D.1 — Classical 편집·서적풍 소스 프로젝트 값을 바이트 단위로 그대로 전사, 임의 변형 없음), outline 버튼(단색 채움이 아닌 테두리 스타일)과 세리프 타이포그래피(제목 Cormorant Garamond / 본문 Lora, 한글 폴백 스택은 보존)로 통일했다. 신규 공용 프리미티브 2개 — `Button.tsx`(fan-in 15)와 `FormField.tsx`(fan-in 9) — 를 만들어 15개 화면 전체가 소비하게 했다.

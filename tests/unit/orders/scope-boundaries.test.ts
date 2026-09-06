@@ -234,11 +234,23 @@ describe("SPEC-ORDER-001 — the PRESERVE list held (plan.md §4)", () => {
     ).toBe("");
   });
 
-  it("added no member attribution to the User model (AC-ORDER-001 (c))", () => {
+  it("carries the member attribution SPEC-ORDER-004 M1 added, with NO @unique on Order.userId", () => {
     const schema = readFileSync("prisma/schema.prisma", "utf8");
     const user = schema.match(/model\s+User\s*\{([\s\S]*?)\n\}/)![1]!;
+    const order = schema.match(/model\s+Order\s*\{([\s\S]*?)\n\}/)![1]!;
 
-    expect(user).not.toMatch(/orders?\s+Order/i);
+    // SPEC-ORDER-004 M1 inverted AC-ORDER-001 (c): Prisma requires the opposite
+    // side of Order.user to be declared, so the back-relation this assertion
+    // once forbade is now mandatory (research.md §2.3).
+    expect(user).toMatch(/^\s*orders\s+Order\[\]/m);
+
+    // The Cart-cardinality trap (plan.md B2, AC-ORDER-050). Cart.userId carries
+    // @unique because a member has ONE cart; a member places MANY orders, so
+    // copying that here would fail every member's SECOND order with a P2002
+    // unique-constraint violation (design.md §1.2).
+    const userIdLine = order.match(/^\s*userId\s+String\?.*$/m)![0];
+    expect(userIdLine).not.toContain("@unique");
+    expect(order).not.toContain("@@unique([userId])");
   });
 
   it("has no server-identity adapter (AC-ORDER-021 (e))", () => {

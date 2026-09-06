@@ -47,7 +47,7 @@ describe("SPEC-PAYMENT-001 M1 — Order.paymentKey (REQ-PAYMENT-004, design.md �
     // PRESERVE spot-check — SPEC-ORDER-001's existing fields are untouched.
     expect(body).toMatch(/^\s*orderNumber\s+String\s+@unique/m);
     expect(body).toMatch(/^\s*status\s+OrderStatus\s+@default\(pending_payment\)/m);
-    expect(body).toMatch(/^\s*guestId\s+String\s/m);
+    expect(body).toMatch(/^\s*guestId\s+String\?/m); // nullable since SPEC-ORDER-004 M1 (research.md §2.8)
     expect(body).toMatch(/^\s*idempotencyKey\s+String\s+@unique/m);
     expect(body).toContain("@@index([guestId])");
   });

@@ -69,6 +69,20 @@ if (!process.env.DATABASE_URL) {
   }
 }
 
+/**
+ * SPEC-ORDER-004 M4 — createOrder() now takes an `OrderOwner` discriminated
+ * union instead of a bare guest-id string (design.md §6.3).
+ *
+ * Every scenario in this file is a GUEST-vs-GUEST race, which is the point:
+ * these measure row-lock serialisation and deadlock handling, and neither
+ * depends on who owns the order. Wrapping the ids here rather than changing
+ * them keeps each `GUEST_*` constant usable by `makeCart()` too, so the races
+ * being measured are byte-identical to the pre-SPEC ones.
+ */
+function guest(guestId: string) {
+  return { kind: "guest", guestId } as const;
+}
+
 /** Namespaces every row this run creates, so cleanup can find them all. */
 const RUN = `m4-${randomUUID().slice(0, 8)}`;
 
@@ -215,8 +229,8 @@ describe.skipIf(!reachable)(
       // rejection is DATA rather than a thrown test — an unclassified error is
       // one of the outcomes being measured.
       settled = await Promise.allSettled([
-        createOrder(GUEST_A, orderBody(1000, "a")),
-        createOrder(GUEST_B, orderBody(1000, "b")),
+        createOrder(guest(GUEST_A), orderBody(1000, "a")),
+        createOrder(guest(GUEST_B), orderBody(1000, "b")),
       ]);
 
       console.log(
@@ -299,8 +313,8 @@ describe.skipIf(!reachable)(
       ]);
 
       settled = await Promise.allSettled([
-        createOrder(GUEST_C, orderBody(2000, "c")),
-        createOrder(GUEST_D, orderBody(2000, "d")),
+        createOrder(guest(GUEST_C), orderBody(2000, "c")),
+        createOrder(guest(GUEST_D), orderBody(2000, "d")),
       ]);
 
       console.log(
@@ -516,8 +530,8 @@ describe.skipIf(!reachable)(
       await makeCart(GUEST_F, [{ productId: PRODUCT, quantity: 1 }]);
 
       settled = await Promise.allSettled([
-        createOrder(GUEST_E, couponOrderBody("e")),
-        createOrder(GUEST_F, couponOrderBody("f")),
+        createOrder(guest(GUEST_E), couponOrderBody("e")),
+        createOrder(guest(GUEST_F), couponOrderBody("f")),
       ]);
 
       console.log(

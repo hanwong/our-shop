@@ -29,14 +29,22 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("next/headers", () => ({ cookies: vi.fn() }));
 
-const orderService = { getOrderForGuest: vi.fn() };
+const orderService = { getOrderForGuest: vi.fn(), getOrderForUser: vi.fn() };
 vi.mock("@/features/orders/services/order-service", () => orderService);
+
+// SPEC-ORDER-004 M5 — the screen now resolves a MEMBER session before reading
+// the guest cookie (design.md §5.2). The real resolver is a database read, so
+// it is mocked here; every existing case below keeps the pre-SPEC behaviour by
+// defaulting to `null` (no session) in the shared beforeEach.
+const sessionResolver = { resolveSession: vi.fn() };
+vi.mock("@/lib/auth/session-resolver", () => sessionResolver);
 
 const { notFound } = await import("next/navigation");
 const { cookies } = await import("next/headers");
 const { default: CheckoutCompletePage } = await import("@/app/(shop)/checkout/complete/[orderId]/page");
 
 const GUEST = "guest-cookie-value";
+const MEMBER = { userId: "user-1", role: "customer" as const };
 
 function jarWith(entries: Record<string, string>) {
   return {
@@ -90,6 +98,11 @@ beforeEach(() => {
   vi.mocked(notFound).mockClear();
   vi.mocked(cookies).mockReset();
   orderService.getOrderForGuest.mockReset();
+  orderService.getOrderForUser.mockReset();
+  sessionResolver.resolveSession.mockReset();
+  // No session is the default: it is what every SPEC-ORDER-001/PAYMENT-001
+  // case below assumes, and what a guest actually presents.
+  sessionResolver.resolveSession.mockResolvedValue(null);
 });
 
 describe("SPEC-ORDER-001 M6 — the completion screen (AC-ORDER-018)", () => {
@@ -200,6 +213,141 @@ describe("SPEC-ORDER-001 M6 — someone else's order is not readable (AC-ORDER-0
     for (const source of completeSources()) {
       expect(source).not.toMatch(/headers\s*\(/);
       expect(source).not.toMatch(/authorization/i);
+    }
+  });
+});
+
+describe("SPEC-ORDER-004 M5 — a member opens their OWN order (AC-ORDER-066)", () => {
+  beforeEach(async () => {
+    sessionResolver.resolveSession.mockResolvedValue(MEMBER);
+    vi.mocked(cookies).mockResolvedValue(
+      jarWith({ refresh_token: "session-token" }) as unknown as Awaited<ReturnType<typeof cookies>>
+    );
+    orderService.getOrderForUser.mockResolvedValue(ORDER);
+    render(await renderPage());
+  });
+
+  it("displays the order", () => {
+    // This is one of the two reasons SPEC-ORDER-004 exists: failing it
+    // reproduces the "member order a member cannot open" defect
+    // SPEC-ORDER-001 named against itself.
+    expect(screen.getByText(/ORD-20260831-A1B2C3/)).toBeDefined();
+    expect(screen.getByText("클래식 데님 재킷")).toBeDefined();
+    expect(document.body.textContent).toContain("139,000");
+  });
+
+  it("reads the order under BOTH the id and the member's own user id", () => {
+    expect(orderService.getOrderForUser).toHaveBeenCalledWith("order-1", MEMBER.userId);
+  });
+
+  it("does not consult the guest lookup for a member", () => {
+    // A fallback to the guest path would let a member read a guest's order by
+    // presenting a guest cookie alongside a session.
+    expect(orderService.getOrderForGuest).not.toHaveBeenCalled();
+  });
+});
+
+describe("SPEC-ORDER-004 M5 — an order that is not yours does not open (AC-ORDER-067)", () => {
+  /**
+   * Three refusals, one answer. The repository puts ownership in the `where`
+   * clause (findOrderForUser / findOrderForGuest), so each of these is a query
+   * that matched nothing — never a row fetched and then withheld.
+   */
+  const refusals: Array<[string, () => void]> = [
+    [
+      "member A asking for member B's order",
+      () => {
+        sessionResolver.resolveSession.mockResolvedValue(MEMBER);
+        vi.mocked(cookies).mockResolvedValue(
+          jarWith({ refresh_token: "session-token" }) as unknown as Awaited<
+            ReturnType<typeof cookies>
+          >
+        );
+        orderService.getOrderForUser.mockResolvedValue(null);
+      },
+    ],
+    [
+      "a member asking for a GUEST-owned order",
+      () => {
+        sessionResolver.resolveSession.mockResolvedValue(MEMBER);
+        vi.mocked(cookies).mockResolvedValue(
+          jarWith({ refresh_token: "session-token" }) as unknown as Awaited<
+            ReturnType<typeof cookies>
+          >
+        );
+        // A guest order carries userId null, so the member-scoped query cannot
+        // match it — the XOR invariant is what makes this a miss rather than a
+        // null === null coincidence (design.md §4).
+        orderService.getOrderForUser.mockResolvedValue(null);
+      },
+    ],
+    [
+      "a guest asking for a MEMBER-owned order",
+      () => {
+        vi.mocked(cookies).mockResolvedValue(
+          jarWith({ guest_cart_id: GUEST }) as unknown as Awaited<ReturnType<typeof cookies>>
+        );
+        orderService.getOrderForGuest.mockResolvedValue(null);
+      },
+    ],
+  ];
+
+  for (const [label, arrange] of refusals) {
+    it(`404s on ${label}`, async () => {
+      arrange();
+
+      await expect(renderPage()).rejects.toThrow(NEXT_NOT_FOUND);
+      expect(notFound).toHaveBeenCalled();
+    });
+
+    it(`renders none of the order's contents on ${label}`, async () => {
+      arrange();
+
+      await expect(renderPage()).rejects.toThrow(NEXT_NOT_FOUND);
+
+      expect(document.body.textContent).not.toContain("ORD-20260831-A1B2C3");
+      expect(document.body.textContent).not.toContain("홍길동");
+    });
+  }
+
+  it("never crosses from the member lookup to the guest one, or back", async () => {
+    sessionResolver.resolveSession.mockResolvedValue(MEMBER);
+    vi.mocked(cookies).mockResolvedValue(
+      jarWith({ refresh_token: "session-token", guest_cart_id: GUEST }) as unknown as Awaited<
+        ReturnType<typeof cookies>
+      >
+    );
+    orderService.getOrderForUser.mockResolvedValue(null);
+
+    await expect(renderPage()).rejects.toThrow(NEXT_NOT_FOUND);
+
+    // The refusal is final. Retrying under the other identity is the shape
+    // that would turn a stale guest cookie into a way around ownership.
+    expect(orderService.getOrderForGuest).not.toHaveBeenCalled();
+  });
+
+  it("still answers 404 rather than a 'forbidden' status on the member path", async () => {
+    sessionResolver.resolveSession.mockResolvedValue(MEMBER);
+    vi.mocked(cookies).mockResolvedValue(
+      jarWith({ refresh_token: "session-token" }) as unknown as Awaited<ReturnType<typeof cookies>>
+    );
+    orderService.getOrderForUser.mockResolvedValue(null);
+
+    await expect(renderPage()).rejects.toThrow(NEXT_NOT_FOUND);
+    // Same discipline the guest path already follows: a distinguishable status
+    // would let someone holding a guessed id learn that it is real.
+    for (const source of completeSources()) {
+      expect(source).not.toMatch(/\b403\b/);
+    }
+  });
+
+  it("puts ownership in the query, never in a comparison after the fetch", () => {
+    for (const source of completeSources()) {
+      // `order.userId === session.userId` would mean the row was fetched first
+      // and judged afterwards — the shape design.md §5.2 forbids, because the
+      // row it fetched is a stranger's order sitting in memory.
+      expect(source).not.toMatch(/\.userId\s*[!=]==/);
+      expect(source).not.toMatch(/\.guestId\s*[!=]==/);
     }
   });
 });

@@ -2,24 +2,50 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { signAccessToken } from "@/lib/auth/jwt";
 
 /**
- * SPEC-ORDER-001 M4 — POST /api/orders.
+ * SPEC-ORDER-001 M4 / SPEC-ORDER-004 M2 — POST /api/orders.
  *
  * Traces: AC-ORDER-007 (no credentials required), AC-ORDER-010 (400 with
  * fieldErrors, nothing changed), AC-ORDER-013/014/015 (the 409 bodies),
  * AC-ORDER-016 (a replay answers with the first order), AC-ORDER-019 (no
- * payment integration), and above all AC-ORDER-022 (a member is refused).
+ * payment integration) — and, where SPEC-ORDER-001 asserted AC-ORDER-022 (a
+ * member is refused), SPEC-ORDER-004 asserts AC-ORDER-054/055/057/069/070 (a
+ * member SUCCEEDS, behind CSRF, from a session cookie alone).
  *
  * Mocked at the REPOSITORY seam, not the service seam, following
  * tests/unit/api/cart/route.test.ts: these criteria are stated in terms of
  * status codes, response bodies and Set-Cookie headers, and mocking the service
  * away would stop the tests from observing whether the guard actually holds.
- * The Authorization header in the member case carries a REAL signed token, so
- * the identity resolution under test is the production one.
+ *
+ * The member cases keep that discipline. `resolveSession` is NOT mocked — the
+ * `refreshToken.findFirst` seam is, and the cookie carries a token whose REAL
+ * hash matches the stored row, so the identity resolution under test is the
+ * production one. That is the same seam SPEC-AUTH-002's own suite uses
+ * (tests/unit/auth/session-resolver.test.ts, itself reusing
+ * tests/unit/admin/admin-session.test.ts's strategy). The Authorization header
+ * likewise still carries a REAL signed token, which is what makes
+ * AC-ORDER-057's "a valid Bearer is not member evidence here" meaningful.
  */
+
+// SPEC-ORDER-004 M2 — the route resolves member identity from next/headers
+// cookies(), so every test in this file needs the store mocked or `cookies()`
+// throws outside a request scope. Default is "no refresh_token" ⇒
+// resolveSession() returns null ⇒ the guest path, which is what every
+// pre-existing test in this file exercises. `mock`-prefixed so vitest's
+// vi.mock hoisting check allows the factory to close over it.
+const mockSessionCookie: { value: string | undefined } = { value: undefined };
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    get: (name: string) =>
+      name === "refresh_token" && mockSessionCookie.value !== undefined
+        ? { value: mockSessionCookie.value }
+        : undefined,
+  }),
+}));
 
 const orderRepo = {
   findOrderByIdempotencyKey: vi.fn(),
   findOrderForGuest: vi.fn(),
+  findOrderForUser: vi.fn(),
   decrementStockIfAvailable: vi.fn(),
   findStockByProductIds: vi.fn(),
   createOrderWithItems: vi.fn(),
@@ -28,20 +54,68 @@ vi.mock("@/features/orders/repositories/order-repository", () => orderRepo);
 
 const cartRepo = {
   findCartByGuestId: vi.fn(),
+  findCartByUserId: vi.fn(),
   deleteCart: vi.fn(),
 };
 vi.mock("@/features/cart/repositories/cart-repository", () => cartRepo);
 
+// `refreshToken.findFirst` is resolveSession()'s only database call
+// (session-resolver.ts) — mocking it here rather than resolveSession itself
+// keeps the production identity resolution in the path under test.
 const db = {
   prisma: {
     $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb({ __brand: "tx" })),
+    refreshToken: { findFirst: vi.fn() },
   },
 };
 vi.mock("@/lib/db", () => db);
 
 const { POST } = await import("@/app/api/orders/route");
+// Imported AFTER the mocks, not at the top: session.ts pulls in @/lib/db, and a
+// static import would evaluate it before vi.mock's hoisted factory can close
+// over `db`. Same dynamic-import shape session-resolver.test.ts uses.
+const { hashRefreshToken } = await import("@/lib/auth/session");
 
 const GUEST = "guest-cookie-value";
+
+/** The raw refresh token a member's browser presents; hashed to match the row. */
+const REFRESH = "raw-refresh-token-for-user-1";
+const CSRF = "csrf-token-value";
+const MEMBER_CART = "cart-member";
+
+/**
+ * Puts the request into the member path: a `refresh_token` cookie whose real
+ * hash matches a live, unrevoked RefreshToken row (SPEC-AUTH-002's own fixture
+ * shape). `cookies()` is read from next/headers rather than from the Request,
+ * so the value is staged on the mock store above.
+ */
+function asMember(): void {
+  mockSessionCookie.value = REFRESH;
+  db.prisma.refreshToken.findFirst.mockResolvedValue({
+    id: "rt-1",
+    tokenHash: hashRefreshToken(REFRESH),
+    revokedAt: null,
+    expiresAt: new Date(Date.now() + 1_000_000),
+    user: { id: "user-1", role: "customer" },
+  });
+}
+
+/** The member's own cart — a different row from the guest cookie's. */
+function memberCartRow(price = 10000, stock = 10, quantity = 2) {
+  return {
+    id: MEMBER_CART,
+    userId: "user-1",
+    guestId: null,
+    items: [
+      {
+        id: "item-m1",
+        productId: "p-1",
+        quantity,
+        product: { id: "p-1", name: "Tee", price, images: [], stock },
+      },
+    ],
+  };
+}
 
 const SHIPPING = {
   recipientName: "홍길동",
@@ -90,63 +164,155 @@ beforeEach(() => {
   db.prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) =>
     cb({ __brand: "tx" })
   );
+  // Default: no session cookie ⇒ resolveSession() returns null ⇒ the guest
+  // path, which is what every pre-existing test in this file exercises.
+  mockSessionCookie.value = undefined;
+  db.prisma.refreshToken.findFirst.mockResolvedValue(null);
   orderRepo.findOrderByIdempotencyKey.mockResolvedValue(null);
   orderRepo.decrementStockIfAvailable.mockResolvedValue(1);
   orderRepo.findStockByProductIds.mockResolvedValue([]);
   orderRepo.createOrderWithItems.mockResolvedValue({ id: "order-1" });
   cartRepo.findCartByGuestId.mockResolvedValue(cartRow());
+  cartRepo.findCartByUserId.mockResolvedValue(memberCartRow());
   cartRepo.deleteCart.mockResolvedValue(undefined);
 });
 
-describe("SPEC-ORDER-001 M4 — a member submission is refused (AC-ORDER-022)", () => {
+describe("SPEC-ORDER-004 M2 — a member submission succeeds (AC-ORDER-054/055)", () => {
+  /** A member submission: session cookie + the matching CSRF double-submit pair. */
   async function submitAsMember() {
-    const token = await signAccessToken({ sub: "user-1", role: "customer" });
+    asMember();
     return submit(validBody(), {
-      authorization: `Bearer ${token}`,
-      cookie: `guest_cart_id=${GUEST}`,
+      cookie: `guest_cart_id=${GUEST}; csrf_token=${CSRF}`,
+      "x-csrf-token": CSRF,
     });
   }
 
-  it("answers 409 MEMBER_CHECKOUT_UNSUPPORTED, not 401 or 403", async () => {
+  it("answers 201 with the created order (AC-ORDER-055)", async () => {
     const response = await submitAsMember();
+    const body = await response.json();
 
-    // 409 rather than an auth error: the credentials are perfectly valid, and
-    // re-authenticating changes nothing. This scope simply has no member
-    // checkout to offer (design.md §8).
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toMatchObject({
-      code: "MEMBER_CHECKOUT_UNSUPPORTED",
+    // Where SPEC-ORDER-001 refused this with a 409 and a member-checkout
+    // refusal code, the member path is now the supported path. That code is
+    // gone from the codebase entirely, which AC-ORDER-059 checks with a plain
+    // repo-wide substring grep — so it is deliberately not spelled out here.
+    expect(response.status).toBe(201);
+    expect(body.orderNumber).toMatch(/^ORD-\d{8}-[0-9A-Z]{6}$/);
+    expect(body.status).toBe("pending_payment");
+    expect(body.code).toBeUndefined();
+  });
+
+  it("OPENS a transaction — the member path is a write path now", async () => {
+    await submitAsMember();
+
+    // The exact inversion of SPEC-ORDER-001's "refuses BEFORE opening a
+    // transaction": there is nothing left to refuse, so the transaction runs.
+    expect(db.prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates the order, moves the stock and empties the cart, as a member's", async () => {
+    await submitAsMember();
+
+    expect(orderRepo.createOrderWithItems).toHaveBeenCalledTimes(1);
+    expect(orderRepo.decrementStockIfAvailable).toHaveBeenCalled();
+    expect(cartRepo.deleteCart).toHaveBeenCalledWith(MEMBER_CART, expect.anything());
+
+    // The owner reaching the repository is the member, not a guest — this is
+    // where AC-ORDER-055's "userId populated, guestId null" is decided.
+    const [, row] = orderRepo.createOrderWithItems.mock.calls[0]! as [
+      unknown,
+      Record<string, unknown>,
+    ];
+    expect(row.owner).toEqual({ kind: "user", userId: "user-1" });
+  });
+
+  it("does not quietly demote the member to their guest cookie", async () => {
+    // The PRESERVED intent of SPEC-ORDER-001's assertion of the same name. Its
+    // original comment: "Demoting would create an order the member can never
+    // open again: the guest cookie is expired at login, so nothing would
+    // present it back." That hazard is unchanged — only the correct answer is.
+    // SPEC-ORDER-001 avoided it by refusing; SPEC-ORDER-004 avoids it by using
+    // the MEMBER cart. Note the request DOES carry a guest cookie and it is
+    // still never read.
+    await submitAsMember();
+
+    expect(cartRepo.findCartByUserId).toHaveBeenCalledWith("user-1", expect.anything());
+    expect(cartRepo.findCartByGuestId).not.toHaveBeenCalled();
+  });
+
+  it("treats a valid Bearer with NO session cookie as a guest (AC-ORDER-057)", async () => {
+    // SPEC-ORDER-001 asserted 409 here, to show the member guard was reachable
+    // in practice. The boundary this now guards is REQ-ORDER-055: an
+    // Authorization header is not member evidence ON THIS ROUTE, however valid
+    // it is. The route calls resolveCartIdentity() nowhere, so no code path
+    // exists here that could read the token at all (design.md §3.2.1).
+    const token = await signAccessToken({ sub: "user-1", role: "customer" });
+
+    const response = await submit(validBody(), {
+      authorization: `Bearer ${token}`,
+      cookie: `guest_cart_id=${GUEST}`,
     });
+
+    expect(response.status).toBe(201);
+    expect(cartRepo.findCartByGuestId).toHaveBeenCalledWith(GUEST, expect.anything());
+    expect(cartRepo.findCartByUserId).not.toHaveBeenCalled();
+
+    const [, row] = orderRepo.createOrderWithItems.mock.calls[0]! as [
+      unknown,
+      Record<string, unknown>,
+    ];
+    expect(row.owner).toEqual({ kind: "guest", guestId: GUEST });
   });
+});
 
-  it("refuses BEFORE opening a transaction (AC-ORDER-022 (e))", async () => {
-    await submitAsMember();
+describe("SPEC-ORDER-004 M2 — CSRF gates the member path (AC-ORDER-069/070)", () => {
+  it("403s a member with no CSRF header, before body parse or transaction", async () => {
+    asMember();
 
+    const response = await submit(validBody(), {
+      cookie: `guest_cart_id=${GUEST}; csrf_token=${CSRF}`,
+    });
+
+    expect(response.status).toBe(403);
+    // The invariant is "CSRF before the STATE-CHANGING operation", not "before
+    // all DB access" — resolveSession() is a read and necessarily precedes it
+    // (design.md §3.4). What must not happen is any of this:
     expect(db.prisma.$transaction).not.toHaveBeenCalled();
-  });
-
-  it("creates no order, moves no stock, empties no cart", async () => {
-    await submitAsMember();
-
     expect(orderRepo.createOrderWithItems).not.toHaveBeenCalled();
     expect(orderRepo.decrementStockIfAvailable).not.toHaveBeenCalled();
     expect(cartRepo.deleteCart).not.toHaveBeenCalled();
   });
 
-  it("does not quietly demote the member to their guest cookie", async () => {
-    // Demoting would create an order the member can never open again: the
-    // guest cookie is expired at login, so nothing would present it back
-    // (research.md §6). Refusing is the honest answer.
-    await submitAsMember();
+  it("403s a member whose CSRF header does not match the cookie", async () => {
+    asMember();
 
-    expect(cartRepo.findCartByGuestId).not.toHaveBeenCalled();
+    const response = await submit(validBody(), {
+      cookie: `guest_cart_id=${GUEST}; csrf_token=${CSRF}`,
+      "x-csrf-token": "a-different-token",
+    });
+
+    expect(response.status).toBe(403);
+    expect(db.prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it("is reachable in practice, which is why the guard is code and not prose", async () => {
-    // A browser form cannot attach an Authorization header, but this endpoint
-    // is public — anyone holding a valid token can call it directly.
-    const response = await submitAsMember();
-    expect(response.status).toBe(409);
+  it("does not parse the body on the CSRF-failure path", async () => {
+    asMember();
+
+    // Malformed JSON would 400 if the body were parsed; a 403 proves the
+    // refusal happened first (AC-ORDER-069).
+    const response = await submit("{not json", {
+      cookie: `guest_cart_id=${GUEST}; csrf_token=${CSRF}`,
+    });
+
+    expect(response.status).toBe(403);
+  });
+
+  it("201s a guest with no CSRF header at all (AC-ORDER-070)", async () => {
+    // The guest identity is an identifier, not an authenticator: requiring
+    // CSRF here would break every existing guest client and buy nothing
+    // (design.md §3.3). This is the no-regression half of REQ-ORDER-065.
+    const response = await submit(validBody());
+
+    expect(response.status).toBe(201);
   });
 });
 

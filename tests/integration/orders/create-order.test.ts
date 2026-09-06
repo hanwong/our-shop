@@ -54,7 +54,11 @@ interface FakeOrder {
   id: string;
   orderNumber: string;
   status: string;
-  guestId: string;
+  // SPEC-ORDER-004 M1/M3 — the two owner columns, exactly one of them ever
+  // populated (REQ-ORDER-048). Modelling BOTH as nullable is what lets this
+  // suite observe the XOR on a stored row rather than take it on trust.
+  guestId: string | null;
+  userId: string | null;
   recipientName: string;
   recipientPhone: string;
   postalCode: string;
@@ -91,6 +95,14 @@ interface FakeOrderItem {
   createdAt: Date;
 }
 
+/** SPEC-ORDER-004 M2 — the row resolveSession() reads, as it reads it. */
+interface FakeRefreshToken {
+  tokenHash: string;
+  revokedAt: Date | null;
+  expiresAt: Date;
+  user: { id: string; role: "customer" | "admin" };
+}
+
 interface Store {
   carts: FakeCart[];
   cartItems: FakeCartItem[];
@@ -98,6 +110,7 @@ interface Store {
   orders: FakeOrder[];
   orderItems: FakeOrderItem[];
   coupons: FakeCoupon[];
+  refreshTokens: FakeRefreshToken[];
   seq: number;
 }
 
@@ -265,9 +278,18 @@ const client = {
   order: {
     findUnique: ({ where }: { where: { idempotencyKey: string } }) =>
       orderWithItems(store.orders.find((o) => o.idempotencyKey === where.idempotencyKey)),
-    findFirst: ({ where }: { where: { id: string; guestId: string } }) =>
+    // SPEC-ORDER-004 M3 — findOrderForGuest passes `{ id, guestId }` and
+    // findOrderForUser `{ id, userId }`. Both owner conditions live IN the
+    // where clause, never applied to the result, so the fake matches on
+    // whichever key was actually supplied.
+    findFirst: ({ where }: { where: { id: string; guestId?: string; userId?: string } }) =>
       orderWithItems(
-        store.orders.find((o) => o.id === where.id && o.guestId === where.guestId)
+        store.orders.find(
+          (o) =>
+            o.id === where.id &&
+            (where.guestId === undefined || o.guestId === where.guestId) &&
+            (where.userId === undefined || o.userId === where.userId)
+        )
       ),
     create: ({
       data,
@@ -296,6 +318,12 @@ const client = {
         status: "pending_payment",
         createdAt: new Date("2026-08-31T00:00:00.000Z"),
         ...rest,
+        // SPEC-ORDER-004 M3 — the repository writes exactly ONE owner column
+        // and does not mention the other; a real column left unmentioned is
+        // NULL, not `undefined`. Normalising here is what makes the stored row
+        // faithful enough for the XOR assertions below to mean anything.
+        guestId: rest.guestId ?? null,
+        userId: rest.userId ?? null,
       };
       store.orders.push(row);
       for (const item of items.create) {
@@ -332,9 +360,31 @@ const client = {
   },
 };
 
+// SPEC-ORDER-004 M2 — see the unit test's note on this mock. Default is the
+// guest path, which is what every pre-existing test here exercises.
+const mockSessionCookie: { value: string | undefined } = { value: undefined };
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    get: (name: string) =>
+      name === "refresh_token" && mockSessionCookie.value !== undefined
+        ? { value: mockSessionCookie.value }
+        : undefined,
+  }),
+}));
+
 vi.mock("@/lib/db", () => ({
   prisma: {
     ...client,
+    /**
+     * SPEC-ORDER-004 M2 — resolveSession()'s only database call. Kept as a
+     * store-backed fake rather than a mocked resolveSession so the production
+     * identity resolution stays in the path, matching this suite's rule that
+     * nothing is mocked at the repository or service seam.
+     */
+    refreshToken: {
+      findFirst: ({ where }: { where: { tokenHash: string } }) =>
+        store.refreshTokens.find((t) => t.tokenHash === where.tokenHash) ?? null,
+    },
     user: {
       findUnique: ({ where }: { where: { email?: string; id?: string } }) =>
         where.email === "shopper@example.com" || where.id === "user-1"
@@ -386,12 +436,14 @@ beforeEach(() => {
   createOrderHook = null;
   externallyCommittedOrders = [];
   stockWriteLog = [];
+  mockSessionCookie.value = undefined;
   store = {
     carts: [],
     cartItems: [],
     orders: [],
     orderItems: [],
     coupons: [],
+    refreshTokens: [],
     seq: 0,
     products: [
       { id: "A", name: "클래식 데님 재킷", price: 10000, images: ["a.jpg"], stock: 10 },
@@ -402,15 +454,57 @@ beforeEach(() => {
   process.env.JWT_ACCESS_SECRET = "test-secret-at-least-32-bytes-long-for-hs256";
 });
 
-async function addToCart(productId: string, quantity: number, cookie = `guest_cart_id=${GUEST}`) {
+async function addToCart(
+  productId: string,
+  quantity: number,
+  headers: Record<string, string> | string = `guest_cart_id=${GUEST}`
+) {
   const { POST } = await import("@/app/api/cart/items/route");
   return POST(
     new Request("http://localhost/api/cart/items", {
       method: "POST",
-      headers: { "content-type": "application/json", cookie },
+      headers: {
+        "content-type": "application/json",
+        ...(typeof headers === "string" ? { cookie: headers } : headers),
+      },
       body: JSON.stringify({ productId, quantity }),
     })
   );
+}
+
+/**
+ * SPEC-ORDER-004 M2 — puts the requesting browser into the member path.
+ *
+ * Seeds a live RefreshToken row whose hash is the REAL hash of the raw cookie
+ * value, so `resolveSession()` runs its production algorithm against it.
+ */
+const MEMBER_ID = "user-1";
+const REFRESH = "raw-refresh-token-for-user-1";
+const CSRF = "csrf-token-value";
+
+async function signIn() {
+  const { hashRefreshToken } = await import("@/lib/auth/session");
+  store.refreshTokens.push({
+    tokenHash: hashRefreshToken(REFRESH),
+    revokedAt: null,
+    expiresAt: new Date(Date.now() + 1_000_000),
+    user: { id: MEMBER_ID, role: "customer" },
+  });
+  mockSessionCookie.value = REFRESH;
+}
+
+/**
+ * Fills the MEMBER's cart through the real cart API.
+ *
+ * Deliberately via `Authorization: Bearer` — the cart domain keeps its Bearer
+ * identity (REQ-ORDER-054, PRESERVE), while the ORDER route reads the session
+ * cookie. Exercising both here is the point: design.md §3.2's claim is that the
+ * two mechanisms name the SAME `User.id`, so a cart filled with a token is the
+ * cart an order submitted with a cookie must find.
+ */
+async function addToMemberCart(productId: string, quantity: number) {
+  const token = await signAccessToken({ sub: MEMBER_ID, role: "customer" });
+  return addToCart(productId, quantity, { authorization: `Bearer ${token}` });
 }
 
 async function submitOrder(
@@ -684,6 +778,8 @@ describe("SPEC-ORDER-001 — a resubmitted order is still one order (AC-ORDER-01
         orderNumber: "ORD-20260831-WINNER",
         status: "pending_payment",
         guestId: GUEST,
+        // SPEC-ORDER-004 M1 — the mirror column, null on a guest-owned order.
+        userId: null,
         ...SHIPPING,
         itemsSubtotal: 30000,
         shippingFee: 0,
@@ -757,12 +853,20 @@ const VICTIM_NUMBER = "ORD-20260831-VICTIM";
 /** Everything AC-ORDER-023 (a) forbids appearing anywhere in the response. */
 const VICTIM_SECRETS = [VICTIM_ID, VICTIM_NUMBER, ...Object.values(VICTIM_SHIPPING)];
 
-function victimRow(idempotencyKey: string): FakeOrder {
+/**
+ * SPEC-ORDER-004 M4 — the owner defaults to a guest, so every pre-existing
+ * caller is unchanged; the member variant is what AC-ORDER-063's second
+ * direction needs.
+ */
+function victimRow(
+  idempotencyKey: string,
+  owner: { guestId: string | null; userId: string | null } = { guestId: GUEST, userId: null }
+): FakeOrder {
   return {
     id: VICTIM_ID,
     orderNumber: VICTIM_NUMBER,
     status: "pending_payment",
-    guestId: GUEST,
+    ...owner,
     ...VICTIM_SHIPPING,
     itemsSubtotal: 30000,
     shippingFee: 0,
@@ -850,23 +954,149 @@ describe("SPEC-ORDER-001 — an idempotency key alone does not reach another gue
   });
 });
 
-describe("SPEC-ORDER-001 — a member submission is refused end to end (AC-ORDER-022)", () => {
-  it("returns 409 and leaves orders, stock and carts untouched", async () => {
+describe("SPEC-ORDER-004 — the key does not cross OWNER KINDS either (AC-ORDER-063)", () => {
+  const VICTIM_KEY = "cross-owner-key";
+
+  /**
+   * Both directions, because one alone can pass while a `null === null`
+   * comparison survives on the other axis (plan.md B4). The guest-vs-guest
+   * block above is the axis SPEC-ORDER-001's audit closed; these two are the
+   * member axis this SPEC opens — the same F1 defect, one column over.
+   */
+  it("does not disclose a GUEST's order to a member replaying the key", async () => {
+    store.orders.push(victimRow(VICTIM_KEY));
+    await signIn();
+    await addToMemberCart("A", 3);
+
+    const response = await submitOrder(orderBody(30000, VICTIM_KEY), {
+      cookie: `csrf_token=${CSRF}`,
+      "x-csrf-token": CSRF,
+    });
+
+    expectNoVictimDisclosure(await response.text());
+    expect(store.orders.filter((o) => o.idempotencyKey === VICTIM_KEY)).toHaveLength(1);
+    expect(store.orders.find((o) => o.id === VICTIM_ID)).toEqual(victimRow(VICTIM_KEY));
+  });
+
+  it("does not disclose a MEMBER's order to a guest replaying the key", async () => {
+    store.orders.push(victimRow(VICTIM_KEY, { guestId: null, userId: MEMBER_ID }));
+    await addToCart("A", 3, `guest_cart_id=${OTHER_GUEST}`);
+
+    const response = await submitOrder(orderBody(30000, VICTIM_KEY), {
+      cookie: `guest_cart_id=${OTHER_GUEST}`,
+    });
+
+    expectNoVictimDisclosure(await response.text());
+    expect(store.orders.filter((o) => o.idempotencyKey === VICTIM_KEY)).toHaveLength(1);
+    expect(store.orders.find((o) => o.id === VICTIM_ID)).toEqual(
+      victimRow(VICTIM_KEY, { guestId: null, userId: MEMBER_ID })
+    );
+  });
+
+  it("keeps the anonymous failure shape — the response names no code", async () => {
+    // Non-disclosure means the caller cannot even learn that the key EXISTS,
+    // so the cross-owner collision takes design.md §8's unexpected-transaction
+    // row (500, no code) rather than any nameable refusal (design.md §4).
+    store.orders.push(victimRow(VICTIM_KEY, { guestId: null, userId: MEMBER_ID }));
+    await addToCart("A", 3, `guest_cart_id=${OTHER_GUEST}`);
+
+    const response = await submitOrder(orderBody(30000, VICTIM_KEY), {
+      cookie: `guest_cart_id=${OTHER_GUEST}`,
+    });
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).not.toHaveProperty("code");
+  });
+});
+
+describe("SPEC-ORDER-004 — a member submission succeeds end to end (AC-ORDER-055)", () => {
+  /**
+   * This is the ONE place the XOR invariant (REQ-ORDER-048) can be observed on
+   * a STORED ROW rather than on a call argument: the fake keeps real rows, so
+   * "userId populated, guestId null" is read back from storage, not asserted
+   * about an intention (research.md §2.2).
+   */
+  it("returns 201 and stores ONE order attributed to the member alone", async () => {
+    await signIn();
+    await addToMemberCart("A", 3);
+
+    const response = await submitOrder(orderBody(30000), {
+      cookie: `guest_cart_id=${GUEST}; csrf_token=${CSRF}`,
+      "x-csrf-token": CSRF,
+    });
+
+    expect(response.status).toBe(201);
+
+    // Exactly one order, owned by the member and by nobody else.
+    expect(store.orders).toHaveLength(1);
+    const order = store.orders[0]!;
+    expect(order.userId).toBe(MEMBER_ID);
+    expect(order.guestId).toBeNull();
+
+    // The other three of the four transactional effects (REQ-ORDER-011).
+    expect(store.products.find((p) => p.id === "A")!.stock).toBe(7);
+    expect(store.orderItems.filter((i) => i.orderId === order.id)).toHaveLength(1);
+    expect(store.carts.find((c) => c.userId === MEMBER_ID)).toBeUndefined();
+  });
+
+  it("empties the MEMBER cart and leaves any guest cart alone", async () => {
+    // The request carries a guest cookie as well, and that guest has their own
+    // cart. Only the member's is consumed — the "no quiet demotion" property
+    // SPEC-ORDER-001 held by refusing, now held by dispatching correctly.
+    await addToCart("B", 2);
+    await signIn();
+    await addToMemberCart("A", 3);
+
+    const response = await submitOrder(orderBody(30000), {
+      cookie: `guest_cart_id=${GUEST}; csrf_token=${CSRF}`,
+      "x-csrf-token": CSRF,
+    });
+
+    expect(response.status).toBe(201);
+    expect(store.orders[0]!.userId).toBe(MEMBER_ID);
+    expect(store.carts.find((c) => c.userId === MEMBER_ID)).toBeUndefined();
+    await expect(readCart()).resolves.toMatchObject({ itemCount: 2 });
+    expect(store.products.find((p) => p.id === "B")!.stock).toBe(8);
+  });
+
+  it("refuses a member with no CSRF token, storing nothing (AC-ORDER-069)", async () => {
+    await signIn();
+    await addToMemberCart("A", 3);
+
+    const response = await submitOrder(orderBody(30000), {
+      cookie: `guest_cart_id=${GUEST}; csrf_token=${CSRF}`,
+    });
+
+    expect(response.status).toBe(403);
+    expect(store.orders).toHaveLength(0);
+    expect(store.products.find((p) => p.id === "A")!.stock).toBe(10);
+    expect(store.carts.find((c) => c.userId === MEMBER_ID)).toBeDefined();
+  });
+
+  it("stores a guest order with the mirror shape — guestId set, userId null", async () => {
+    // AC-ORDER-071's storage half: the guest path's stored row is unchanged
+    // except that `userId` now exists and is null.
     await addToCart("A", 3);
-    const token = await signAccessToken({ sub: "user-1", role: "customer" });
+
+    const response = await submitOrder(orderBody(30000));
+
+    expect(response.status).toBe(201);
+    expect(store.orders[0]!.guestId).toBe(GUEST);
+    expect(store.orders[0]!.userId).toBeNull();
+  });
+
+  it("treats a valid Bearer with no session cookie as a guest (AC-ORDER-057)", async () => {
+    await addToCart("A", 3);
+    const token = await signAccessToken({ sub: MEMBER_ID, role: "customer" });
 
     const response = await submitOrder(orderBody(30000), {
       authorization: `Bearer ${token}`,
       cookie: `guest_cart_id=${GUEST}`,
     });
 
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toMatchObject({
-      code: "MEMBER_CHECKOUT_UNSUPPORTED",
-    });
-    expect(store.orders).toHaveLength(0);
-    expect(store.products.find((p) => p.id === "A")!.stock).toBe(10);
-    await expect(readCart()).resolves.toMatchObject({ itemCount: 3 });
+    expect(response.status).toBe(201);
+    expect(store.orders[0]!.guestId).toBe(GUEST);
+    expect(store.orders[0]!.userId).toBeNull();
   });
 });
 

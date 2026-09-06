@@ -17,6 +17,7 @@ A TypeScript / Next.js e-commerce backend. This repository currently implements:
 - **SPEC-AUTH-002** — the customer-facing `/login` and `/signup` screens, plus a role-agnostic server-side session lookup helper.
 - **SPEC-ADMIN-002** — the admin product back-office: `/staff/products` list, create/edit forms, and suspend/restore (soft delete via `Product.isActive`), with the customer-facing catalog scoped to sellable products only.
 - **SPEC-REVIEW-001** — product reviews: one star rating (1-5) + text review per account per product, an average/count/list on the product detail page, and a login-gated write form.
+- **SPEC-ORDER-004** — member (logged-in) checkout: `Order.userId` ownership dimension, `resolveSession()`-based identity resolution on `POST /api/orders`, and removal of the prior member-session 409 refusal (guest checkout unchanged).
 
 ## Stack
 
@@ -232,9 +233,9 @@ SPEC-STOREFRONT-001이 스텁으로 남기고 "홈 콘텐츠 설계는 범위 �
 
 `src/middleware.ts`, `REQ-AUTH-009`(액세스 토큰 클라이언트 메모리 전용), `resolveSession()`/`csrf_token` 쿠키 발급 로직은 한 글자도 바뀌지 않았다 — `git diff --stat` 무변경 확인 완료.
 
-## 주문/체크아웃 (SPEC-ORDER-001)
+## 주문/체크아웃 (SPEC-ORDER-001, 회원 체크아웃은 SPEC-ORDER-004)
 
-**게스트 전용이다.** 회원 체크아웃은 의도적으로 범위 밖이며, 이유는 편의가 아니라 구조적 충돌이다 — 서버 렌더 페이지는 회원을 식별할 수 없다. 게스트 쿠키는 최상위 내비게이션에 자동으로 실려 오지만, 회원의 액세스 토큰은 클라이언트 메모리에만 있어 그 요청에 붙을 수 없다. `Order` 테이블에 `userId` 컬럼이 아예 없는 것이 이 경계를 문서가 아니라 스키마로 강제한다.
+`Order` 테이블에는 게스트(`guestId`)와 회원(`userId`) 두 소유 축이 있고, 매 행마다 정확히 하나만 채워진다. `POST /api/orders`는 `resolveSession()`으로 먼저 회원 세션 유무를 판별해 회원 경로(CSRF 필수)와 게스트 경로(쿠키 기반, CSRF 없음)로 갈라진다 — 회원 세션이 있다고 거부하던 이전 409 응답은 SPEC-ORDER-004에서 제거됐다(자세한 내용은 아래 "회원 체크아웃" 참고). 이하 표와 성질은 두 경로 모두에 적용된다.
 
 | 경로 | 메서드 | 설명 |
 |---|---|---|
@@ -251,11 +252,17 @@ SPEC-STOREFRONT-001이 스텁으로 남기고 "홈 콘텐츠 설계는 범위 �
 - **멱등성** — 멱등 키는 서버가 주문서를 렌더할 때 발급해 제출 시 돌려받는다. 같은 키의 재제출은 새 주문이 아니라 최초 주문을 그대로 반환한다(`Order.idempotencyKey`가 `@unique`).
 - **재고 차감 시점** — 카트 작업은 재고를 건드리지 않고(SPEC-CART-001 REQ-CART-015), 주문 생성 시점에 조건부로 차감한다(`stock >= quantity`인 경우에만).
 
-실패 응답은 전부 409다: `CART_EMPTY` · `PRICE_CHANGED` · `INSUFFICIENT_STOCK` · `MEMBER_CHECKOUT_UNSUPPORTED`. 마지막 항목이 401/403이 아닌 이유는 회원의 자격 증명이 *유효하되* 이 범위가 서비스할 수 없는 신원이기 때문이다 — 다시 로그인해도 같은 답이 나온다. 유효성 실패만 400이며 잘못된 필드를 한 번에 모두 알려준다.
+실패 응답은 전부 409다: `CART_EMPTY` · `PRICE_CHANGED` · `INSUFFICIENT_STOCK`. 유효성 실패만 400이며 잘못된 필드를 한 번에 모두 알려준다. 회원 경로에서 CSRF 토큰이 없거나 일치하지 않으면 403(본문 파싱·트랜잭션 전에 거부).
 
 주문 완료 화면은 **주문 id를 아는 것만으로 열리지 않는다.** 소유권이 질의 자체의 일부라(`getOrderForGuest`) 남의 주문을 가져온 뒤 감추는 형태가 존재하지 않으며, 모든 거부는 "권한 없음"이 아니라 404다 — 구분 가능한 상태 코드는 찍어본 id가 실재하는지를 알려주기 때문이다.
 
 **알려진 한계**(자세한 내용은 `.moai/specs/SPEC-ORDER-001/progress.md` 참고): PostgreSQL이 없는 환경이라 **트랜잭션 원자성·unique 경합의 실동작은 관측하지 않았다**(동시 주문 직렬화는 SPEC-ORDER-002가 실 DB에서 관측했다 — 아래 참고) — 계획 단계에서 이름을 붙여 제외한 3건 중 2건이며 통과로 계상하지 않는다. 통합 테스트의 fake가 롤백을 구현하긴 하지만, fake가 되돌리는 것은 fake가 저장한 것이지 데이터베이스가 되돌린 것이 아니다. 마이그레이션도 손으로 작성했고 실제 DB에 적용된 적이 없다. **미결제 주문의 재고 점유를 해제하는 정책이 없다** — 주문 시점에 차감한 재고를 결제로 이어지지 않은 주문에 대해 돌려주지 않는다(잠정 결정, 타임아웃 해제가 향후 방향, 칸반 백로그 카드 `t21`). 배송비는 `calculateShippingFee()` 한 곳에 격리돼 0원을 반환하는 잠정값이다. `/checkout`으로 가는 화면 링크는 아직 없다(장바구니 UI SPEC의 몫). 결제는 이 범위에 없어 주문은 `pending_payment`에 머문다. `npm run build`는 여전히 실패하는데, 원인은 SPEC-STOREFRONT-001이 이미 기록한 것과 동일한 선행 결함(`src/middleware.ts` → `src/lib/auth/jwt.ts` → `node:crypto`)이며 이 SPEC의 산출물을 트리 밖으로 옮기고 빌드해도 동일하게 실패함을 확인했다 — 백로그 카드로 별도 추적한다.
+
+### 회원 체크아웃 (SPEC-ORDER-004)
+
+**로그인한 회원은 자신의 계정에 귀속된 주문을 만들 수 있다.** `Order.userId`(nullable, `@unique` 없음 — 회원은 여러 건을 주문할 수 있으므로 Cart와 달리 유일성 제약을 두지 않았다)가 그 귀속을 담는다. 신원은 게스트 쿠키가 아니라 `resolveSession()` 세션 쿠키로 판별하며, `Authorization` 헤더는 이 엔드포인트에서 회원 판정 근거가 아니다. 회원 경로는 상태 변경 전 CSRF를 검증하고(403), 게스트 경로는 기존과 동일하게 CSRF를 요구하지 않는다(쿠키가 인증자가 아니라 식별자이기 때문). 회원용 체크아웃 진입·완료 화면은 `src/app/(shop)/checkout/`에 있으며, 게스트 주문 생성·멱등성 로직은 관측 가능한 변경이 없다.
+
+**알려진 한계**: `POST /api/auth/logout`은 여전히 역할을 검사하지 않는다(SPEC-AUTH-004가 이미 기록한 별개의 잔여 위험이며 이 SPEC의 범위가 아니다). 자세한 내용은 `.moai/specs/SPEC-ORDER-004/progress.md` 참고.
 
 ### 재고 차감 동시성 (SPEC-ORDER-002)
 

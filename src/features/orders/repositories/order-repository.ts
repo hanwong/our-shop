@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import type { OrderOwner } from "@/features/orders/types/order";
 
 /**
  * SPEC-ORDER-001 M2 — Prisma query layer for the order domain.
@@ -49,7 +50,18 @@ export type OrderWithItems = Prisma.OrderGetPayload<{ include: typeof ORDER_INCL
 /** The row the transaction writes. Mirrors the schema, minus its defaults. */
 export interface CreateOrderRow {
   orderNumber: string;
-  guestId: string;
+  /**
+   * SPEC-ORDER-004 M3 — who the order belongs to, as a discriminated union
+   * rather than the former plain `guestId: string` (design.md §1.4).
+   *
+   * This field IS the XOR enforcement (REQ-ORDER-048). The schema leaves both
+   * owner columns nullable because "exactly one" cannot be a column constraint,
+   * so the invariant is held by the only function that writes an Order row
+   * never being ABLE to express a violation: `{ guestId?: string; userId?:
+   * string }` would make "both" and "neither" representable and push the
+   * invariant out of the compiler and into code review (plan.md §G).
+   */
+  owner: OrderOwner;
   idempotencyKey: string;
   recipientName: string;
   recipientPhone: string;
@@ -110,6 +122,28 @@ export async function findOrderForGuest(
   client: OrderClient = prisma
 ): Promise<OrderWithItems | null> {
   return client.order.findFirst({ where: { id: orderId, guestId }, include: ORDER_INCLUDE });
+}
+
+/**
+ * The order, but ONLY for the member it belongs to (SPEC-ORDER-004 M3 —
+ * REQ-ORDER-062, design.md §6.2).
+ *
+ * Deliberately the same SHAPE as findOrderForGuest() above rather than a
+ * generalisation of it: ownership is part of the WHERE, so there is no shape of
+ * this function that returns a stranger's order to be filtered afterwards. A
+ * single `findOrderForOwner(owner)` would have to build the where clause from a
+ * union at runtime, which is precisely where a missed branch turns into a leak.
+ *
+ * `userId` is non-unique on Order (a member has many orders — design.md §1.2),
+ * so `findFirst` on the compound of a unique id and a non-unique owner column,
+ * exactly as the guest function does.
+ */
+export async function findOrderForUser(
+  orderId: string,
+  userId: string,
+  client: OrderClient = prisma
+): Promise<OrderWithItems | null> {
+  return client.order.findFirst({ where: { id: orderId, userId }, include: ORDER_INCLUDE });
 }
 
 /**
@@ -222,14 +256,26 @@ export async function findStockByProductIds(
  * `status` is deliberately not set — the schema default supplies
  * `pending_payment` (REQ-ORDER-017), and stating it here would put a second
  * declaration of "what a new order is" beside the schema's.
+ *
+ * SPEC-ORDER-004 M3 — this is the single place the owner union is spread into
+ * concrete columns, and it is where REQ-ORDER-048's XOR actually becomes true
+ * of the stored row (design.md §1.4).
  */
 export async function createOrderWithItems(
   tx: Prisma.TransactionClient,
   row: CreateOrderRow
 ): Promise<{ id: string }> {
-  const { items, ...order } = row;
+  const { items, owner, ...order } = row;
+
+  // The opposite column is not mentioned at all rather than written as an
+  // explicit `null`: Prisma leaves an omitted column null, and this is the
+  // shape createUserCart()/createGuestCart() already established for the same
+  // invariant on Cart (cart-repository.ts §"Construction — the ownership XOR").
+  const ownerColumn =
+    owner.kind === "user" ? { userId: owner.userId } : { guestId: owner.guestId };
+
   return tx.order.create({
-    data: { ...order, items: { create: items } },
+    data: { ...order, ...ownerColumn, items: { create: items } },
     select: { id: true },
   });
 }

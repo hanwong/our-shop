@@ -29,6 +29,8 @@ vi.mock("@/lib/db", () => db);
 const orderRepo = {
   findOrderByIdempotencyKey: vi.fn(),
   findOrderForGuest: vi.fn(),
+  // SPEC-ORDER-004 M3 — the member-side read-back.
+  findOrderForUser: vi.fn(),
   findOrderByNumberAndPhone: vi.fn(),
   findOrderByNumberForGuest: vi.fn(),
   decrementStockIfAvailable: vi.fn(),
@@ -39,6 +41,8 @@ vi.mock("@/features/orders/repositories/order-repository", () => orderRepo);
 
 const cartRepo = {
   findCartByGuestId: vi.fn(),
+  // SPEC-ORDER-004 M3 — the member branch's cart read, now transaction-capable.
+  findCartByUserId: vi.fn(),
   deleteCart: vi.fn(),
 };
 vi.mock("@/features/cart/repositories/cart-repository", () => cartRepo);
@@ -105,6 +109,18 @@ function cartWith(
 
 const ONE_LINE = [{ productId: "p-1", name: "Tee", price: 10000, stock: 10, quantity: 2 }];
 
+/**
+ * SPEC-ORDER-004 M4 — createOrder() took a bare guest-id string until this
+ * SPEC; it now takes the `OrderOwner` discriminated union (design.md §6.3).
+ *
+ * The two guest constants below carry the SAME ids the pre-SPEC calls passed
+ * ("G1", "G2"), so every existing assertion in this file keeps asserting
+ * exactly what it did — only the argument's shape moved.
+ */
+const G1 = { kind: "guest", guestId: "G1" } as const;
+const G2 = { kind: "guest", guestId: "G2" } as const;
+const MEMBER = { kind: "user", userId: "user-1" } as const;
+
 function body(overrides: Record<string, unknown> = {}) {
   return { shipping: { ...SHIPPING }, idempotencyKey: "key-1", confirmedTotal: 20000, ...overrides };
 }
@@ -162,7 +178,7 @@ describe("SPEC-ORDER-001 M3 — order number and idempotency key (REQ-ORDER-003,
 
 describe("SPEC-ORDER-001 M3 — the happy path (REQ-ORDER-011, AC-ORDER-011)", () => {
   it("returns the order with the price snapshot taken at order time", async () => {
-    const result = await service.createOrder("G1", body());
+    const result = await service.createOrder(G1, body());
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -176,7 +192,7 @@ describe("SPEC-ORDER-001 M3 — the happy path (REQ-ORDER-011, AC-ORDER-011)", (
   });
 
   it("decrements stock, writes the order, and empties the cart", async () => {
-    await service.createOrder("G1", body());
+    await service.createOrder(G1, body());
 
     expect(orderRepo.decrementStockIfAvailable).toHaveBeenCalledWith(TX, "p-1", 2);
     expect(orderRepo.createOrderWithItems).toHaveBeenCalledTimes(1);
@@ -184,7 +200,7 @@ describe("SPEC-ORDER-001 M3 — the happy path (REQ-ORDER-011, AC-ORDER-011)", (
   });
 
   it("runs EVERY effect on the transaction client (REQ-ORDER-012)", async () => {
-    await service.createOrder("G1", body());
+    await service.createOrder(G1, body());
 
     // If any of these ran on the module singleton it would sit outside the
     // transaction and survive a rollback — the exact atomicity hole
@@ -206,7 +222,7 @@ describe("SPEC-ORDER-001 M3 — the happy path (REQ-ORDER-011, AC-ORDER-011)", (
       return cartWith(ONE_LINE);
     });
 
-    await service.createOrder("G1", body());
+    await service.createOrder(G1, body());
 
     // Reading price and stock outside the transaction and writing inside it
     // opens a window where both can change (design.md §2).
@@ -224,7 +240,7 @@ describe("SPEC-ORDER-001 M3 — the happy path (REQ-ORDER-011, AC-ORDER-011)", (
       return createdOrder();
     });
 
-    await service.createOrder("G1", body());
+    await service.createOrder(G1, body());
 
     // Atomicity does not depend on this order, but the commonest failure is
     // insufficient stock, so filtering it first keeps the failure path cheap
@@ -242,20 +258,174 @@ describe("SPEC-ORDER-001 M3 — the happy path (REQ-ORDER-011, AC-ORDER-011)", (
       seen.push("delete-cart");
     });
 
-    await service.createOrder("G1", body());
+    await service.createOrder(G1, body());
 
     expect(seen).toEqual(["create", "delete-cart"]);
   });
 
   it("attributes the order to the guest and to no one else (REQ-ORDER-001)", async () => {
-    await service.createOrder("G1", body());
+    await service.createOrder(G1, body());
 
     const [, row] = orderRepo.createOrderWithItems.mock.calls[0]! as [
       unknown,
       Record<string, unknown>,
     ];
-    expect(row.guestId).toBe("G1");
+    // SPEC-ORDER-004 M4 — the PROPERTY is unchanged ("attributed to this guest
+    // and to no one else"); what moved is where it is expressed. The service
+    // now hands the repository an owner union, and the repository spreads it
+    // into exactly one column (order-repository.test.ts asserts that half).
+    // Asserting the union here keeps the two halves separately observable.
+    expect(row.owner).toEqual({ kind: "guest", guestId: "G1" });
+    expect(row).not.toHaveProperty("guestId");
     expect(row).not.toHaveProperty("userId");
+  });
+
+  it("attributes a MEMBER order to the member and to no one else (REQ-ORDER-052)", async () => {
+    cartRepo.findCartByUserId.mockResolvedValue(cartWith(ONE_LINE));
+
+    await service.createOrder(MEMBER, body());
+
+    const [, row] = orderRepo.createOrderWithItems.mock.calls[0]! as [
+      unknown,
+      Record<string, unknown>,
+    ];
+    expect(row.owner).toEqual({ kind: "user", userId: "user-1" });
+    expect(row).not.toHaveProperty("guestId");
+  });
+});
+
+describe("SPEC-ORDER-004 M4 — the member branch reads and empties the MEMBER cart", () => {
+  beforeEach(() => {
+    cartRepo.findCartByUserId.mockResolvedValue(cartWith(ONE_LINE));
+  });
+
+  it("reads the member cart on the transaction client, never the guest one (AC-ORDER-060)", async () => {
+    await service.createOrder(MEMBER, body());
+
+    expect(cartRepo.findCartByUserId).toHaveBeenCalledWith("user-1", TX);
+    // The defect this guards is the one SPEC-ORDER-001 refused member checkout
+    // to avoid: an order silently attributed to a guest cookie the member no
+    // longer presents, which they could then never open.
+    expect(cartRepo.findCartByGuestId).not.toHaveBeenCalled();
+  });
+
+  it("empties that cart on the same client (AC-ORDER-060)", async () => {
+    await service.createOrder(MEMBER, body());
+
+    expect(cartRepo.deleteCart).toHaveBeenCalledWith("cart-1", TX);
+  });
+
+  it("refuses an empty member cart with CART_EMPTY, touching nothing", async () => {
+    cartRepo.findCartByUserId.mockResolvedValue(null);
+
+    const result = await service.createOrder(MEMBER, body());
+
+    expect(result).toMatchObject({ ok: false, code: "CART_EMPTY" });
+    expect(orderRepo.createOrderWithItems).not.toHaveBeenCalled();
+    expect(orderRepo.decrementStockIfAvailable).not.toHaveBeenCalled();
+  });
+});
+
+describe("SPEC-ORDER-004 M4 — idempotency compares owner KIND (AC-ORDER-062/063)", () => {
+  /** A stored order as findOrderByIdempotencyKey reports it, owned by exactly one identity. */
+  function storedOrder(owner: { guestId: string | null; userId: string | null }) {
+    return {
+      id: "order-9",
+      orderNumber: "ORD-20260905-ZZZZZZ",
+      status: "pending_payment",
+      ...owner,
+      recipientName: SHIPPING.recipientName,
+      recipientPhone: SHIPPING.recipientPhone,
+      postalCode: SHIPPING.postalCode,
+      address: SHIPPING.address,
+      deliveryMemo: null,
+      itemsSubtotal: 20000,
+      shippingFee: 0,
+      totalAmount: 20000,
+      couponCode: null,
+      discountAmount: 0,
+      createdAt: new Date("2026-09-05T00:00:00.000Z"),
+      items: [
+        {
+          id: "oi-1",
+          productId: "p-1",
+          productName: "Tee",
+          unitPrice: 10000,
+          quantity: 2,
+          lineTotal: 20000,
+        },
+      ],
+    };
+  }
+
+  it("(062a) replays a MEMBER's own key with the first order, decrementing nothing", async () => {
+    orderRepo.findOrderByIdempotencyKey.mockResolvedValue(
+      storedOrder({ guestId: null, userId: "user-1" })
+    );
+
+    const result = await service.createOrder(MEMBER, body());
+
+    expect(result).toMatchObject({ ok: true });
+    if (!result.ok) return;
+    expect(result.data.orderNumber).toBe("ORD-20260905-ZZZZZZ");
+    expect(orderRepo.decrementStockIfAvailable).not.toHaveBeenCalled();
+    expect(orderRepo.createOrderWithItems).not.toHaveBeenCalled();
+  });
+
+  it("(062b) replays a GUEST's own key exactly as before this SPEC", async () => {
+    orderRepo.findOrderByIdempotencyKey.mockResolvedValue(
+      storedOrder({ guestId: "G1", userId: null })
+    );
+
+    const result = await service.createOrder(G1, body());
+
+    expect(result).toMatchObject({ ok: true });
+    if (!result.ok) return;
+    expect(result.data.orderNumber).toBe("ORD-20260905-ZZZZZZ");
+    expect(orderRepo.decrementStockIfAvailable).not.toHaveBeenCalled();
+  });
+
+  // Both directions, because one direction alone can pass while a
+  // `null === null` comparison survives on the other axis (plan.md B4).
+  it("(063) does NOT hand a member the guest order behind that key", async () => {
+    orderRepo.findOrderByIdempotencyKey.mockResolvedValue(
+      storedOrder({ guestId: "G1", userId: null })
+    );
+    cartRepo.findCartByUserId.mockResolvedValue(cartWith(ONE_LINE));
+
+    const result = await service.createOrder(MEMBER, body());
+
+    // It falls through to a fresh creation attempt, exactly as any other
+    // stranger's key always did — the replay branch simply does not fire.
+    expect(result.ok === true && result.data.orderNumber).not.toBe("ORD-20260905-ZZZZZZ");
+  });
+
+  it("(063) does NOT hand a guest the member order behind that key", async () => {
+    orderRepo.findOrderByIdempotencyKey.mockResolvedValue(
+      storedOrder({ guestId: null, userId: "user-1" })
+    );
+
+    const result = await service.createOrder(G1, body());
+
+    expect(result.ok === true && result.data.orderNumber).not.toBe("ORD-20260905-ZZZZZZ");
+  });
+
+  it("(063) collapses a cross-owner UNIQUE-violation race to the anonymous 500", async () => {
+    // The losing-race path: the fast path missed, the INSERT hit the unique
+    // constraint, and the winner behind the key belongs to someone else. The
+    // answer must not reveal that the key exists (design.md §4).
+    orderRepo.findOrderByIdempotencyKey
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue(storedOrder({ guestId: "G1", userId: null }));
+    cartRepo.findCartByUserId.mockResolvedValue(cartWith(ONE_LINE));
+    orderRepo.createOrderWithItems.mockRejectedValue(
+      Object.assign(new Error("Unique constraint failed"), { code: "P2002" })
+    );
+
+    const result = await service.createOrder(MEMBER, body());
+
+    expect(result).toMatchObject({ ok: false, status: 500 });
+    expect(result).not.toHaveProperty("code");
   });
 });
 
@@ -273,7 +443,7 @@ describe("SPEC-ORDER-001 M3 — validation (REQ-ORDER-010, AC-ORDER-010)", () =>
 
   for (const [label, override, field] of cases) {
     it(`rejects ${label} with a 400 naming the field`, async () => {
-      const result = await service.createOrder("G1", body(override));
+      const result = await service.createOrder(G1, body(override));
 
       expect(result).toMatchObject({ ok: false, status: 400 });
       if (result.ok || result.status !== 400) return;
@@ -282,7 +452,7 @@ describe("SPEC-ORDER-001 M3 — validation (REQ-ORDER-010, AC-ORDER-010)", () =>
   }
 
   it("changes nothing at all when validation fails", async () => {
-    await service.createOrder("G1", body({ shipping: { ...SHIPPING, recipientName: "" } }));
+    await service.createOrder(G1, body({ shipping: { ...SHIPPING, recipientName: "" } }));
 
     expect(db.prisma.$transaction).not.toHaveBeenCalled();
     expect(orderRepo.createOrderWithItems).not.toHaveBeenCalled();
@@ -292,7 +462,7 @@ describe("SPEC-ORDER-001 M3 — validation (REQ-ORDER-010, AC-ORDER-010)", () =>
 
   it("accepts an omitted delivery memo as the optional field it is", async () => {
     const result = await service.createOrder(
-      "G1",
+      G1,
       body({ shipping: { ...SHIPPING, deliveryMemo: undefined } })
     );
 
@@ -303,7 +473,7 @@ describe("SPEC-ORDER-001 M3 — validation (REQ-ORDER-010, AC-ORDER-010)", () =>
 
   it("rejects a non-object body without throwing", async () => {
     for (const junk of [null, undefined, "string", 7, []]) {
-      const result = await service.createOrder("G1", junk);
+      const result = await service.createOrder(G1, junk);
       expect(result).toMatchObject({ ok: false, status: 400 });
     }
   });
@@ -313,7 +483,7 @@ describe("SPEC-ORDER-001 M3 — empty cart (REQ-ORDER-015, AC-ORDER-015)", () =>
   it("refuses with CART_EMPTY when the guest has no cart row", async () => {
     cartRepo.findCartByGuestId.mockResolvedValue(null);
 
-    const result = await service.createOrder("G1", body());
+    const result = await service.createOrder(G1, body());
 
     expect(result).toMatchObject({ ok: false, status: 409, code: "CART_EMPTY" });
   });
@@ -321,7 +491,7 @@ describe("SPEC-ORDER-001 M3 — empty cart (REQ-ORDER-015, AC-ORDER-015)", () =>
   it("refuses with CART_EMPTY when the cart exists but holds no lines", async () => {
     cartRepo.findCartByGuestId.mockResolvedValue(cartWith([]));
 
-    const result = await service.createOrder("G1", body());
+    const result = await service.createOrder(G1, body());
 
     expect(result).toMatchObject({ ok: false, status: 409, code: "CART_EMPTY" });
   });
@@ -329,7 +499,7 @@ describe("SPEC-ORDER-001 M3 — empty cart (REQ-ORDER-015, AC-ORDER-015)", () =>
   it("persists nothing on either empty-cart path", async () => {
     cartRepo.findCartByGuestId.mockResolvedValue(null);
 
-    await service.createOrder("G1", body());
+    await service.createOrder(G1, body());
 
     expect(orderRepo.createOrderWithItems).not.toHaveBeenCalled();
     expect(orderRepo.decrementStockIfAvailable).not.toHaveBeenCalled();
@@ -344,7 +514,7 @@ describe("SPEC-ORDER-001 M3 — price change (REQ-ORDER-014, AC-ORDER-014)", () 
       cartWith([{ productId: "p-1", name: "Tee", price: 20000, stock: 10, quantity: 2 }])
     );
 
-    const result = await service.createOrder("G1", body({ confirmedTotal: 30000 }));
+    const result = await service.createOrder(G1, body({ confirmedTotal: 30000 }));
 
     expect(result).toMatchObject({
       ok: false,
@@ -355,7 +525,7 @@ describe("SPEC-ORDER-001 M3 — price change (REQ-ORDER-014, AC-ORDER-014)", () 
   });
 
   it("never stores the client's figure — it is a cross-check, not an instruction", async () => {
-    await service.createOrder("G1", body({ confirmedTotal: 20000 }));
+    await service.createOrder(G1, body({ confirmedTotal: 20000 }));
 
     const [, row] = orderRepo.createOrderWithItems.mock.calls[0]! as [
       unknown,
@@ -367,7 +537,7 @@ describe("SPEC-ORDER-001 M3 — price change (REQ-ORDER-014, AC-ORDER-014)", () 
   });
 
   it("persists nothing when the totals disagree", async () => {
-    await service.createOrder("G1", body({ confirmedTotal: 1 }));
+    await service.createOrder(G1, body({ confirmedTotal: 1 }));
 
     expect(orderRepo.createOrderWithItems).not.toHaveBeenCalled();
     expect(cartRepo.deleteCart).not.toHaveBeenCalled();
@@ -376,7 +546,7 @@ describe("SPEC-ORDER-001 M3 — price change (REQ-ORDER-014, AC-ORDER-014)", () 
   it("compares against subtotal PLUS shipping, not the subtotal alone", async () => {
     // Guards the comparison against drifting apart from what the form showed
     // if calculateShippingFee ever returns a non-zero figure.
-    const result = await service.createOrder("G1", body({ confirmedTotal: 20000 }));
+    const result = await service.createOrder(G1, body({ confirmedTotal: 20000 }));
     expect(result.ok).toBe(true);
   });
 });
@@ -392,7 +562,7 @@ describe("SPEC-ORDER-001 M3 — insufficient stock (REQ-ORDER-013, AC-ORDER-013)
     // this test asserts is unchanged; where it comes from is not.
     orderRepo.findStockByProductIds.mockResolvedValue([{ id: "p-1", stock: 2 }]);
 
-    const result = await service.createOrder("G1", body({ confirmedTotal: 50000 }));
+    const result = await service.createOrder(G1, body({ confirmedTotal: 50000 }));
 
     expect(result).toMatchObject({
       ok: false,
@@ -405,7 +575,7 @@ describe("SPEC-ORDER-001 M3 — insufficient stock (REQ-ORDER-013, AC-ORDER-013)
   it("treats a zero row count as the refusal, not an error to ignore", async () => {
     orderRepo.decrementStockIfAvailable.mockResolvedValue(0);
 
-    const result = await service.createOrder("G1", body());
+    const result = await service.createOrder(G1, body());
 
     expect(result.ok).toBe(false);
     expect(orderRepo.createOrderWithItems).not.toHaveBeenCalled();
@@ -421,7 +591,7 @@ describe("SPEC-ORDER-001 M3 — insufficient stock (REQ-ORDER-013, AC-ORDER-013)
     );
     orderRepo.decrementStockIfAvailable.mockResolvedValue(0);
 
-    await service.createOrder("G1", body({ confirmedTotal: 15000 }));
+    await service.createOrder(G1, body({ confirmedTotal: 15000 }));
 
     // The rollback would undo a second decrement anyway; not issuing it keeps
     // the failure path from doing pointless work.
@@ -450,7 +620,7 @@ describe("SPEC-ORDER-002 M1 — the failure report is re-read, not remembered (R
   });
 
   async function submit() {
-    return service.createOrder("G1", body({ confirmedTotal: THREE_LINE_TOTAL }));
+    return service.createOrder(G1, body({ confirmedTotal: THREE_LINE_TOTAL }));
   }
 
   it("reports EVERY short line, not just the one that failed (AC-ORDER-027)", async () => {
@@ -592,7 +762,7 @@ describe("SPEC-ORDER-002 M2 — deduction order is decided by id, not by the car
     cartRepo.findCartByGuestId.mockResolvedValue(cartWith(OUT_OF_ORDER));
     const taken = recordDeductionOrder();
 
-    await service.createOrder("G1", body({ confirmedTotal: 30000 }));
+    await service.createOrder(G1, body({ confirmedTotal: 30000 }));
 
     // Cart order is p-9 → p-2 → p-5 (CartItem.createdAt). Following it would
     // make two shoppers request the same rows in opposite orders and deadlock
@@ -603,7 +773,7 @@ describe("SPEC-ORDER-002 M2 — deduction order is decided by id, not by the car
   it("leaves the ORDER's own item order exactly as the cart stored it (plan.md §5)", async () => {
     cartRepo.findCartByGuestId.mockResolvedValue(cartWith(OUT_OF_ORDER));
 
-    const result = await service.createOrder("G1", body({ confirmedTotal: 30000 }));
+    const result = await service.createOrder(G1, body({ confirmedTotal: 30000 }));
 
     // The sort is a LOCKING order, not a presentation order. Letting it reach
     // the stored rows would reshuffle the completion screen against what the
@@ -628,11 +798,11 @@ describe("SPEC-ORDER-002 M2 — deduction order is decided by id, not by the car
 
     cartRepo.findCartByGuestId.mockResolvedValue(cartWith(lines));
     const first = recordDeductionOrder();
-    await service.createOrder("G1", body({ confirmedTotal: 20000 }));
+    await service.createOrder(G1, body({ confirmedTotal: 20000 }));
 
     cartRepo.findCartByGuestId.mockResolvedValue(cartWith([lines[1]!, lines[0]!]));
     const second = recordDeductionOrder();
-    await service.createOrder("G2", body({ confirmedTotal: 20000, idempotencyKey: "key-2" }));
+    await service.createOrder(G2, body({ confirmedTotal: 20000, idempotencyKey: "key-2" }));
 
     // Identical request order is what makes the deadlock impossible: a cycle
     // needs two transactions wanting the same rows in opposite orders.
@@ -655,7 +825,7 @@ describe("SPEC-ORDER-002 M2 — deduction order is decided by id, not by the car
     );
     const taken = recordDeductionOrder();
 
-    await service.createOrder("G1", body({ confirmedTotal: 40000 }));
+    await service.createOrder(G1, body({ confirmedTotal: 40000 }));
 
     expect(taken).toEqual(["1", "A", "a", "b"]);
   });
@@ -676,7 +846,7 @@ describe("SPEC-ORDER-002 M2 — an aborted transaction is retryable, not a myste
   it("answers 409 CONCURRENCY_RETRY (AC-ORDER-029)", async () => {
     orderRepo.decrementStockIfAvailable.mockRejectedValue(deadlock());
 
-    const result = await service.createOrder("G1", body());
+    const result = await service.createOrder(G1, body());
 
     // Nothing was committed and the same submission can simply be sent again —
     // which the shopper can only act on if the answer says so. An unclassified
@@ -689,15 +859,15 @@ describe("SPEC-ORDER-002 M2 — an aborted transaction is retryable, not a myste
 
     // Before this mapping the error matched neither OrderAbort nor P2002 and
     // was rethrown, surfacing as a 500 with no code.
-    await expect(service.createOrder("G1", body())).resolves.toMatchObject({ ok: false });
-    const result = await service.createOrder("G1", body());
+    await expect(service.createOrder(G1, body())).resolves.toMatchObject({ ok: false });
+    const result = await service.createOrder(G1, body());
     expect(result.ok === false && result.status).not.toBe(500);
   });
 
   it("creates no order and empties no cart when the transaction is aborted", async () => {
     orderRepo.decrementStockIfAvailable.mockRejectedValue(deadlock());
 
-    await service.createOrder("G1", body());
+    await service.createOrder(G1, body());
 
     expect(orderRepo.createOrderWithItems).not.toHaveBeenCalled();
     expect(cartRepo.deleteCart).not.toHaveBeenCalled();
@@ -709,7 +879,7 @@ describe("SPEC-ORDER-002 M2 — an aborted transaction is retryable, not a myste
     // the transaction boundary rather than beside one call.
     orderRepo.createOrderWithItems.mockRejectedValue(deadlock());
 
-    const result = await service.createOrder("G1", body());
+    const result = await service.createOrder(G1, body());
 
     expect(result).toMatchObject({ ok: false, status: 409, code: "CONCURRENCY_RETRY" });
   });
@@ -722,7 +892,7 @@ describe("SPEC-ORDER-002 M2 — an aborted transaction is retryable, not a myste
     );
     orderRepo.findOrderByIdempotencyKey.mockResolvedValueOnce(null).mockResolvedValue(null);
 
-    const result = await service.createOrder("G1", body());
+    const result = await service.createOrder(G1, body());
 
     expect(result).toMatchObject({ ok: false, status: 500 });
     expect(result.ok === false && "code" in result).toBe(false);
@@ -733,7 +903,7 @@ describe("SPEC-ORDER-002 M2 — an aborted transaction is retryable, not a myste
 
     // Flattening every error into a retryable 409 would tell shoppers to retry
     // something that will never succeed.
-    await expect(service.createOrder("G1", body())).rejects.toThrow("connection reset");
+    await expect(service.createOrder(G1, body())).rejects.toThrow("connection reset");
   });
 });
 
@@ -783,7 +953,7 @@ describe("SPEC-ORDER-002 M4-fix — the shape a REAL deadlock actually has (REQ-
   it("maps a real 40P01 deadlock to CONCURRENCY_RETRY (REQ-ORDER-027)", async () => {
     orderRepo.decrementStockIfAvailable.mockRejectedValue(realDeadlock());
 
-    const result = await service.createOrder("G1", body());
+    const result = await service.createOrder(G1, body());
 
     // The requirement, measured against the shape the database actually
     // produces rather than the one the plan assumed.
@@ -793,7 +963,7 @@ describe("SPEC-ORDER-002 M4-fix — the shape a REAL deadlock actually has (REQ-
   it("maps a real 40001 serialization failure the same way", async () => {
     orderRepo.decrementStockIfAvailable.mockRejectedValue(realSerializationFailure());
 
-    const result = await service.createOrder("G1", body());
+    const result = await service.createOrder(G1, body());
 
     expect(result).toMatchObject({ ok: false, status: 409, code: "CONCURRENCY_RETRY" });
   });
@@ -804,7 +974,7 @@ describe("SPEC-ORDER-002 M4-fix — the shape a REAL deadlock actually has (REQ-
     // Before this fix the predicate tested `code === "P2034"`, the real error
     // had no `code` at all, and this call REJECTED — surfacing as a 500 with no
     // code to a shopper whose identical resubmission would have succeeded.
-    const result = await service.createOrder("G1", body());
+    const result = await service.createOrder(G1, body());
 
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.status).not.toBe(500);
@@ -821,7 +991,7 @@ describe("SPEC-ORDER-002 M4-fix — the shape a REAL deadlock actually has (REQ-
       })
     );
 
-    await expect(service.createOrder("G1", body())).rejects.toThrow("connection closed");
+    await expect(service.createOrder(G1, body())).rejects.toThrow("connection closed");
   });
 
   it("survives a thrown non-object without crashing", async () => {
@@ -830,7 +1000,7 @@ describe("SPEC-ORDER-002 M4-fix — the shape a REAL deadlock actually has (REQ-
     // itself, turning a recoverable failure into an unrecoverable one.
     orderRepo.decrementStockIfAvailable.mockRejectedValue("40P01 deadlock detected");
 
-    await expect(service.createOrder("G1", body())).rejects.toBe("40P01 deadlock detected");
+    await expect(service.createOrder(G1, body())).rejects.toBe("40P01 deadlock detected");
   });
 
   it("does not mistake a bare 40001 in ordinary text for a SQLSTATE", async () => {
@@ -842,7 +1012,7 @@ describe("SPEC-ORDER-002 M4-fix — the shape a REAL deadlock actually has (REQ-
       new Error("Unique constraint failed on totalAmount 40001")
     );
 
-    await expect(service.createOrder("G1", body())).rejects.toThrow("Unique constraint failed");
+    await expect(service.createOrder(G1, body())).rejects.toThrow("Unique constraint failed");
   });
 });
 
@@ -857,7 +1027,7 @@ describe("SPEC-ORDER-001 M3 — a cart line below quantity 1 (REQ-ORDER-004, AC-
         cartWith([{ productId: "p-1", name: "Tee", price: 10000, stock: 10, quantity }])
       );
 
-      const result = await service.createOrder("G1", body({ confirmedTotal: 10000 * quantity }));
+      const result = await service.createOrder(G1, body({ confirmedTotal: 10000 * quantity }));
 
       expect(result.ok).toBe(false);
       expect(orderRepo.createOrderWithItems).not.toHaveBeenCalled();
@@ -897,7 +1067,7 @@ describe("SPEC-ORDER-001 M3 — idempotency (REQ-ORDER-016, AC-ORDER-016)", () =
   it("returns the FIRST order on a replay and opens no transaction at all", async () => {
     orderRepo.findOrderByIdempotencyKey.mockResolvedValue(first);
 
-    const result = await service.createOrder("G1", body());
+    const result = await service.createOrder(G1, body());
 
     expect(result).toMatchObject({ ok: true });
     if (!result.ok) return;
@@ -916,7 +1086,7 @@ describe("SPEC-ORDER-001 M3 — idempotency (REQ-ORDER-016, AC-ORDER-016)", () =
     );
     orderRepo.findOrderByIdempotencyKey.mockResolvedValueOnce(null).mockResolvedValue(first);
 
-    const result = await service.createOrder("G1", body());
+    const result = await service.createOrder(G1, body());
 
     expect(result).toMatchObject({ ok: true });
     if (!result.ok) return;
@@ -926,7 +1096,7 @@ describe("SPEC-ORDER-001 M3 — idempotency (REQ-ORDER-016, AC-ORDER-016)", () =
   it("does not swallow an unrelated failure as an idempotent replay", async () => {
     orderRepo.createOrderWithItems.mockRejectedValue(new Error("connection reset"));
 
-    await expect(service.createOrder("G1", body())).rejects.toThrow("connection reset");
+    await expect(service.createOrder(G1, body())).rejects.toThrow("connection reset");
   });
 });
 
@@ -1154,7 +1324,7 @@ describe("SPEC-ORDER-003 M1 — lookupOrderByNumberAndPhone", () => {
 
 describe("SPEC-DISCOUNT-001 M4 — no coupon submitted (REQ-DISCOUNT-019)", () => {
   it("computes discountAmount 0 and couponCode null, calling neither discount function", async () => {
-    const result = await service.createOrder("G1", body());
+    const result = await service.createOrder(G1, body());
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -1165,7 +1335,7 @@ describe("SPEC-DISCOUNT-001 M4 — no coupon submitted (REQ-DISCOUNT-019)", () =
   });
 
   it("passes couponCode: null and discountAmount: 0 to the repository row", async () => {
-    await service.createOrder("G1", body());
+    await service.createOrder(G1, body());
 
     const [, row] = orderRepo.createOrderWithItems.mock.calls[0]! as [
       unknown,
@@ -1176,7 +1346,7 @@ describe("SPEC-DISCOUNT-001 M4 — no coupon submitted (REQ-DISCOUNT-019)", () =
   });
 
   it("treats an empty-string coupon code the same as an absent one", async () => {
-    const result = await service.createOrder("G1", body({ couponCode: "   " }));
+    const result = await service.createOrder(G1, body({ couponCode: "   " }));
 
     expect(result.ok).toBe(true);
     expect(discountService.validateCoupon).not.toHaveBeenCalled();
@@ -1194,7 +1364,7 @@ describe("SPEC-DISCOUNT-001 M4 — a valid coupon is applied (REQ-DISCOUNT-014/0
   });
 
   it("validates the coupon against itemsSubtotal, on the transaction client", async () => {
-    await service.createOrder("G1", body({ couponCode: "save10", confirmedTotal: 18000 }));
+    await service.createOrder(G1, body({ couponCode: "save10", confirmedTotal: 18000 }));
 
     expect(discountService.validateCoupon).toHaveBeenCalledWith(
       "save10",
@@ -1206,7 +1376,7 @@ describe("SPEC-DISCOUNT-001 M4 — a valid coupon is applied (REQ-DISCOUNT-014/0
 
   it("subtracts discountAmount from itemsSubtotal before adding shippingFee (REQ-DISCOUNT-005)", async () => {
     const result = await service.createOrder(
-      "G1",
+      G1,
       body({ couponCode: "save10", confirmedTotal: 18000 })
     );
 
@@ -1218,7 +1388,7 @@ describe("SPEC-DISCOUNT-001 M4 — a valid coupon is applied (REQ-DISCOUNT-014/0
   });
 
   it("stores the coupon code and discount amount on the order row", async () => {
-    await service.createOrder("G1", body({ couponCode: "save10", confirmedTotal: 18000 }));
+    await service.createOrder(G1, body({ couponCode: "save10", confirmedTotal: 18000 }));
 
     const [, row] = orderRepo.createOrderWithItems.mock.calls[0]! as [
       unknown,
@@ -1229,7 +1399,7 @@ describe("SPEC-DISCOUNT-001 M4 — a valid coupon is applied (REQ-DISCOUNT-014/0
   });
 
   it("atomically increments the coupon's redemption count, on the transaction client", async () => {
-    await service.createOrder("G1", body({ couponCode: "save10", confirmedTotal: 18000 }));
+    await service.createOrder(G1, body({ couponCode: "save10", confirmedTotal: 18000 }));
 
     expect(couponRepo.incrementRedeemedCountIfAvailable).toHaveBeenCalledWith(TX, "coupon-1", 100);
   });
@@ -1245,7 +1415,7 @@ describe("SPEC-DISCOUNT-001 M4 — a valid coupon is applied (REQ-DISCOUNT-014/0
       return 1;
     });
 
-    await service.createOrder("G1", body({ couponCode: "save10", confirmedTotal: 18000 }));
+    await service.createOrder(G1, body({ couponCode: "save10", confirmedTotal: 18000 }));
 
     expect(seen).toEqual(["coupon-increment", "stock-decrement"]);
   });
@@ -1280,7 +1450,7 @@ describe("SPEC-DISCOUNT-001 M4 — coupon validation is refused (REQ-DISCOUNT-00
       discountService.validateCoupon.mockResolvedValue(discountFailure);
 
       const result = await service.createOrder(
-        "G1",
+        G1,
         body({ couponCode: "BAD", confirmedTotal: 20000 })
       );
 
@@ -1305,7 +1475,7 @@ describe("SPEC-DISCOUNT-001 M4 — PRICE_CHANGED compares against the DISCOUNTED
 
   it("succeeds when confirmedTotal already reflects the discount", async () => {
     const result = await service.createOrder(
-      "G1",
+      G1,
       body({ couponCode: "save10", confirmedTotal: 18000 })
     );
     expect(result.ok).toBe(true);
@@ -1313,7 +1483,7 @@ describe("SPEC-DISCOUNT-001 M4 — PRICE_CHANGED compares against the DISCOUNTED
 
   it("refuses with PRICE_CHANGED when confirmedTotal ignores the discount", async () => {
     const result = await service.createOrder(
-      "G1",
+      G1,
       body({ couponCode: "save10", confirmedTotal: 20000 })
     );
 
@@ -1326,7 +1496,7 @@ describe("SPEC-DISCOUNT-001 M4 — PRICE_CHANGED compares against the DISCOUNTED
   });
 
   it("never increments the coupon's redemption count on a PRICE_CHANGED refusal (design.md §3.1 — 3f is after 3e)", async () => {
-    await service.createOrder("G1", body({ couponCode: "save10", confirmedTotal: 20000 }));
+    await service.createOrder(G1, body({ couponCode: "save10", confirmedTotal: 20000 }));
 
     expect(couponRepo.incrementRedeemedCountIfAvailable).not.toHaveBeenCalled();
   });
@@ -1342,7 +1512,7 @@ describe("SPEC-DISCOUNT-001 M4 — the coupon is exhausted by the atomic increme
     couponRepo.incrementRedeemedCountIfAvailable.mockResolvedValue(0);
 
     const result = await service.createOrder(
-      "G1",
+      G1,
       body({ couponCode: "save10", confirmedTotal: 18000 })
     );
 
