@@ -9,10 +9,12 @@ import type { PaginatedProducts, ProductListItem } from "@/features/catalog/type
  *
  * Follows the home-page.test.tsx precedent: a mocked-service adapter test.
  * `findAllCategories` is mocked with an ARBITRARY category set (not the real
- * derby/loafer/boots/monk seed) — this is what proves the filter button list
- * is genuinely derived from the repository call rather than hardcoded
- * (AC-BRAND-016): if the page's own source listed a fixed category array,
- * these tests would see that fixed array instead of the mocked one.
+ * derby/loafer/boots seed — 3 categories, per design.md §2.6/§3.5's
+ * 2026-09-07 CONFIRMED reversal of the earlier PROVISIONAL 4th "monk"
+ * category) — this is what proves the filter button list is genuinely
+ * derived from the repository call rather than hardcoded (AC-BRAND-016): if
+ * the page's own source listed a fixed category array, these tests would see
+ * that fixed array instead of the mocked one.
  */
 
 vi.mock("@/features/catalog/services/product-service", () => ({ listProducts: vi.fn() }));

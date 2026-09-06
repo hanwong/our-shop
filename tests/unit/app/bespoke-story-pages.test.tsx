@@ -32,11 +32,16 @@ describe("BespokePage — AC-BRAND-018", () => {
 });
 
 describe("StoryPage — AC-BRAND-019", () => {
+  // 2026-09-07 correction cycle (design.md §2.5): the body copy was replaced
+  // with the live DesignSync-confirmed source text, which no longer contains
+  // "손으로 꿰맵니다" verbatim — the landmark assertion below tracks the new
+  // confirmed copy instead (AC-BRAND-019 requires only "a brand-story copy
+  // landmark", not this specific literal phrase).
   it("includes the brand-story copy landmark", () => {
     render(<StoryPage />);
 
     expect(screen.getByText("한 켤레에 나흘")).toBeDefined();
-    expect(screen.getByText(/손으로 꿰맵니다/)).toBeDefined();
+    expect(screen.getByText(/갑피를 꿰매고/)).toBeDefined();
   });
 });
 
