@@ -105,6 +105,30 @@ describe("ProductDetailView — AC-STOREFRONT-009", () => {
   });
 });
 
+describe("ProductDetailView — SPEC-BRAND-001 M7 assembly (AC-BRAND-023)", () => {
+  it("embeds the size selector, disabling every size while sold out", () => {
+    render(<ProductDetailView product={makeProduct({ stock: 0 })} />);
+
+    const sizeGroup = screen.getByRole("group", { name: "사이즈 선택" });
+    const buttons = sizeGroup.querySelectorAll("button");
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const button of buttons) {
+      expect((button as HTMLButtonElement).disabled).toBe(true);
+    }
+  });
+
+  it("embeds the size selector, keeping every size selectable in stock", () => {
+    render(<ProductDetailView product={makeProduct({ stock: 3 })} />);
+
+    const sizeGroup = screen.getByRole("group", { name: "사이즈 선택" });
+    const buttons = sizeGroup.querySelectorAll("button");
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const button of buttons) {
+      expect((button as HTMLButtonElement).disabled).toBe(false);
+    }
+  });
+});
+
 describe("ProductDetailView — SPEC-STOREFRONT-002 M4 assembly (AC-STOREFRONT-024)", () => {
   it("embeds the add-to-cart control, passing this product's id and current stock", () => {
     render(<ProductDetailView product={makeProduct({ id: "p-42", stock: 7 })} />);
