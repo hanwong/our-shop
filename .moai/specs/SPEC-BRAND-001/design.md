@@ -181,3 +181,22 @@ UI Kit의 `.nav` 어휘를 참조하되, **컴포넌트 클래스 레이어를 �
 - `plan.md` §B.1/§B.2/§B.3 — design phase가 확정할 판단들의 근거
 - `plan.md` §G — 안티패턴
 - `.claude/skills/moai/workflows/design.md` — D1-D5 파이프라인과 H1-H9 핸드오프 계약
+
+---
+
+## §7. D1 진입 시도 결과 (2026-09-07) — **DesignSync 도구 부재로 차단**
+
+`manager-design`이 D1(연결 설정)을 시작하기 전에 DesignSync 도구의 운영 가용성을 확인했다.
+
+**확인 방법**:
+1. `.mcp.json` 전문 읽기 — 등록된 MCP 서버: `context7`, `moai`, `playwright` 3개뿐. `DesignSync`(또는 유사 명칭의 Claude Design 연동 서버) **미등록**.
+2. 이 세션에 주입된 MCP 서버 사용 지침 블록 확인 — `claude.ai Lovable`, `claude.ai Supabase`, `context7` 3건만 존재. Claude Design/DesignSync 관련 지침 **없음**.
+3. `.moai/config/sections/design.yaml` 확인 — `claude_design.enabled: true`로 설정은 되어 있으나, 이는 **정책 스위치**일 뿐 실제 도구 연결을 보장하지 않는다. `fallback_path: "code_based"`가 명시되어 있어, 설계상으로도 도구 부재 시 코드 기반 경로로 대체하도록 되어 있다.
+
+**결론**: DesignSync 도구가 이 세션에 노출되어 있지 않다. 매니저 정의(`manager-design.md`) "Tool Availability (graceful degradation)" 절의 명시 규칙에 따라, D2-D5(디자인 시스템 생성/동기화, 화면 아티팩트 조회, 핸드오프 수신)는 **이 도구 없이는 실행 불가**하며, 대체 메커니즘(예: 일반 WebFetch로 claude.ai 접근)을 사용해서는 안 된다 — manager-design은 문서화된 DesignSync 도구 계약에만 결합한다.
+
+**차단되는 §5 체크리스트 항목 전부**: §2.1(이미지 경로·slug), §2.3(로고 픽셀), §2.4(제작 기간 재확인), §2.5(`/story` 카피), §2.6(시로코 재확인), §3.5(카테고리 개수), §2.2 검증(라이브 원천 재확인)까지 — 이 항목들은 모두 라이브 Claude Design 프로젝트 "OUR"(`projectId: aa1263c0-57a7-4d65-8670-f5cb5e9daae7`)에 대한 실제 조회를 요구하며, 어느 것도 도구 없이 독립적으로 재확인할 수 없다. §3.1~§3.4의 시각 설계 결정 4건도 라이브 원천 대조가 전제이므로 마찬가지로 보류한다.
+
+**H1(수신 경로) 적용**: 도구·로그인 부재 시 차단 보고를 반환한다. `/design-login`은 사용자 전용 TUI 명령이므로 오케스트레이터가 사용자에게 안내해야 한다.
+
+**이 SPEC의 run-phase 진입은 이 차단이 해소될 때까지 불가**하다 — §5 종료 조건이 그대로 유효하다(로고·이미지 경로·slug·`/story` 카피 미해소).
