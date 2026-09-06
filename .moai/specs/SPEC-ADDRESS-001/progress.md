@@ -180,7 +180,7 @@ m1_to_mN_commit_strategy: "M1(4d9a06c) → M2/M3 합본(29e83dc) → M4/M5 합�
 
 ```yaml
 sync_complete_at: 2026-09-07
-sync_commit_sha: pending-backfill-sync-address-001
+sync_commit_sha: 0c4634c
 sync_status: completed
 sync_audit_verdict: PASS
 sync_audit_score: 95.1/100 (Functionality 96, Security 95, Craft 93, Consistency 95 — weighted 0.40/0.25/0.20/0.15)
