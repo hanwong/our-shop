@@ -169,6 +169,19 @@ describe("updateAddress / removeAddress / setDefaultAddress — AC-ADDRESS-012 (
     }
   });
 
+  it("updateAddress returns 404 (not a thrown error) when a concurrent delete removes the row between updateOwned and the re-read", async () => {
+    repo.updateOwned.mockResolvedValue({ count: 1 });
+    repo.findOwned.mockResolvedValue(null);
+
+    const result = await updateAddress(USER_ID, ADDRESS_ID, VALID_INPUT);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(404);
+      expect(result.error).toBe("존재하지 않는 배송지입니다");
+    }
+  });
+
   it("removeAddress returns 404 when deleteOwned matches zero rows", async () => {
     repo.deleteOwned.mockResolvedValue({ count: 0 });
 

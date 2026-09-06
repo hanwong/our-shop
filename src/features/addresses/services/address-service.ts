@@ -130,8 +130,14 @@ export async function updateAddress(
   // updateOwned() already guaranteed exactly one row matched and was
   // written; re-read it (still ownership-scoped) to return the current
   // state rather than re-assembling it from the input we already trust.
+  // A concurrent delete can still land between the write and this re-read,
+  // so the row may legitimately come back null — collapse that to the same
+  // 404 the count === 0 branch above returns, rather than crashing.
   const row = await findOwned(userId, addressId);
-  return { ok: true, data: toAddress(row as AddressRow) };
+  if (row === null) {
+    return { ok: false, status: 404, error: NOT_FOUND_ERROR };
+  }
+  return { ok: true, data: toAddress(row) };
 }
 
 /** `DELETE /api/addresses/[addressId]` (REQ-ADDRESS-006/011). */
