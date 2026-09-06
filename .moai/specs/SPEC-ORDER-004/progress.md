@@ -163,14 +163,14 @@ Proceeding to M7 (copy fix — the final milestone; M6 was completed as a byprod
 **Commit accounting**: 7 commits in `4613f6a..HEAD` (the manager-spec `d16006d` correction + 6 run-phase commits: `814b620`, `6a31c6b`, `7a89629`, `28ce187`, `b101823`, `548e861`). 9 commits ahead of `main`; confirmed NOT merged to `main` by any route (`git merge-base --is-ancestor` = false, `main..HEAD` empty in reverse). Pushed to `origin/WT-member-checkout` only, `0 0` divergence — awaiting the parent orchestrator's own merge/PR routing, per this session's original instructions.
 
 **4 residual gaps, all non-blocking for merge, surfaced by the final peer reviewer**:
-- **G1** — `acceptance.md:223`'s "삭제된 `it` 블록이 없다" is literally false (10 `it` blocks deleted, each replaced; net +11 in the affected files, +46 suite-wide — the AC's *intent* holds with margin, its *wording* does not). Needs a `manager-spec` wording correction.
+- **G1** — `acceptance.md:223`'s "삭제된 `it` 블록이 없다" is literally false (12개 삭제, 각각 대체 — the AC's *intent* holds with margin, its *wording* does not; suite-wide net is +46). Needs a `manager-spec` wording correction.
 - **G2** — the declared M6 footprint (6 files) vs. actual (14 test/fixture files touched across the SPEC) — every one individually documented somewhere in this file, but `research.md:78/290`'s "nothing outside 6 files" claim is now false in the SPEC body. This is the THIRD occurrence of the same undercounting class (B-2 at M1, the M2-4 under-count, now this) — the peer reviewer explicitly recommends a root-cause look at *why* this keeps recurring, not just a third patch. Needs `manager-spec` before sync.
 - **G3** — the `cart-repository-tx.test.ts` premise reversal (flagged at the M2-4 cycle) re-confirmed sound by this independent final reviewer on the same 5 grounds. No action needed; recorded as verified twice now.
 - **G4** — this file itself was sitting uncommitted at the time of the final peer review. Resolved by this commit.
 
 **Reconciliation needed before sync-phase closes** (routed to the parent orchestrator, not actioned by this session — outside manager-lead's SPEC-body-edit authority): `manager-spec` should (a) correct `acceptance.md:223`'s wording per G1, (b) correct `research.md §2` / `plan.md` M6's file-count claims to the true footprint per G2 and consider why 3 undercounts happened, (c) no action needed for G3. None of this blocks the code from merging — the code and tests are independently verified correct; only the SPEC's own bookkeeping needs a pass.
 
-manager-lead dispatched a leaf worker for M1 (schema + migration). Implementation is complete and internally verified (AC-ORDER-050/051/053 PASS with evidence — see below), but the local pre-commit quality gate (`moai gate`, invoked by `.git/hooks/pre-commit`) blocks the commit on 18 test failures. HEAD is unchanged at `4613f6a440ddb6aa7aa2c658981cbbb4591869eb`. Staged (uncommitted):
+**(historical — see "M1 — CLOSED" above / see §E.4 for final sync-phase status)** manager-lead dispatched a leaf worker for M1 (schema + migration). Implementation is complete and internally verified (AC-ORDER-050/051/053 PASS with evidence — see below), but the local pre-commit quality gate (`moai gate`, invoked by `.git/hooks/pre-commit`) blocks the commit on 18 test failures. HEAD is unchanged at `4613f6a440ddb6aa7aa2c658981cbbb4591869eb`. Staged (uncommitted):
 
 ```
 M  .moai/specs/SPEC-ORDER-004/spec.md   (frontmatter status draft→in-progress, not yet landed)
@@ -244,7 +244,7 @@ AC-ORDER-052/061 (repository-level XOR, both directions), AC-ORDER-060 (member c
 
 ## §E.3 Run-phase Audit-Ready Signal
 
-_<pending run-phase>_
+run-phase completed — 실제 신호는 §E.2의 "RUN-PHASE COMPLETE" 절(all 7 milestones landed, final AC matrix 24/24 PASS)을 참조. 여기서는 내용을 중복하지 않는다.
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
