@@ -177,6 +177,20 @@ next_gate: run-phase (design phase D1-D5 완료 — code-based fallback, PROVISI
 
 _<pending run-phase>_
 
+## §F Phase 4 Mode Selection
+
+**Input parameters**: tier=L; scope≈? files across 9 milestones(M0-M8) — 브랜드 문자열 치환(M0), 정적 에셋(M1), 토큰(M2), SiteHeader 확장(M3), 제품 시드(M4), `/shop` 페이지(M5), `/bespoke`·`/story` 정적 페이지(M6), 사이즈 UI(M7), 검증 마감(M8); domain count=6(브랜드 문자열/에셋, 디자인 토큰, 내비게이션 컴포넌트, DB 시드, 카탈로그 화면, 정적 페이지); file language mix=TypeScript + CSS + seed 스크립트; concurrency benefit=LOW(마일스톤이 순차 의존적 — M2 토큰이 M3/M5 시각 요소의 전제, M4 시드가 M5 목록 페이지의 전제).
+
+**Mode evaluation**:
+- `direct` — 선택 안 함(범위 대폭 초과).
+- `fanout` — 선택 안 함(코딩 중심, Anthropic coding-task parallelism caveat).
+- `sweep` — 선택 안 함(9개 마일스톤이 서로 다른 6개 도메인의 각기 다른 변환 — 단일 균일 기계적 규칙 아님).
+- `serial`(manager-lead 조율) — **선택**. Tier L, 9마일스톤 ≥3, 파일 수 추정 15+ ≥10, 교차 도메인(토큰/내비/시드/화면/정적페이지) — manager-lead 진입 문턱 충족(orchestration-mode-selection.md §G.2). SPEC-ORDER-004(Tier L, 7마일스톤)와 유사하거나 더 큰 규모.
+
+**Decision: serial (manager-lead coordination)**
+
+**Justification**: Tier L, 9마일스톤의 순차 의존 체인(M2 토큰 → M3/M5 시각 요소, M4 시드 → M5 목록)과 6개 교차 도메인 특성상 manager-lead의 마일스톤 경계 컨텍스트 폴딩이 적합하다. design phase가 PROVISIONAL로 표시한 7건(design.md §8.3)을 모든 마일스톤 위임에 일관되게 전달해야 하므로, 단일 오케스트레이터가 아니라 manager-lead가 중앙에서 그 목록을 각 리프 워커에 전파하는 편이 안전하다.
+
 ---
 
 ## §E.3 Run-phase Audit-Ready Signal
