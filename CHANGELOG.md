@@ -4,6 +4,16 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+### 수정 — SPEC-DESIGN-002: `--color-neutral-600` WCAG AA 명도 대비 교정
+
+**`--color-neutral-600`을 `#7a7a7a`에서 `#6b6b6b`으로 교정했다.** 사이트 기본 배경 `--color-bg`(`#f2f2f2`) 위에서 명도 대비가 **3.834:1 → 4.760:1**로 올라가 WCAG 2.1 AA 일반 텍스트 기준(4.5:1)을 충족한다. 변경 파일은 `src/app/globals.css` 하나이며, 값 1개 + 이탈 근거 주석뿐이다(Tier M, REQ-DESIGN2-001~007, AC-001~006 6개 전부 PASS).
+
+- **소비처 `.tsx` 파일은 한 건도 수정하지 않았다.** `text-neutral-600` 사용처 36건(17개 파일)은 Tailwind 유틸리티를 통해 CSS 변수를 간접 참조하므로 `@theme` 정의 한 곳만 바꾸면 전부 자동 반영된다(AC-006이 `.tsx` 무수정을 직접 검증).
+- **SPEC-BRAND-001 REQ-BRAND-008로부터의 의도적 이탈이며, 그 사실을 코드 옆에 기록했다.** 현행 그레이스케일 팔레트는 SPEC-BRAND-001이 의도적으로 저작한 값이므로 이 교정은 "실수 되돌리기"가 아니다. 이탈 사유(WCAG AA)·근거 SPEC ID·교정 전후 대비 수치를 담은 주석을 선언 바로 앞에 삽입했다(AC-004).
+- **`#6b6b6b`을 고른 이유는 세 가지 제약을 동시에 만족하기 때문.** 완전 achromatic(R=G=B), `neutral-500`(#989898)과 `neutral-700`(#5e5e5e) 사이에서 램프 휘도 단조성 유지(AC-005로 9단계 전 구간 재계산 확인), 그리고 같은 블록의 `--color-accent-500`으로 이미 존재해 새 색을 도입하지 않는다. `#5e5e5e`는 대비가 더 여유롭지만 `neutral-700`과 값이 충돌해 채택하지 않았다.
+- **알려진 한계**: `#6b6b6b`은 `--color-surface`(`#e9e9e9`) 위에서 4.389:1로 AA에 미달한다. 다만 `bg-surface` 소비처 2곳(`SiteHeader.tsx`, `ProductCard.tsx`) 모두 `neutral-600`을 쓰지 않아 현재 코드에서 도달 불가능한 조합이며, AC-005(c)가 이 회귀를 감시한다.
+- **후속 카드 4건 권고(이 SPEC의 완료 조건 아님)**: `.moai/design/tokens.json` 전면 재동기화 · `globals.css` 상단 주석을 SPEC-BRAND-001 계보로 재작성 · `text-neutral-500` 소비처 17개 지점 교체(측정 결과 2.577:1로 AA 미달) · SPEC-BRAND-001 amendment 검토.
+
 ### 추가 — SPEC-BRAND-001: "OUR" 수제화 브랜드 전환 — 브랜드 아이덴티티·내비게이션·신규 페이지
 
 **사이트 전체를 "our-shop"에서 "OUR" 수제화 브랜드로 전환했다.** 문자열 치환(제목·설명·`package.json` name 필드)뿐 아니라 정적 브랜드 자산 파이프라인, 그레이스케일 디자인 토큰 재조정, 헤더 내비게이션 확장, 제품 시드 데이터, 신규 화면 3개(`/shop`, `/bespoke`, `/story`), 표시 전용 사이즈 셀렉터까지 25개 요구사항(REQ-BRAND-001~025)·25개 인수 기준(AC-BRAND-001~025) 전부를 포함하는 Tier L SPEC이다(plan → design → run Conditional Design Route, M0~M8 9개 마일스톤 + 별도 DesignSync 보정 사이클).
