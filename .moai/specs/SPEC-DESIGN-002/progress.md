@@ -240,7 +240,7 @@ e2e/*.spec.ts, e2e/support/*.ts, playwright.config.ts — 28건, 전부 `@playwr
 
 ```yaml
 sync_complete_at: 2026-09-07T11:40:00+0900
-sync_commit_sha: pending-backfill-commit-cannot-reference-own-sha
+sync_commit_sha: 36d727e
 sync_status: audit-ready
 b12_self_test_a: "grep -c 'SPEC-DESIGN-002' CHANGELOG.md → 0 (중복 없음, 신규 항목 추가 진행)"
 b12_self_test_b: "grep -oE 'AC-([A-Z0-9]+-)*[0-9]+' acceptance.md | sort -u | wc -l → 6 (AC-001..AC-006). CHANGELOG 항목이 명시한 'AC-001~006 6개'와 일치"
@@ -290,6 +290,6 @@ canary_compliance_check: "해당 없음 — 이 SPEC은 자기 자신을 sync에
 **미검증 (Gaps)**: sync-phase에서 빌드·린트·테스트를 재실행하지 않았다 — 이 커밋의 diff는 마크다운 3개 파일(CHANGELOG.md, progress.md, spec.md frontmatter)이며 실행 코드를 포함하지 않는다. 실행 코드에 대한 게이트 증적은 §E.2에 있다. 독립 sync-audit(sync-auditor)은 이 에이전트가 수행하지 않았다.
 
 **잔여 위험**:
-1. `sync_commit_sha`가 placeholder다. 이 커밋 직후 후속 커밋으로 실제 SHA를 backfill해야 한다(§E.3의 `fd68373` backfill과 동일 패턴).
+1. `sync_commit_sha`는 sync 커밋 직후 후속 커밋으로 backfill 완료(`36d727e`).  §E.3의 `fd68373` backfill과 동일 패턴.
 2. `.moai/design/tokens.json`은 여전히 BRAND-001 이전 Classical 팔레트를 담고 있다(런타임 소비처 0건). 범위 제외 결정대로 손대지 않았으며 후속 카드 권고 1번이 해소한다.
 3. `README.md:386`의 "값은 plan.md §D.1에 바이트 단위로 전사되어 있다"는 서술은 SPEC-BRAND-001 이후 이미 거짓이지만, 이는 이 SPEC이 만든 이탈이 아니라 사전 존재 상태이며 `globals.css` 상단 주석과 같은 원인이다. 후속 카드 권고 2번의 범위에 포함된다.
