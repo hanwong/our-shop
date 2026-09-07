@@ -4,12 +4,9 @@ import Link from "next/link";
 /**
  * SPEC-BRAND-001 M1 — the brand logo, wrapped in a home link.
  *
- * The rendered asset is a code-based-fallback placeholder, not a design-
- * confirmed asset: design.md §8.3 lists `logo_mono_black.png` as PROVISIONAL
- * (pixel content unverified — the filename choice rests on naming-safety
- * inference, not on an actual review of the live Claude Design source). A
- * future re-confirmation pass replaces this file once DesignSync access is
- * restored; see design.md §2.3 for the full rationale.
+ * The rendered asset (`logo_mono_black.png`) was pixel-verified against the
+ * live Claude Design source during a sync-phase correction cycle — see
+ * design.md §2.3/§8.3 item 1 (CONFIRMED). No code change was needed.
  *
  * This component only renders the asset via next/image; it is not yet wired
  * into SiteHeader (that wiring is SPEC-BRAND-001 M3's job).

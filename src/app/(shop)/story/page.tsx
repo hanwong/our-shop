@@ -10,11 +10,10 @@ import type { Metadata } from "next";
  * re-query — it replaces the earlier PROVISIONAL carefully-authored
  * substitute copy (design.md §8.3 item 4, now resolved).
  *
- * Note: this source states the size range as "240–330mm", which conflicts
- * with /bespoke's REQ-BRAND-017/AC-BRAND-018-locked "285mm부터 330mm까지"
- * wording — see design.md §2.5 for the reconciliation note (unresolved,
- * left to a SPEC-body-owning follow-up; /bespoke intentionally NOT changed
- * here, see this SPEC's progress.md correction-cycle entry).
+ * Note: this source states the size range as "240–330mm" — the whole
+ * product line's general range, distinct from /bespoke's REQ-BRAND-017/
+ * AC-BRAND-018-locked "285mm부터 330mm까지" (the bespoke-only extended-size
+ * subset). Not a conflict — see design.md §2.5 for the reconciliation.
  *
  * Single-flow prose layout, no callout block (design.md §3.4) — distinct
  * from /bespoke's structured spec list. No form, no submit button, no cart
