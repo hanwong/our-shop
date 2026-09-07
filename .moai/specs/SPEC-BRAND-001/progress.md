@@ -334,7 +334,7 @@ deliberately **not modified** (see item 3).
 ```yaml
 sync_status: completed
 sync_complete_at: 2026-09-07
-sync_commit_sha: 8c0ebd338e6bc49cf49943960ee93408ae9e74c3
+sync_commit_sha: c9fec206a37e789a65d74b874ff5b56b2e223dba
 sync_audit_verdict: PASS-WITH-DEBT
 sync_audit_score: 90.3/100
 sync_audit_dimension_scores:
