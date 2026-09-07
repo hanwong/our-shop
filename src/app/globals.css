@@ -50,7 +50,13 @@
   --color-accent-2: #2b2b2b;
   --color-divider: color-mix(in srgb, #1f1f1f 16%, transparent);
   --color-neutral-100: #f5f5f5; --color-neutral-200: #e8e8e8; --color-neutral-300: #d4d4d4;
-  --color-neutral-400: #b7b7b7; --color-neutral-500: #989898; --color-neutral-600: #7a7a7a;
+  /* SPEC-DESIGN-002 (2026-09-07) — --color-neutral-600 corrected to #6b6b6b.
+   * The retired value scored 3.834 contrast against --color-bg (#f2f2f2),
+   * below the WCAG AA 4.5:1 text threshold; #6b6b6b scores 4.760. This
+   * deviates from SPEC-BRAND-001 REQ-BRAND-008's retired-literal mandate —
+   * see that SPEC's acceptance.md:69 / research.md:147 for the superseded
+   * record. */
+  --color-neutral-400: #b7b7b7; --color-neutral-500: #989898; --color-neutral-600: #6b6b6b;
   --color-neutral-700: #5e5e5e; --color-neutral-800: #424242; --color-neutral-900: #2b2b2b;
   --color-accent-100: #f5f5f5; --color-accent-200: #e8e8e8; --color-accent-300: #d4d4d4;
   --color-accent-400: #989898; --color-accent-500: #6b6b6b; --color-accent-600: #4a4a4a;

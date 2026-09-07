@@ -2,7 +2,7 @@
 id: SPEC-DESIGN-002
 title: "neutral-600 WCAG AA 명도 대비 확보 (단일 토큰 값 교정)"
 version: "0.1.0"
-status: draft
+status: in-progress
 created: 2026-09-07
 updated: 2026-09-07
 author: snake
