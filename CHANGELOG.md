@@ -4,6 +4,19 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+### 수정 — SPEC-DESIGN-003: `text-neutral-500` 소비처 17개 지점을 `text-neutral-600`으로 교체 (WCAG AA 확보)
+
+**본문 텍스트로 렌더되던 `text-neutral-500` 17개 지점을 전부 `text-neutral-600`으로 교체했다.** `--color-neutral-500`(`#989898`)은 사이트 기본 배경 `--color-bg`(`#f2f2f2`) 위에서 명도 대비가 **2.577:1**로 WCAG 2.1 AA 일반 텍스트 기준(4.5:1)에 크게 미달했다. 교체 후 대비는 지점이 실제로 렌더되는 배경에 따라 **4.760:1**(`#f2f2f2` 위 15건) 또는 **4.888:1**(`bg-neutral-100` `#f5f5f5` 위 2건)로 올라간다. 변경 파일은 `.tsx` 10개, 변경 행은 17행이다(Tier M, REQ-DESIGN3-001~007, AC-001~009 9개 전부 PASS).
+
+- **토큰 값은 한 바이트도 건드리지 않았다 — 소비처 교체(consumer swap)다.** `src/app/globals.css`의 `@theme` 블록은 무변경이며 `--color-neutral-500: #989898`이 그대로 보존된다(AC-004가 직접 검증). 토큰 값을 낮추는 대안은 SPEC-DESIGN-002 §3이 이미 두 근거로 기각했다: `#989898`은 SPEC-BRAND-001 REQ-BRAND-008이 의도적으로 저작한 브랜드 값이고, 값을 낮추면 `neutral-400`·`neutral-600` 양쪽에 대한 램프 간격·단조성을 재계산해야 한다.
+- **17개 지점이 정말 같은 배경 위에 렌더되는지 전수 확인한 뒤 균일 교체했다.** 저장소 전체 `bg-*` 인벤토리를 떠서 지점별 실효 배경을 판정했고, `text-neutral-700`으로 올려야 하는 지점은 **0건**이었다. `ProductCard.tsx`만이 `bg-surface`(`#e9e9e9`, `neutral-600` 기준 4.389:1로 AA 미달)를 조상으로 갖지만, 해당 요소가 자기 자신의 불투명 `bg-neutral-100`을 선언해 조상 배경을 가리므로 안전하다.
+- **diff가 토큰 치환뿐임을 기계적으로 증명했다.** 제거된 17행에 `text-neutral-500`→`text-neutral-600` 치환을 적용한 결과가 추가된 17행과 바이트 단위로 일치한다(AC-005). 공백·클래스 순서·주석·마크업 구조·컴포넌트 로직은 한 건도 바뀌지 않았다.
+- **품질 게이트 회귀 0건.** `eslint .` 클린, `npm test` 130개 파일·1665개 테스트 전원 통과. `npm run typecheck`의 41건은 `e2e/`·`playwright.config.ts`의 `@playwright/test` 타입 선언 누락으로, baseline 커밋 `5b2881e`를 직접 체크아웃해 재측정한 결과 교체 전후 오류 집합이 바이트 단위로 동일했다(`src/` 신규 오류 0건).
+- **알려진 결과 — 시각적 텍스트 계층이 5단계에서 4단계로 병합된다.** 램프에 `neutral-500`과 `neutral-600` 사이 AA를 통과하는 중간 단계가 없으므로 불가피하다. 3차 보조 정보(단가×수량, 힌트, 요청사항)와 정의 목록 레이블이 이제 같은 색이다.
+- **알려진 결과 — SPEC-DESIGN-002 AC-005(c)가 이 SPEC에 의해 무효화된다.** 그 검사는 **파일 단위** grep이라 `ProductCard.tsx`에 `bg-surface`와 `neutral-600`이 공존하는 순간 매치한다. 실제 대비 결함이 아니라 검사 입도의 문제이며, SPEC-DESIGN-002는 `completed`이므로 소급 수정하지 않았다. 이 SPEC의 AC-007이 **요소/행 입도**의 대체 검사로 감시 의도를 계승한다.
+- **SPEC-DESIGN-002 §4.1 후속 카드 권고 4건 중 3번을 해소했다.** 미해소로 남는 3건: 1번 `.moai/design/tokens.json` 전면 재동기화 · 2번 `globals.css` 상단 주석을 SPEC-BRAND-001 계보로 재작성 · 4번 SPEC-BRAND-001 amendment 검토. 이 SPEC의 범위 밖이며 별도 카드가 필요하다.
+- **이 SPEC이 새로 권고하는 후속 카드 1건**: `text-neutral-500` 재도입을 기계적으로 막는 장치(ESLint 규칙 또는 CI 가드)가 없다. 색상 유틸리티 사용 규율의 기계적 강제를 별도 카드로 권고한다.
+
 ### 수정 — SPEC-DESIGN-002: `--color-neutral-600` WCAG AA 명도 대비 교정
 
 **`--color-neutral-600`을 `#7a7a7a`에서 `#6b6b6b`으로 교정했다.** 사이트 기본 배경 `--color-bg`(`#f2f2f2`) 위에서 명도 대비가 **3.834:1 → 4.760:1**로 올라가 WCAG 2.1 AA 일반 텍스트 기준(4.5:1)을 충족한다. 변경 파일은 `src/app/globals.css` 하나이며, 값 1개 + 이탈 근거 주석뿐이다(Tier M, REQ-DESIGN2-001~007, AC-001~006 6개 전부 PASS).

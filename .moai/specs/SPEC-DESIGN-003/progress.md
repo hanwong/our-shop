@@ -602,4 +602,68 @@ blocker: null
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+sync_status: audit-ready
+sync_complete_at: 2026-09-07
+sync_commit_sha: pending-backfill-self-referential-sha
+sync_branch: WT-neutral-500-contrast
+b12_self_test_a: PASS   # grep -c 'SPEC-DESIGN-003' CHANGELOG.md → 0 (교체 전, 중복 없음)
+b12_self_test_b: PASS   # acceptance.md DISTINCT AC id 9건 == CHANGELOG 기재 «AC-001~009 9개»
+b12_self_test_c: PASS   # CHANGELOG가 인용한 경로 실재 확인 (ls src/app/globals.css src/components/product/ProductCard.tsx)
+changelog_entry_position: "[Unreleased] 최상단 — SPEC-DESIGN-002 항목 바로 위"
+docs_site_sweep: none-exists          # docs/ · docs-site/ · website/ 디렉터리 부재 확인
+readme_updated: false                 # README에 text-neutral-500 사용 패턴 언급 0건
+frontmatter_status_transitions:
+  spec_md: "in-progress → completed"
+  plan_md: n/a                        # 이 SPEC의 plan.md·acceptance.md는 frontmatter를 갖지 않는다
+  acceptance_md: n/a
+pr_required: true                     # 브랜치 보호 실측(enforce_admins:true + required_status_checks)
+pr_owner: manager-git                 # sync 커밋 이후 manager-git이 push + PR 생성
+blocker: null
+```
+
+**`sync_commit_sha` 플레이스홀더 사유**: 커밋은 자기 자신의 해시를 알 수 없으므로 sync 커밋 안에서 이 필드를 채울 수 없다. 이 SPEC의 §E.3에서 이미 두 차례 사용된 것과 같은 패턴(`bdf3e49` · `dab4cd9`)으로, sync 커밋 직후 별도 backfill 커밋에서 실제 SHA로 교체한다.
+
+**이 SPEC은 PR 경로로 닫힌다.** `main` 브랜치 보호 규칙을 실제로 조회한 결과 `enforce_admins: true` + `required_status_checks`가 걸려 있어 직접 push가 불가능하며, 이는 Tier와 무관하게 이 저장소의 모든 카드에 적용된다. sync 커밋 이후 `manager-git`이 push와 PR 생성을 담당한다.
+
+### sync-phase에서 실제 실행한 검증
+
+```
+$ grep -c 'SPEC-DESIGN-003' CHANGELOG.md
+0                     ← 교체 전 상태. 중복 항목 없음이 확인되어 신규 항목을 작성했다
+
+$ grep -oE 'AC-([A-Z0-9]+-)*[0-9]+' .moai/specs/SPEC-DESIGN-003/acceptance.md | sort -u | wc -l
+9                     ← AC-001 … AC-009. 0이 아니므로 유효한 측정이며, CHANGELOG 문구와 일치
+
+$ ls src/app/globals.css src/components/product/ProductCard.tsx
+src/app/globals.css
+src/components/product/ProductCard.tsx
+
+$ ls -d docs docs-site website 2>/dev/null
+(출력 없음)           ← docs-site 부재. SPEC-DESIGN-002 sync 시점의 판정이 여전히 유효함을 추정이 아니라 실행으로 확인했다
+
+$ grep -rn "text-neutral-500" --include="*.md" --include="*.json" . \
+    --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.moai --exclude-dir=.claude
+./CHANGELOG.md:15:  (SPEC-DESIGN-002 항목의 후속 카드 권고 3번 — 역사적 기록이므로 수정 대상 아님)
+
+$ git diff 5b2881e --name-only -- src/app/globals.css
+(출력 없음)           ← 토큰 무변경이 sync 시점에도 유지됨
+```
+
+### 완료 보고 필수 항목 (acceptance.md §D.3 마지막 세 항목)
+
+1. **SPEC-DESIGN-002 AC-005(c) 무효화 명시** — §E.3 말미 + CHANGELOG 본문에 기록했다. 대체 검사는 이 SPEC의 AC-007(요소/행 입도)이며, SPEC-DESIGN-002는 `completed`이므로 소급 수정하지 않았다.
+2. **미해소로 남는 후속 카드 3건** — SPEC-DESIGN-002 §4.1 권고 1번(`.moai/design/tokens.json` 재동기화) · 2번(`globals.css` 헤더 주석 재작성) · 4번(SPEC-BRAND-001 amendment 검토). 이 카드는 3번만 해소한다.
+3. **이 SPEC이 새로 권고하는 후속 카드 1건** — `text-neutral-500` 재도입을 기계적으로 차단하는 ESLint 규칙 또는 CI 가드. spec.md §4 `### Out of Scope — 회귀 방지 린트 규칙 도입`의 전방 포인터에 대응한다.
+
+### 미검증 (Gaps)
+
+- **sync-phase에서 lint·typecheck·test를 재실행하지 않았다.** 이 phase의 변경은 `CHANGELOG.md`·`progress.md`·`spec.md` frontmatter 문서 3종뿐이며 실행 코드를 건드리지 않는다. 코드 품질 판정은 §E.2 AC-009의 run-phase 실측이 근거다.
+- **독립 sync-audit(`sync-auditor`)을 이 세션이 수행하지 않았다.** 이 에이전트는 `Agent` 도구를 갖지 않아 스스로 스폰할 수 없다 — 오케스트레이터의 위임 사항이다.
+- **PR 생성·push를 수행하지 않았다.** 지시대로 커밋까지만 진행했으며 `manager-git`이 이어받는다.
+
+### 잔여 위험
+
+1. `sync_commit_sha`가 플레이스홀더 상태로 남아 있다. backfill 커밋이 누락되면 `moai spec audit`의 V3R6 판정이 성립하지 않는다.
+2. `#6b6b6b` on `#f2f2f2` = 4.760:1의 AA 여유가 0.26뿐이다(§E.2 잔여 위험 1). 배경 토큰이 어두워지면 15개 지점이 한꺼번에 미달로 돌아선다.
+3. `text-neutral-500` 재도입을 막는 기계적 장치가 여전히 없다(위 후속 카드 권고 대상).
