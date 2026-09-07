@@ -84,7 +84,7 @@ export function OrderSummary({
                 <p className="truncate text-sm font-medium text-neutral-900">{item.name}</p>
                 {/* The unit price is shown next to the quantity so the line total
                     below is checkable by eye rather than taken on trust. */}
-                <p className="mt-1 text-xs text-neutral-500">
+                <p className="mt-1 text-xs text-neutral-600">
                   {formatWon(item.price)} × {item.quantity}개
                 </p>
                 {notice === null ? null : (

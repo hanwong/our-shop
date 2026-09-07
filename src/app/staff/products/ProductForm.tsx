@@ -261,7 +261,7 @@ export function ProductForm({ mode, categories, product }: ProductFormProps) {
             here (that would split the concurrency model across the two write
             paths), so telling the admin is the whole mitigation.
           */}
-          <p id="stock-hint" className="mt-1 text-xs text-neutral-500">
+          <p id="stock-hint" className="mt-1 text-xs text-neutral-600">
             저장 시 이 값으로 덮어씁니다. 그 사이 주문 취소로 복원된 재고가 있다면 함께 덮어써집니다.
           </p>
           {fieldError("stock")}
@@ -285,7 +285,7 @@ export function ProductForm({ mode, categories, product }: ProductFormProps) {
             upload pipeline and no storage dependency. Array order is display
             order, so add/remove is enough and reordering is out of scope.
           */}
-          <p className="mt-1 text-xs text-neutral-500">
+          <p className="mt-1 text-xs text-neutral-600">
             이미 업로드된 이미지의 절대 URL을 붙여 넣으세요. 입력 순서가 표시 순서입니다.
           </p>
           {images.map((url, index) => (
@@ -338,7 +338,7 @@ export function ProductForm({ mode, categories, product }: ProductFormProps) {
       {mode === "edit" && product ? (
         <section className="mt-12 border-t border-neutral-200 pt-6">
           <h2 className="text-sm font-medium text-neutral-700">판매 상태</h2>
-          <p className="mt-1 text-xs text-neutral-500">
+          <p className="mt-1 text-xs text-neutral-600">
             {isActive
               ? "판매를 중단하면 고객 목록과 상세 화면에서 사라집니다. 상품과 주문 내역은 삭제되지 않습니다."
               : "판매를 재개하면 고객 목록과 상세 화면에 다시 표시됩니다."}
