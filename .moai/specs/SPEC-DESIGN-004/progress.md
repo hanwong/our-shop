@@ -656,4 +656,30 @@ next_action: "sync-phase 진입 — manager-docs가 in-progress → implemented 
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+sync_status: audit-ready
+sync_complete_at: 2026-09-07
+sync_commit_sha: pending-backfill-commit-cannot-reference-own-sha
+sync_branch: WT-design-token-docs-sync
+b12_self_test_a: "grep -c 'SPEC-DESIGN-004' CHANGELOG.md → 0 (중복 없음, 신규 항목 추가 진행)"
+b12_self_test_b: "AC 식별자 distinct 수 10 (acceptance.md SSOT) == CHANGELOG 기재 «AC-001~010 10개 전부 PASS» — 일치"
+b12_self_test_c: "CHANGELOG가 지목한 경로 3개 전부 실재 확인 (.moai/design/tokens.json · src/app/globals.css · .moai/specs/SPEC-DESIGN-001/plan.md)"
+changelog_entry_position: "[Unreleased] 최상단 — 자매 카드 SPEC-DESIGN-003 · -002 항목 바로 위"
+docs_site_sweep: "none-found"                # docs/ · docs-site/ · website/ · mkdocs.yml · docusaurus.config.* · astro.config.* 전부 부재 — SPEC-DESIGN-002/-003 sync 결과와 동일함을 재측정으로 확인(가정 아님)
+readme_updated: false                        # README.md §「공통 디자인 토큰 체계」에 동종 허위 주장이 있으나 AC-010 변경파일 3개 가드 밖 — 후속 카드로 권고(CHANGELOG 기재)
+frontmatter_status_transitions:
+  spec_md: "in-progress → completed"         # updated: 2026-09-07
+  plan_md: "draft (무변경)"                   # 이 SPEC의 plan.md/acceptance.md는 status 필드를 lifecycle 전이 대상으로 쓰지 않음
+  acceptance_md: "(status 필드 없음)"
+canary_compliance_check:
+  applicable: false                          # 이 SPEC은 자기 자신이 sync에서 검증할 전방 정책을 정의하지 않는다
+pr_policy: "PR 필수 — 브랜치 보호(enforce_admins:true + required_status_checks) 적용. sync 커밋 이후 manager-git이 push + PR 생성."
+blocker: null
+next_action: "manager-git이 이 브랜치를 push하고 PR 생성 → sync-auditor 독립 감사"
+```
+
+**상태 전이 기록**: 이 sync 커밋이 `spec.md` frontmatter의 `in-progress → implemented → completed` 전이를 단일 커밋으로 수행한다(`spec-frontmatter-schema.md` § Status Transition Ownership Matrix — `completed` 전이는 별도 Mx 커밋이 아니라 sync 커밋에 병합된다). 본문(§1~§5)은 한 글자도 수정하지 않았다.
+
+**범위 준수 기록**: `.moai/specs/SPEC-DESIGN-001/`은 이 sync-phase에서 한 건도 건드리지 않았다 — 그 SPEC의 §D.1 표기는 run-phase M3에서 완료되었고 `status: completed`는 그대로 유지된다. `tokens.json` · `globals.css` · `.tsx` 파일도 무변경이다.
+
+**미검증으로 남는 것 (Gaps)**: (a) `sync_commit_sha`는 이 커밋 자신의 해시라 커밋 시점에 알 수 없어 자리표시자를 남겼고 후속 커밋에서 backfill한다. (b) 이 sync-phase는 lint·typecheck·test를 재실행하지 않았다 — §E.2가 M3 트리(`eef14af`)에서 실측한 결과를 근거로 삼으며, 이 sync 커밋은 `CHANGELOG.md`와 SPEC 산출물만 건드리므로 코드 경로에 영향이 없다. (c) sync-auditor 독립 감사는 아직 수행되지 않았다.

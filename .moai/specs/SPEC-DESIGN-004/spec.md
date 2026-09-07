@@ -2,7 +2,7 @@
 id: SPEC-DESIGN-004
 title: "디자인 토큰 문서 드리프트 정리 — tokens.json 재동기화 · globals.css 헤더 주석 재작성 · SPEC-DESIGN-001 §D.1 초과 표기"
 version: "0.1.0"
-status: in-progress
+status: completed
 created: 2026-09-07
 updated: 2026-09-07
 author: snake

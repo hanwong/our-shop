@@ -4,6 +4,22 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+### 수정 — SPEC-DESIGN-004: 디자인 토큰 문서 드리프트 정리 (tokens.json 재동기화 · globals.css 헤더 주석 교정 · SPEC-DESIGN-001 §D.1 초과 표기)
+
+**출시 상태와 어긋난 채 «자신이 현재의 진실»이라고 주장하던 문서 3건을 코드에 맞춰 정리했다.** SPEC-BRAND-001의 팔레트 전면 교체(`b1c2862`) 이후 남아 있던 문서 드리프트를 한 장으로 묶어 해소한 것으로, SPEC-DESIGN-002 §4.1 후속 카드 권고 4건 중 **1번(`tokens.json` 전면 재동기화)과 2번(`globals.css` 상단 주석 재작성)**을 해소하고, 여기에 이 SPEC의 plan-phase가 새로 발견한 **SPEC-DESIGN-001 §D.1 초과 표기**를 더했다. 변경 파일은 정확히 3개이며 **CSS 커스텀 프로퍼티 값은 한 바이트도 바뀌지 않았다**(Tier M, REQ-DESIGN4-001~010, AC-001~010 10개 전부 PASS).
+
+- **`.moai/design/tokens.json` — 39개 토큰 중 29개를 출시 `@theme` 값으로 재동기화했다.** 색 24개 전부, 그림자 3개, 폰트 2개가 SPEC-DESIGN-001 시점의 Classical 팔레트 그대로 남아 있었다. 간격 6개·반경 3개·`font-heading-weight` 1개는 이미 일치해 손대지 않았다. 기계적 대조 스크립트가 `shippedKeys=39 / checked=39 / mismatch=0`을 출력해 확인했다(재동기화 전 같은 스크립트는 `mismatch=29`였다).
+- **재동기화의 원천은 어떤 SPEC 문서도 아닌 `src/app/globals.css` `@theme` 블록 자신이다.** SPEC-BRAND-001 문서에서 값을 가져오면 `--color-neutral-600`이 틀린다 — 그 값은 BRAND-001의 리터럴 `#7a7a7a`가 아니라 SPEC-DESIGN-002가 WCAG AA를 위해 교정한 `#6b6b6b`이다. 현재 값의 계보는 BRAND-001 기반 + DESIGN-002 보정 + 카드 t51의 폰트 조달 방식 전환(`next/font` 변수 참조)으로 세 겹이며, 단일 SSOT 문서를 지목할 수 없다.
+- **`src/app/globals.css` 헤더 주석은 전면 폐기가 아니라 선별 교정이다.** 10개 문단 중 거짓 3개(§D.1을 SSOT로 지목 · "plan.md §D.1과 바이트 단위로 동일" · "Classical의 따뜻한 회색")만 교정하고, 지금도 참인 7개(STOREFRONT-001 대체 사실 · Tailwind v4 `@theme` 네임스페이스 규약 · `--radius-md` 오버라이드 경고 · `--space-*`가 Tailwind 예약 `--spacing-*`를 회피한 근거)는 그대로 보존했다. 마지막 항목을 지웠다면 장래에 «이름을 통일하자»는 판단으로 사이트 전역 간격이 깨질 수 있었다.
+- **`@theme` 블록은 바이트 단위로 무변경이다.** baseline `cfbd320`의 `@theme` 선언 행부터 EOF까지(98행)와 현재 파일의 같은 구간을 `diff`한 결과가 무출력·`exit=0`이다. 이 한 검사가 토큰 값 39개·기존 인라인 주석 2군·`.plate`/`body`/제목 규칙의 무변경을 동시에 보증하며, 브라우저 렌더 확인을 생략한 근거이기도 하다.
+- **`globals.css` 원문 텍스트를 문자열로 읽는 테스트가 3개 있어 주석 산문 자체가 위험이었다.** `shell.test.tsx`(1행이 `@import "tailwindcss";`여야 함) · `design-tokens-grayscale.test.ts`(파일 전역 `accent-2-` 0건) · `typography-cascade.test.tsx`(첫 `body {` 매치가 실제 규칙이어야 함). 세 제약을 재작성 후 재검사하고 세 파일 17개 테스트를 실제 실행해 전원 통과를 확인했다. 실패했다면 원인이 «값»이 아니라 «주석 텍스트»라는 점이 진단을 어렵게 했을 것이다.
+- **`.moai/specs/SPEC-DESIGN-001/plan.md` §D.1에는 12행짜리 초과(SUPERSEDED) 표기를 삽입했다 — 개정이 아니라 순수 추가다.** 삭제된 행 0건, frontmatter 무변경, §D.1 표제 행 무변경(다른 문서들이 «§D.1»을 앵커로 참조한다), SPEC-DESIGN-001의 `status`는 `completed` 그대로다. 표기 텍스트는 이 SPEC의 plan-phase에 축자로 확정되어 plan-audit 검토를 받았고, 삽입은 소유권 경계에 따라 `manager-spec`이 별도 커밋으로 수행했다.
+- **품질 게이트 회귀 0건.** `eslint .` 클린, `npm test` 130개 파일·1665개 테스트 전원 통과, `npm run typecheck`의 `src/` 신규 오류 0건(총 41건은 `e2e/`·`playwright.config.ts`의 `@playwright/test` 미설치에서 오는 baseline으로, SPEC-DESIGN-003이 실측한 41건과 정확히 일치한다). `.tsx` 파일은 한 건도 건드리지 않았다.
+- **`tokens.json`의 런타임 소비처는 측정 결과 0건이지만 사문(死文)은 아니다.** 저장소 전역 15건은 전부 문서 참조이며 `src/`·`package.json` `scripts` 어느 경로도 이 파일을 읽지 않는다. 다만 이 경로는 MoAI 하니스가 design-phase 산출물로 **예약한 경로**이므로, 두 세대 뒤처진 팔레트를 담고 있는 상태는 대기 중인 결함이었다. 이것이 이 카드의 가치 근거다.
+- **미해소로 남는 후속 카드 3건**: (1) `globals.css` `@theme` 블록 **내부** 주석에 같은 성격의 주장이 한 곳 남는다 — 사용자가 지정한 «헤더 주석» 범위 밖이라 의도적으로 남겼고, 무변경은 오히려 AC-006이 보증한다. (2) `.moai/design/components.json` 재동기화 — 토큰 값이 아니라 컴포넌트 인벤토리라서 재측정 성격이 다르다. (3) SPEC-DESIGN-001 본문 전반 재조정(카드 t70) — 그 SPEC의 `plan.md` frontmatter가 `in-progress`로 `spec.md`의 `completed`와 어긋난 상태를 포함한다.
+- **이 SPEC이 새로 권고하는 후속 카드 1건**: `README.md`의 «공통 디자인 토큰 체계 (SPEC-DESIGN-001)» 절도 "값은 `plan.md` §D.1에 바이트 단위로 전사되어 있다"는 같은 성격의 주장을 담고 있다. 이 카드의 변경 파일 범위 가드(정확히 3개) 밖이라 손대지 않았으며 별도 카드를 권고한다.
+- **DesignSync 라이브 대조는 하지 않았다.** MCP 서버가 등록되어 있지 않음을 재측정으로 확인했고, `tokens.json`의 `live_reverification` 블록은 삭제하지 않고 관측 시점만 갱신했다.
+
 ### 수정 — SPEC-DESIGN-003: `text-neutral-500` 소비처 17개 지점을 `text-neutral-600`으로 교체 (WCAG AA 확보)
 
 **본문 텍스트로 렌더되던 `text-neutral-500` 17개 지점을 전부 `text-neutral-600`으로 교체했다.** `--color-neutral-500`(`#989898`)은 사이트 기본 배경 `--color-bg`(`#f2f2f2`) 위에서 명도 대비가 **2.577:1**로 WCAG 2.1 AA 일반 텍스트 기준(4.5:1)에 크게 미달했다. 교체 후 대비는 지점이 실제로 렌더되는 배경에 따라 **4.760:1**(`#f2f2f2` 위 15건) 또는 **4.888:1**(`bg-neutral-100` `#f5f5f5` 위 2건)로 올라간다. 변경 파일은 `.tsx` 10개, 변경 행은 17행이다(Tier M, REQ-DESIGN3-001~007, AC-001~009 9개 전부 PASS).
