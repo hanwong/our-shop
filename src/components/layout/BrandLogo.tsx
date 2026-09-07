@@ -8,8 +8,8 @@ import Link from "next/link";
  * live Claude Design source during a sync-phase correction cycle — see
  * design.md §2.3/§8.3 item 1 (CONFIRMED). No code change was needed.
  *
- * This component only renders the asset via next/image; it is not yet wired
- * into SiteHeader (that wiring is SPEC-BRAND-001 M3's job).
+ * This component renders the asset via next/image and is wired into
+ * SiteHeader (SPEC-BRAND-001 M3).
  */
 export function BrandLogo() {
   return (

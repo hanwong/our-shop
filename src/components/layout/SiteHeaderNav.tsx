@@ -39,7 +39,7 @@ export function SiteHeaderNav({ sessionBranch }: { sessionBranch: ReactNode }) {
         type="button"
         onClick={() => setOpen((prev) => !prev)}
         aria-expanded={open}
-        aria-label="메뉴 열기"
+        aria-label={open ? "메뉴 닫기" : "메뉴 열기"}
         className="text-text md:hidden"
       >
         ☰
