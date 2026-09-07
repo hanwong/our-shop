@@ -659,7 +659,7 @@ next_action: "sync-phase 진입 — manager-docs가 in-progress → implemented 
 ```yaml
 sync_status: audit-ready
 sync_complete_at: 2026-09-07
-sync_commit_sha: pending-backfill-commit-cannot-reference-own-sha
+sync_commit_sha: 9323633
 sync_branch: WT-design-token-docs-sync
 b12_self_test_a: "grep -c 'SPEC-DESIGN-004' CHANGELOG.md → 0 (중복 없음, 신규 항목 추가 진행)"
 b12_self_test_b: "AC 식별자 distinct 수 10 (acceptance.md SSOT) == CHANGELOG 기재 «AC-001~010 10개 전부 PASS» — 일치"
