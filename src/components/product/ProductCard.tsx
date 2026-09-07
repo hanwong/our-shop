@@ -49,7 +49,7 @@ export function ProductCard({
     >
       {image === undefined ? (
         <div
-          className="flex aspect-square w-full items-center justify-center bg-neutral-100 text-sm text-neutral-500"
+          className="flex aspect-square w-full items-center justify-center bg-neutral-100 text-sm text-neutral-600"
           data-testid="product-card-placeholder"
         >
           이미지 준비 중

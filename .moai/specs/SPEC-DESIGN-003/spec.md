@@ -2,7 +2,7 @@
 id: SPEC-DESIGN-003
 title: "text-neutral-500 소비처 17개 지점을 neutral-600으로 교체 (WCAG AA 확보)"
 version: "0.1.0"
-status: draft
+status: in-progress
 created: 2026-09-07
 updated: 2026-09-07
 author: snake
