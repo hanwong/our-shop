@@ -577,7 +577,7 @@ run_complete_at: 2026-09-07
 run_commits:
   m1: 274bf4e
   m2: 99e4b9a
-  m3: pending-backfill-progress-commit
+  m3: 3530adc
 run_branch: WT-neutral-500-contrast
 run_baseline_sha: 5b2881e061ed447ee9ff8589a764ec85c0855490
 ac_pass_count: 9
