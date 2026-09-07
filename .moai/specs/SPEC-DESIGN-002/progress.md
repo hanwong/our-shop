@@ -211,7 +211,7 @@ e2e/*.spec.ts, e2e/support/*.ts, playwright.config.ts — 28건, 전부 `@playwr
 
 **변경 파일**: `src/app/globals.css` (1개 파일, 값 1개 + 주석 6줄)
 
-**커밋**: M1 단일 마일스톤 — SHA는 §F 아래 기록 (Tier M 기본 Route A, PR 없이 main 직행)
+**커밋**: `fd68373` — `fix(SPEC-DESIGN-002): M1 correct --color-neutral-600 to #6b6b6b for WCAG AA` (M1 단일 마일스톤, Tier M 기본 Route A, PR 없이 main 직행 예정)
 
 ---
 
