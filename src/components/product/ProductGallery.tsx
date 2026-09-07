@@ -39,7 +39,7 @@ export function ProductGallery({
   if (selected === undefined) {
     return (
       <div
-        className="flex aspect-square w-full items-center justify-center rounded bg-neutral-100 text-sm text-neutral-500"
+        className="flex aspect-square w-full items-center justify-center rounded bg-neutral-100 text-sm text-neutral-600"
         data-testid="gallery-placeholder"
       >
         이미지 준비 중

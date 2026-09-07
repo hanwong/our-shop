@@ -119,7 +119,7 @@ export default async function CheckoutPage() {
       {/* REQ-ORDER-018's counterpart on the entry side: the shopper is told up
           front that submitting does not pay, so the completion screen's notice
           is not a surprise. Payment is a separate SPEC (spec.md §3). */}
-      <p className="mt-8 text-xs text-neutral-500">
+      <p className="mt-8 text-xs text-neutral-600">
         주문하기를 누르면 주문이 접수되며, 결제는 아직 진행되지 않습니다.
       </p>
     </main>

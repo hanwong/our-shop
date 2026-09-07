@@ -137,7 +137,7 @@ export function CartView({ initialCart }: { initialCart: CartDTO }) {
 
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-neutral-900">{item.name}</p>
-                <p className="mt-1 text-xs text-neutral-500">{formatWon(item.price)}</p>
+                <p className="mt-1 text-xs text-neutral-600">{formatWon(item.price)}</p>
               </div>
 
               <div className="md:w-32 md:shrink-0">
@@ -172,7 +172,7 @@ export function CartView({ initialCart }: { initialCart: CartDTO }) {
                   type="button"
                   aria-label={`${item.name} 삭제`}
                   onClick={() => deleteItem(item)}
-                  className="text-xs text-neutral-500 hover:text-red-600"
+                  className="text-xs text-neutral-600 hover:text-red-600"
                 >
                   삭제
                 </button>

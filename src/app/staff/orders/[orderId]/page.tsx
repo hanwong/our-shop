@@ -107,7 +107,7 @@ export default async function StaffOrderDetailPage({
             >
               <div className="min-w-0">
                 <p className="truncate font-medium text-neutral-900">{item.productName}</p>
-                <p className="mt-1 text-xs text-neutral-500">
+                <p className="mt-1 text-xs text-neutral-600">
                   {formatWon(item.unitPrice)} × {item.quantity}개
                 </p>
               </div>
@@ -144,7 +144,7 @@ export default async function StaffOrderDetailPage({
             ({order.shipping.postalCode}) {order.shipping.address}
           </p>
           {order.shipping.deliveryMemo ? (
-            <p className="text-neutral-500">요청사항: {order.shipping.deliveryMemo}</p>
+            <p className="text-neutral-600">요청사항: {order.shipping.deliveryMemo}</p>
           ) : null}
         </address>
       </section>

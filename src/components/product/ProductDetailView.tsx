@@ -69,7 +69,7 @@ export function ProductDetailView({
 
       <h1 className="mt-6 text-2xl font-semibold text-neutral-900">{product.name}</h1>
 
-      <p className="mt-2 text-sm text-neutral-500">{product.category.name}</p>
+      <p className="mt-2 text-sm text-neutral-600">{product.category.name}</p>
 
       <p className="mt-4 text-xl font-medium text-neutral-900">{formatWon(product.price)}</p>
 
@@ -121,7 +121,7 @@ export function ProductDetailView({
               <li key={review.id} className="border-b border-neutral-100 pb-4">
                 <p className="text-sm font-medium text-neutral-900">{review.rating}점</p>
                 <p className="mt-1 whitespace-pre-line text-sm text-neutral-800">{review.body}</p>
-                <p className="mt-1 text-xs text-neutral-500">
+                <p className="mt-1 text-xs text-neutral-600">
                   {new Date(review.createdAt).toLocaleDateString("ko-KR")}
                 </p>
               </li>
