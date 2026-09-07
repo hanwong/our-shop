@@ -605,7 +605,7 @@ blocker: null
 ```yaml
 sync_status: audit-ready
 sync_complete_at: 2026-09-07
-sync_commit_sha: pending-backfill-self-referential-sha
+sync_commit_sha: 4771437528d150f0eb61b20a6b5be51a782fd33e
 sync_branch: WT-neutral-500-contrast
 b12_self_test_a: PASS   # grep -c 'SPEC-DESIGN-003' CHANGELOG.md → 0 (교체 전, 중복 없음)
 b12_self_test_b: PASS   # acceptance.md DISTINCT AC id 9건 == CHANGELOG 기재 «AC-001~009 9개»
