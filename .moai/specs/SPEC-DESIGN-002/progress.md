@@ -211,7 +211,7 @@ e2e/*.spec.ts, e2e/support/*.ts, playwright.config.ts — 28건, 전부 `@playwr
 
 **변경 파일**: `src/app/globals.css` (1개 파일, 값 1개 + 주석 6줄)
 
-**커밋**: `fd68373` — `fix(SPEC-DESIGN-002): M1 correct --color-neutral-600 to #6b6b6b for WCAG AA` (M1 단일 마일스톤, Tier M 기본 Route A, PR 없이 main 직행 예정)
+**커밋**: `fd68373` — `fix(SPEC-DESIGN-002): M1 correct --color-neutral-600 to #6b6b6b for WCAG AA` (M1 단일 마일스톤). **경로 정정**: 이 SPEC은 PR을 거친다. 이 프로젝트의 PR 필수 정책은 Tier와 무관하게 S/M/L 전부에 적용된다(사용자 확인). 앞서 이 줄에 있던 "PR 없이 main 직행 예정"이라는 기술은 틀렸으며, sync 커밋 이후 manager-git이 브랜치 `WT-neutral-600-contrast`를 push하고 PR을 연다.
 
 ---
 
@@ -236,4 +236,60 @@ e2e/*.spec.ts, e2e/support/*.ts, playwright.config.ts — 28건, 전부 `@playwr
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+**상태**: sync-phase 완료. 3-phase close(plan→run→sync). 산출물은 CHANGELOG 항목 1건 + frontmatter 상태 전이이며, 실행 코드는 한 줄도 건드리지 않았다.
+
+```yaml
+sync_complete_at: 2026-09-07T11:40:00+0900
+sync_commit_sha: pending-backfill-commit-cannot-reference-own-sha
+sync_status: audit-ready
+b12_self_test_a: "grep -c 'SPEC-DESIGN-002' CHANGELOG.md → 0 (중복 없음, 신규 항목 추가 진행)"
+b12_self_test_b: "grep -oE 'AC-([A-Z0-9]+-)*[0-9]+' acceptance.md | sort -u | wc -l → 6 (AC-001..AC-006). CHANGELOG 항목이 명시한 'AC-001~006 6개'와 일치"
+b12_self_test_c: "CHANGELOG가 지목한 경로 실재 확인 — src/app/globals.css, src/components/layout/SiteHeader.tsx, src/components/product/ProductCard.tsx, .moai/design/tokens.json 전부 ls 확인됨"
+changelog_entry_position: "CHANGELOG.md [Unreleased] 최상단 (SPEC-BRAND-001 항목 바로 앞)"
+frontmatter_status_transitions:
+  spec_md: "in-progress → completed (updated: 2026-09-07)"
+  plan_md: "frontmatter 없음 — 전이 대상 아님"
+  acceptance_md: "frontmatter 없음 — 전이 대상 아님"
+canary_compliance_check: "해당 없음 — 이 SPEC은 자기 자신을 sync에서 검사하는 전방 정책을 정의하지 않는다"
+```
+
+**sync-phase에서 실제 실행한 검증**:
+
+1. CHANGELOG 중복 검사 (B12 self-test A)
+   ```
+   $ grep -c 'SPEC-DESIGN-002' CHANGELOG.md
+   0
+   ```
+
+2. AC 개수 대조 (B12 self-test B)
+   ```
+   $ grep -oE 'AC-([A-Z0-9]+-)*[0-9]+' .moai/specs/SPEC-DESIGN-002/acceptance.md | sort -u
+   AC-001
+   AC-002
+   AC-003
+   AC-004
+   AC-005
+   AC-006
+   → 6건. 0건이 아니므로 vacuous 통과가 아니다.
+   ```
+
+3. docs-site / 참조 문서에 구 값 잔존 검사
+   ```
+   $ ls docs docs-site website
+   전부 No such file or directory → 이 저장소에 docs-site는 존재하지 않는다.
+   $ grep -rln "7a7a7a" . (node_modules/.git/.next 제외)
+   .moai/specs/SPEC-BRAND-001/{research.md,acceptance.md}
+   .moai/specs/SPEC-DESIGN-002/{spec,plan,acceptance,progress}.md
+   .moai/reports/plan-audit/SPEC-DESIGN-002-review-{1,2}.md
+   .claude/agent-memory/manager-spec/project_design-token-ssot-supersession.md
+   → 전부 역사적 기록이며 REQ-DESIGN2-006의 대상이 아니다(acceptance.md AC-003 범위 주의). 수정하지 않았다.
+   $ grep -n "neutral" README.md
+   → `--color-neutral-*`를 Tailwind 오버라이드 예시로 한 번 언급할 뿐 `#7a7a7a`나 대비 수치는 없다. 갱신 대상 없음.
+   ```
+
+**미검증 (Gaps)**: sync-phase에서 빌드·린트·테스트를 재실행하지 않았다 — 이 커밋의 diff는 마크다운 3개 파일(CHANGELOG.md, progress.md, spec.md frontmatter)이며 실행 코드를 포함하지 않는다. 실행 코드에 대한 게이트 증적은 §E.2에 있다. 독립 sync-audit(sync-auditor)은 이 에이전트가 수행하지 않았다.
+
+**잔여 위험**:
+1. `sync_commit_sha`가 placeholder다. 이 커밋 직후 후속 커밋으로 실제 SHA를 backfill해야 한다(§E.3의 `fd68373` backfill과 동일 패턴).
+2. `.moai/design/tokens.json`은 여전히 BRAND-001 이전 Classical 팔레트를 담고 있다(런타임 소비처 0건). 범위 제외 결정대로 손대지 않았으며 후속 카드 권고 1번이 해소한다.
+3. `README.md:386`의 "값은 plan.md §D.1에 바이트 단위로 전사되어 있다"는 서술은 SPEC-BRAND-001 이후 이미 거짓이지만, 이는 이 SPEC이 만든 이탈이 아니라 사전 존재 상태이며 `globals.css` 상단 주석과 같은 원인이다. 후속 카드 권고 2번의 범위에 포함된다.
