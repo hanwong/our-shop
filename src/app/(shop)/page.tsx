@@ -28,7 +28,7 @@ export default async function HomePage() {
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-12">
-      <h1 className="text-2xl font-semibold text-neutral-900">our-shop</h1>
+      <h1 className="text-2xl font-semibold text-neutral-900">OUR</h1>
 
       {totalCount === 0 ? (
         <div className="mx-auto max-w-xl px-4 py-16 text-center">

@@ -104,8 +104,8 @@ const lora = Lora({
 });
 
 export const metadata: Metadata = {
-  title: "our-shop",
-  description: "간편하게 둘러보고 빠르게 구매하는 온라인 상점",
+  title: "OUR | 수제 구두",
+  description: "주문 후 한 켤레씩 손으로 꿰매는 수제화 브랜드 OUR",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

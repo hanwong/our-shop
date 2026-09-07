@@ -1,5 +1,6 @@
 import { ProductGallery } from "@/components/product/ProductGallery";
 import { AddToCartButton } from "@/components/product/AddToCartButton";
+import { SizeSelector } from "@/components/product/SizeSelector";
 import { ReviewForm } from "@/components/product/ReviewForm";
 import type { ProductDetail } from "@/features/catalog/types/product";
 import type { ReviewSummary } from "@/features/reviews/types/review";
@@ -79,6 +80,11 @@ export function ProductDetailView({
           <span className="text-neutral-600">재고 {product.stock}개 남음</span>
         )}
       </p>
+
+      {/* SPEC-BRAND-001 M7 (REQ-BRAND-022/023) — display-only; `disabled`
+          is derived from `product.stock` alone, uniformly across every
+          size (design.md §3.1). */}
+      <SizeSelector stock={product.stock} />
 
       <AddToCartButton productId={product.id} stock={product.stock} />
 

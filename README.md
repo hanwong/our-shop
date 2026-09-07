@@ -18,6 +18,7 @@ A TypeScript / Next.js e-commerce backend. This repository currently implements:
 - **SPEC-ADMIN-002** — the admin product back-office: `/staff/products` list, create/edit forms, and suspend/restore (soft delete via `Product.isActive`), with the customer-facing catalog scoped to sellable products only.
 - **SPEC-REVIEW-001** — product reviews: one star rating (1-5) + text review per account per product, an average/count/list on the product detail page, and a login-gated write form.
 - **SPEC-ORDER-004** — member (logged-in) checkout: `Order.userId` ownership dimension, `resolveSession()`-based identity resolution on `POST /api/orders`, and removal of the prior member-session 409 refusal (guest checkout unchanged).
+- **SPEC-BRAND-001** — the "OUR" handcrafted-shoes brand pivot: brand string replacement, a static brand-asset pipeline (`public/brand/`), a grayscale design-token rebalance, an expanded site header nav (Shop/Bespoke/Story/Cart), product seed data, and three new pages (`/shop`, `/bespoke`, `/story`).
 
 ## Stack
 

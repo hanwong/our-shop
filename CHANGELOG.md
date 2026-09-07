@@ -4,6 +4,29 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+### 추가 — SPEC-BRAND-001: "OUR" 수제화 브랜드 전환 — 브랜드 아이덴티티·내비게이션·신규 페이지
+
+**사이트 전체를 "our-shop"에서 "OUR" 수제화 브랜드로 전환했다.** 문자열 치환(제목·설명·`package.json` name 필드)뿐 아니라 정적 브랜드 자산 파이프라인, 그레이스케일 디자인 토큰 재조정, 헤더 내비게이션 확장, 제품 시드 데이터, 신규 화면 3개(`/shop`, `/bespoke`, `/story`), 표시 전용 사이즈 셀렉터까지 25개 요구사항(REQ-BRAND-001~025)·25개 인수 기준(AC-BRAND-001~025) 전부를 포함하는 Tier L SPEC이다(plan → design → run Conditional Design Route, M0~M8 9개 마일스톤 + 별도 DesignSync 보정 사이클).
+
+- **브랜드 문자열 치환(M0) — 인증 계층의 `"our-shop"`/`"our-shop-api"`는 의도적으로 보존.** `src/lib/auth/jwt.ts`의 `ISSUER`/`AUDIENCE` 리터럴은 REQ-BRAND-004에 따라 그대로 남겨졌다(기존 발급 토큰과의 호환성). 나머지 사용자 노출 표면(`src/app/layout.tsx` title/description, `(shop)/page.tsx`의 `<h1>`, `package.json`의 `"name"` 필드 → `"our"`)은 전부 전환됐다.
+- **정적 브랜드 자산 파이프라인(M1) — `public/brand/logo_mono_black.png` + `BrandLogo.tsx`.** 후보 로고 파일 2개 중 하나를 픽셀 검증(파일명 추론이 아니라 실제 픽셀 관찰)으로 확정했다. `next/image`를 사용하고 비어있지 않은 `alt` + 명시적 `width`/`height`를 갖췄다.
+- **그레이스케일 디자인 토큰 재조정(M2) — `src/app/globals.css` `@theme` 블록.** 배경/서페이스/텍스트/액센트 색상을 그레이스케일 팔레트로 정본화하고(`--color-accent: #2b2b2b`), divider/shadow 토큰을 동일 베이스 색상으로 재계산했다. `@theme` 커스텀 프로퍼티 **이름 집합**은 이 SPEC 전후로 무변경(값만 재조정)임을 `git show` 기반 diff로 확인했다.
+- **헤더 내비게이션 확장(M3) — `SiteHeaderNav.tsx`(신규) + `SiteHeader.tsx` 갱신.** SHOP/BESPOKE/STORY/CART 4개 링크를 추가했다. 로그인 상태 분기(`SPEC-AUTH-003`에서 이식)는 바이트 단위로 무변경 — 로그인/로그아웃 UI 로직을 건드리지 않았다.
+- **제품 시드 스크립트(M4) — `prisma/seed-products.ts`(신규).** 카테고리 3개(더비/로퍼/부츠, 몽크 폐기 — 라이브 목업 필터 버튼 재확인 결과 3개 확정)와 제품 6건을 upsert 방식으로 시딩한다. 신규 마이그레이션 0건(AC-BRAND-025) — 기존 `Category`/`Product` 스키마를 그대로 사용한다.
+- **`/shop` 상품 목록(M5, 신규) — 카테고리 필터 + 정렬, 하드코딩 카테고리 없음.** `findAllCategories()`를 호출해 카테고리 버튼을 동적으로 렌더한다(임의 2-카테고리 목업으로 "하드코딩 아님"을 증명하는 회귀 테스트 포함).
+- **`/bespoke`, `/story` 정적 페이지(M6, 신규) — 순수 표시 전용, 인터랙티브 요소 0개.** 두 페이지 모두 `<form>`/`useState`/`onClick` 등 클라이언트 상호작용 요소를 소스 레벨 금칙어 스캔 + 렌더된 DOM 검사로 이중 검증한다. `/story` 본문은 라이브 원천의 축자 카피로 교체됐다(DesignSync 보정 사이클에서 확정).
+- **사이즈 셀렉터(M7, 신규) — `SizeSelector.tsx`, 표시 전용 균일 비활성 상태.** 사이즈 범위 문자열은 시드 데이터에 없으며(제거됐던 `i % 3` 파생 필드), 상품 상세 화면에 통합됐다.
+- **DesignSync 보정 사이클(M8 이후 별도 세션) — PROVISIONAL 항목 7건 중 5건 CONFIRMED.** 카테고리 개수(4→3 몽크 폐기), 로고 픽셀 검증, `/story` 카피 축자 교체, 시로코/하야마 더비 배정 확정, 제작 기간 "약 4주" 다수결 유지(원천 자체 모순 재확인) — 상세는 `design.md` §2, §8.3.
+
+<details>
+<summary>SPEC-BRAND-001 sync-audit 요약 (PASS-WITH-DEBT, 90.3/100)</summary>
+
+sync-audit 검증(`.moai/reports/sync-audit/SPEC-BRAND-001-2026-09-07.md`, `--deep` 렌즈) — Functionality 92 / Security 96 / Craft 85 / Consistency 85, 가중조화평균 90.3/100. 25개 AC 전부 이 세션이 독립 재검증 PASS. `npx vitest run` 130개 파일·1665개 테스트 전부 통과, `tsc --noEmit`/`eslint .`/`prisma validate` 모두 클린, 신규 의존성 0건(`package.json` name 필드 1줄만 변경). blocking 결함 0건 — 발견된 4건(F1~F4)은 전부 낮은 심각도의 stale 주석/미사용 CSS 규칙/문서화 항목이며 AC를 위반하지 않는다.
+
+**남은 PROVISIONAL 항목 2건(정당한 이월 — 결함 아님)**: (1) 제품 이미지 경로 — `picsum.photos` placeholder, 실제 제품 사진 자산 없음. (2) 카테고리 slug 로마자 표기 — `derby`/`loafer`/`boots`는 표준 관행을 따르나 라이브 원천의 정확한 철자와 아직 대조되지 않음. 후속 SPEC 후보로 `design.md` §8.3에 기록됨.
+
+</details>
+
 ### 추가 — SPEC-ADDRESS-001: 마이페이지 주소록 — 회원 배송지 저장/관리
 
 **로그인한 회원이 배송지를 여러 건 저장해 두고 `/mypage/addresses`에서 추가·수정·삭제·기본 지정을 할 수 있게 됐다.** 새 `Address` 모델(`userId` FK, `onDelete: Cascade`, `@unique` 없음)과 5개 API 엔드포인트, 회원 전용 페이지 1개로 구성된다(REQ-ADDRESS-001~015, AC-ADDRESS-001~015, 15항목 전부 PASS).
