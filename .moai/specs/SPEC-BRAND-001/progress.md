@@ -331,4 +331,45 @@ deliberately **not modified** (see item 3).
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+sync_status: completed
+sync_complete_at: 2026-09-07
+sync_commit_sha: pending-backfill-SPEC-BRAND-001-sync
+sync_audit_verdict: PASS-WITH-DEBT
+sync_audit_score: 90.3/100
+sync_audit_dimension_scores:
+  functionality: 92/100
+  security: 96/100
+  craft: 85/100
+  consistency: 85/100
+sync_audit_report: .moai/reports/sync-audit/SPEC-BRAND-001-2026-09-07.md
+sync_audit_blocking_findings: 0
+frontmatter_status_transitions:
+  spec_md: "in-progress -> completed"
+```
+
+**Sync-audit summary**: All 25 acceptance criteria (AC-BRAND-001..025) independently
+re-verified PASS by sync-auditor. Both must-pass dimensions (Functionality 92,
+Security 96) clear the Tier L 85% threshold. No blocking findings — all findings
+are low-severity stale-comment / dead-CSS / documentation items already
+disclosed by the run/correction-cycle sessions.
+
+**Known carryover — 2 legitimate PROVISIONAL items** (unresolved by design, not
+blockers; see `design.md` §8.3 PROVISIONAL 인수인계 목록 for full detail):
+
+1. **Product image paths** — `picsum.photos` placeholder URLs in
+   `prisma/seed-products.ts`; no real product photography asset exists yet.
+2. **Category-slug romanization** — `derby` / `loafer` / `boots` follow
+   standard romanization convention but have not been cross-checked against a
+   live source's exact spelling.
+
+Recommended follow-up: a dedicated SPEC-BRAND-001 후속 backlog card to
+re-confirm both items against the live design source once real product
+photography and the live source's category-slug spelling become available —
+already drafted at `design.md` §8.3 ("SPEC-BRAND-001 후속: PROVISIONAL 2건...
+재확인").
+
+**SHA backfill note**: `sync_commit_sha` above is a placeholder per the SHA
+placeholder backfill exemption (`spec-frontmatter-schema.md` § SHA placeholder
+backfill exemption) — a commit cannot reference its own hash. Will be
+backfilled in a follow-up commit once the sync commit SHA is known.

@@ -2,7 +2,7 @@
 id: SPEC-BRAND-001
 title: "\"OUR\" 수제화 브랜드 전환 — 브랜드 아이덴티티·내비게이션·신규 페이지"
 version: "0.3.1"
-status: in-progress
+status: completed
 created: 2026-09-07
 updated: 2026-09-07
 author: snake
