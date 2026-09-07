@@ -1,14 +1,26 @@
 @import "tailwindcss";
 
 /*
- * SPEC-DESIGN-001 M1 — Classical design-token system (plan.md §D.1, SSOT).
+ * SPEC-DESIGN-001 M1 — design-token system for this project, declared as a
+ * Tailwind v4 `@theme` block.
  *
- * The block below is the Classical `:root` token block transcribed verbatim
- * (REQ-DESIGN-008) into a Tailwind v4 `@theme` block. Values are byte-
- * identical to plan.md §D.1 — do not re-derive, round, or paraphrase them.
- * If the Classical source project changes, re-sync from plan.md §D.1
- * (spec.md §4 — "잠정 값은 없다": every value here came from the real
- * Classical project, not a locally-invented placeholder).
+ * THE BLOCK BELOW IS THE FINAL AUTHORITY for every token value in our-shop.
+ * No plan.md, no SPEC document, and no design artifact holds a more current
+ * copy — to read or re-derive a value, read the declarations themselves.
+ *
+ * Value lineage (three layers, no single upstream source):
+ * - Base — SPEC-BRAND-001 replaced the original Classical palette wholesale
+ *   with the OUR grayscale palette: all 24 colors and all 3 shadows.
+ * - Correction — SPEC-DESIGN-002 changed `--color-neutral-600` to #6b6b6b
+ *   for WCAG AA contrast, a deliberate deviation from SPEC-BRAND-001's
+ *   retired literal (see the inline note on that declaration below).
+ * - Correction — card t51 switched the two font tokens to next/font custom
+ *   property references; the rendered typefaces did not change.
+ *
+ * Because that lineage spans several SPECs, there is no upstream document to
+ * re-sync from and no SPEC may be cited as the current source of a value.
+ * `.moai/design/tokens.json` mirrors this block; it follows this file, never
+ * the other way round.
  *
  * This replaces the SPEC-STOREFRONT-001 M1 comment that excluded a
  * design-token system from this file — this SPEC is that mandate
@@ -20,18 +32,18 @@
  *   `--shadow-*`), so Tailwind auto-generates utilities from them directly
  *   (`bg-accent`, `text-text`, `border-divider`, `rounded-md`, `shadow-sm`,
  *   `font-heading`, ...).
- * - `--color-neutral-100..900` are Classical's WARM grays and are NOT the
- *   same values as Tailwind's built-in `neutral-*` scale (plan.md §D.1 note
- *   1). Declaring them here overrides/shadows the built-in scale for this
- *   project: every existing `bg-neutral-900` / `text-neutral-900` /
- *   `border-neutral-300` class site-wide — including pages M2-M5 have not
- *   migrated yet — now resolves to the Classical value, not Tailwind's
- *   default cool gray. This is intentional (plan.md §F: M1 lays the token
- *   foundation before M2-M5 migrate consumers), not an oversight.
+ * - `--color-neutral-100..900` are this project's own grayscale ramp (from
+ *   SPEC-BRAND-001) and are NOT the same values as Tailwind's built-in
+ *   `neutral-*` scale. Declaring them here overrides/shadows the built-in
+ *   scale for this project: every `bg-neutral-900` / `text-neutral-900` /
+ *   `border-neutral-300` class site-wide resolves to the value declared
+ *   below, not Tailwind's default cool gray. This is intentional — the token
+ *   block deliberately lays a project-wide foundation rather than waiting
+ *   for each consumer to opt in — not an oversight.
  * - `--radius-md` similarly overrides Tailwind's built-in `md` radius key
- *   (~6px by default), so every existing `rounded-md` usage site-wide shifts
- *   to Classical's 4px immediately, ahead of consumer migration. Same
- *   rationale as the neutral-scale note above.
+ *   (~6px by default), so every existing `rounded-md` usage site-wide picks
+ *   up the 4px value declared below. Same rationale as the neutral-scale
+ *   note above.
  * - `--space-1..8` deliberately KEEP the `--space-*` name rather than
  *   Tailwind's reserved `--spacing-*` scale namespace. Renaming them to
  *   `--spacing-1`, `--spacing-2`, ... would override Tailwind's numeric
