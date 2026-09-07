@@ -243,13 +243,414 @@ next_action: "Implementation Kickoff Approval 이후 run-phase 진입"
 
 ## §E.2 Run-phase Evidence
 
-_<pending run-phase>_
+**실행 환경 (기록)**: M4(이 절의 검증 실행과 증적 기록)를 위임받은 에이전트는 런타임에 의해 자기 전용 워크트리 `.claude/worktrees/agent-ae084f45b184d5cbe`로 격리되었다 — `t72`가 `WT-design-token-docs-sync`를 잠근 상태로 점유 중이기 때문이다. 격리된 워크트리의 초기 HEAD는 `cfbd320`(= baseline)이었고 M1·M2·M3의 작업 트리를 담고 있지 않았다. 따라서 M3 HEAD `eef14af`에서 로컬 브랜치 `design004-m4`를 분기해 **M1·M2·M3가 반영된 정확한 트리 위에서** 아래 검증을 전부 실행했다.
+
+```
+$ git rev-parse HEAD
+eef14af48fe02f38105cd9386db49d448d27f8e4
+$ git branch --show-current
+design004-m4
+$ git status --short
+(출력 없음 — 클린)
+```
+
+baseline 고정값 `cfbd320`은 그대로 유효하다. `origin/WT-design-token-docs-sync`가 `eef14af`와 동일 SHA이므로 이 절의 커밋은 그 브랜치의 fast-forward 자손이다.
+
+**마일스톤 커밋** (`plan.md` §B.5가 요구한 분리 — `git log --format="%H %s" cfbd320..eef14af` 축자 출력):
+
+| 마일스톤 | 커밋 | 제목 |
+|---|---|---|
+| M1 | `af2f5fb52a13ed421f430d65fdd664183a8d7741` | `feat(SPEC-DESIGN-004): M1 — resync .moai/design/tokens.json to shipped @theme` |
+| M2 | `baf048cb301c984ed718fe5e822079c12744495d` | `docs(SPEC-DESIGN-004): M2 — correct false claims in globals.css header comment` |
+| M3 | `eef14af48fe02f38105cd9386db49d448d27f8e4` | `docs(SPEC-DESIGN-004): M3 — insert superseded marker into SPEC-DESIGN-001/plan.md §D.1` |
+
+세 마일스톤이 **각각 독립 커밋**이다. M3은 `manager-spec`이 단독 수행했다(`plan.md` §B 소유권 경계).
+
+---
+
+### AC 판정 매트릭스
+
+| AC | 판정 | 검증 명령 | 실제 출력 |
+|---|---|---|---|
+| AC-001 | **PASS** | `node .../ac001-token-diff.js` + Classical 리터럴 grep | `shippedKeys=39` · `checked=39 mismatch=0` · `exit=0` · 리터럴 `0` |
+| AC-002 | **PASS** | `node -e` 메타필드 검사 + 계보 3 grep | `Classical_as_source= 0` · `D1_pointer= 0` · `4`/`1`/`5` |
+| AC-003 | **PASS** | JSON 파싱 + 보존 서술 + 그룹/총계 | `JSON_OK` · `1`/`2`/`12` · `1`/`1` · `groups= color,typography,spacing,radius,shadow` `total= 39` |
+| AC-004 | **PASS** | `header.txt` 대상 거짓 주장 3군 grep | `0` · `0` · `0` |
+| AC-005 | **PASS** | `header.txt` 대상 보존 4 + 계보 2 grep | `1`/`2`/`1`/`2`/`3`/`1` — 전부 ≥1 |
+| AC-006 | **PASS** | `@theme`~EOF 구간 baseline `diff` | `diff` 출력 없음 · `exit=0` · `98`행 |
+| AC-007 | **PASS** | (a)(b)(c) 제약 + (d) 테스트 3파일 실행 | `@import "tailwindcss";` · `0` · `126:body {`(경계 `57`) · 3파일 17건 전원 통과 |
+| AC-008 | **PASS** | 표제/표기/표제 행번호 + 지목 3 + 표제 무변경 | `H=204 < M=206 < B=251` · `1`/`1`/`10` · baseline `1` / current `1` |
+| AC-009 | **PASS** | 변경파일 1개 + 삭제행 0 + frontmatter/status/amendment | `plan.md` 단일 · `0` · frontmatter 동일 · `status: completed` · `0`/`0` |
+| AC-010 | **PASS** | 대상 3개 + 범위 밖 0 + lint/typecheck/test | 3줄 · `exit=1`(무출력) · lint `exit=0` · `src/` 신규 오류 `0` · 테스트 1665건 전원 통과 |
+
+**FAIL 0건 · PASS-WITH-DEBT 0건 · 10/10 PASS.**
+
+---
+
+#### AC-001 — `tokens.json` 39개 토큰이 `@theme`과 문자 단위 일치
+
+```
+$ node .moai/state/verify/SPEC-DESIGN-004/ac001-token-diff.js
+shippedKeys=39
+checked=39 mismatch=0
+$ echo "exit=$?"
+exit=0
+```
+
+`MISMATCH` 행 **0건**. plan-phase 검증 12번이 교체 전 상태에서 관측한 `mismatch=29`가 `mismatch=0`으로 해소되었고, `shippedKeys=39`가 유지되므로 「값이 맞았다」이지 「파싱이 깨져 비교가 생략됐다」가 아니다(`acceptance.md` AC-001 주석의 판별 기준). 스크립트의 성공 분기 `process.exit(0)`는 이번이 최초 실행이다(§E.1 Gaps에 예고된 대로).
+
+**독립 교차 검사 (b)** — 옛 Classical 색 리터럴 23종 잔존:
+
+```
+$ grep -oE "f3f2f2|eae9e9|201f1d|...|3a270d" .moai/design/tokens.json | wc -l
+       0
+```
+
+**스크립트 사후 처리**:
+
+```
+$ rm -f .moai/state/verify/SPEC-DESIGN-004/ac001-token-diff.js
+$ test -e .moai/state/verify/SPEC-DESIGN-004/ac001-token-diff.js && echo PRESENT || echo REMOVED
+REMOVED
+```
+
+#### AC-002 — 서술 필드가 Classical을 현재 원천으로 지목하지 않는다
+
+```
+$ node -e '... console.log("Classical_as_source=", ...); console.log("D1_pointer=", ...)'
+Classical_as_source= 0
+D1_pointer= 0
+
+$ grep -c "SPEC-BRAND-001" .moai/design/tokens.json
+4
+$ grep -c "SPEC-DESIGN-002" .moai/design/tokens.json
+1
+$ grep -c "globals.css" .moai/design/tokens.json
+5
+```
+
+`source.design_system`이 더 이상 `"Classical"`이 아니고, 메타 필드가 §D.1을 현재 원천으로 가리키지 않는다. 실제 계보 3건이 전부 명시되었다.
+
+#### AC-003 — 보존 대상 서술 2건 생존 + JSON 유효
+
+```
+$ node -e 'JSON.parse(...); console.log("JSON_OK")'
+JSON_OK
+
+$ grep -c "1.15" .moai/design/tokens.json
+1
+$ grep -c "4.6" .moai/design/tokens.json
+2
+$ grep -ci "accent" .moai/design/tokens.json
+12
+
+$ grep -c "Cormorant Garamond" .moai/design/tokens.json
+1
+$ grep -c "Lora" .moai/design/tokens.json
+1
+
+$ node -e '... groups / total'
+groups= color,typography,spacing,radius,shadow
+total= 39
+```
+
+`tokens.typography` 값이 `var(--font-*-nf)` 리터럴로 바뀌었음에도 렌더 서체명 2건이 `notes`에 보존되었다(`plan.md` §C.1 결정 이행).
+
+#### AC-004 — 헤더 주석에서 거짓 주장 3군 소멸
+
+```
+$ awk '/^@theme/{exit} {print}' src/app/globals.css > .moai/state/verify/SPEC-DESIGN-004/header.txt
+
+$ grep -c "§D.1"   .moai/state/verify/SPEC-DESIGN-004/header.txt
+0
+$ grep -ci "byte"  .moai/state/verify/SPEC-DESIGN-004/header.txt
+0
+$ grep -c "WARM"   .moai/state/verify/SPEC-DESIGN-004/header.txt
+0
+```
+
+세 값 전부 `0`. §D.1 앵커가 소멸하면서 4행 SSOT 지목·8-9행 재동기화 지시·24행 주의 참조가 동시에 해소된다(`acceptance.md` AC-004의 문자열 선정 근거).
+
+#### AC-005 — 참인 서술 4건 + 실제 계보 생존
+
+```
+$ grep -c "STOREFRONT-001"  .../header.txt
+1
+$ grep -c "@theme"          .../header.txt
+2
+$ grep -c "radius-md"       .../header.txt
+1
+$ grep -c "spacing-"        .../header.txt
+2
+$ grep -c "SPEC-BRAND-001"  .../header.txt
+3
+$ grep -c "SPEC-DESIGN-002" .../header.txt
+1
+```
+
+여섯 값 전부 ≥1. 특히 `spacing-` 2건 — `--space-*`를 Tailwind 예약 `--spacing-*`로 개명하지 **않은** 비자명한 결정의 근거가 살아 있다.
+
+#### AC-006 — `@theme` 선언 행부터 EOF까지 바이트 단위 무변경
+
+```
+$ git show cfbd320:src/app/globals.css | awk '/^@theme/{f=1} f' > .../theme-base.txt
+$ awk '/^@theme/{f=1} f' src/app/globals.css                    > .../theme-head.txt
+
+$ diff .../theme-base.txt .../theme-head.txt
+(출력 없음)
+$ echo "exit=$?"
+exit=0
+
+$ wc -l < .../theme-head.txt
+      98
+```
+
+**이 카드에서 가장 중요한 단일 증적.** `diff` 무출력 + `exit=0` + `98`행(plan-phase 실측치와 일치)이 동시에 성립하므로, 토큰 값 39개·SPEC-DESIGN-002 주석·t51 주석·`.plate`/`body`/제목 규칙이 **전부** 무변경이다. `plan.md` §F PRESERVE 목록의 `globals.css` 항목이 여기에 포섭된다. 브라우저 렌더 확인을 생략한 근거이기도 하다(`acceptance.md` §D.2).
+
+#### AC-007 — 테스트 결합 3제약 충족
+
+```
+$ head -1 src/app/globals.css
+@import "tailwindcss";
+
+$ grep -c "accent-2-" src/app/globals.css
+0
+
+$ grep -n "body\s*{" src/app/globals.css
+126:body {
+
+$ grep -n "^@theme" src/app/globals.css
+57:@theme {
+```
+
+(c) 매치가 **정확히 1건**이고 행번호 `126 > 57`이므로 주석 안이 아니라 `@theme` 블록 뒤의 실제 `body` 규칙이다(`acceptance.md` AC-007(c) 판정 방법). baseline 114행 → 현재 126행으로 이동한 것은 헤더 주석 재작성에 따른 것이며 매치 건수 1은 유지되었다.
+
+**(d) 세 테스트 실제 실행**:
+
+```
+$ npx vitest run tests/unit/app/shell.test.tsx tests/unit/app/typography-cascade.test.tsx tests/unit/app/design-tokens-grayscale.test.ts
+ ✓ tests/unit/app/typography-cascade.test.tsx (2 tests) 1ms
+ ✓ tests/unit/app/design-tokens-grayscale.test.ts (6 tests) 2ms
+ ✓ tests/unit/app/shell.test.tsx (9 tests) 115ms
+
+ Test Files  3 passed (3)
+      Tests  17 passed (17)
+exit=0
+```
+
+`plan.md` §D.1이 지목한 최대 위험 — 주석 산문이 무관한 테스트를 깨뜨리는 형태 — 이 실현되지 않았음이 실행으로 확인되었다.
+
+#### AC-008 — SPEC-DESIGN-001 §D.1에 표기 존재 + 삽입 지점 정확
+
+```
+$ grep -n "^### §D.1 Classical" .moai/specs/SPEC-DESIGN-001/plan.md
+204:### §D.1 Classical 토큰 블록 — 확정 값 (원문 인용, SSOT)
+$ grep -n "초과 — SUPERSEDED"    .moai/specs/SPEC-DESIGN-001/plan.md
+206:> **[초과 — SUPERSEDED] 이 절의 값은 더 이상 출시 상태가 아니다.** (표기 추가: 2026-09-07, SPEC-DESIGN-004 / 카드 t72)
+$ grep -n "^### §D.1b"           .moai/specs/SPEC-DESIGN-001/plan.md
+251:### §D.1b 현재 값 → Classical 매핑 (교체 표)
+```
+
+`H=204 < M=206 < B=251` — 표기가 §D.1 표제 뒤·§D.1b 표제 앞에 위치한다. 표기는 정확히 1건.
+
+```
+$ grep -c "SPEC-BRAND-001"  .moai/specs/SPEC-DESIGN-001/plan.md
+1
+$ grep -c "SPEC-DESIGN-002" .moai/specs/SPEC-DESIGN-001/plan.md
+1
+$ grep -c "globals.css"     .moai/specs/SPEC-DESIGN-001/plan.md
+10
+
+$ git show cfbd320:.moai/specs/SPEC-DESIGN-001/plan.md | grep -c "^### §D.1 Classical 토큰 블록 — 확정 값 (원문 인용, SSOT)$"
+1
+$ grep -c "^### §D.1 Classical 토큰 블록 — 확정 값 (원문 인용, SSOT)$" .moai/specs/SPEC-DESIGN-001/plan.md
+1
+```
+
+표제 행이 baseline과 동일하게 남아 있다 — `tokens.json`·SPEC-DESIGN-002 §3·이 SPEC 자신이 「§D.1」로 참조하는 앵커가 끊기지 않았다.
+
+#### AC-009 — SPEC-DESIGN-001이 순수 삽입 + frontmatter 무변경
+
+```
+$ git diff --name-only cfbd320 -- .moai/specs/SPEC-DESIGN-001/
+.moai/specs/SPEC-DESIGN-001/plan.md
+
+$ git diff cfbd320 -- .moai/specs/SPEC-DESIGN-001/plan.md | grep -c "^-[^-]"
+0
+
+$ sed -n '1,6p' .moai/specs/SPEC-DESIGN-001/plan.md
+---
+id: SPEC-DESIGN-001
+status: in-progress
+updated: 2026-09-05
+tier: M
+---
+$ git show cfbd320:.moai/specs/SPEC-DESIGN-001/plan.md | sed -n '1,6p'
+---
+id: SPEC-DESIGN-001
+status: in-progress
+updated: 2026-09-05
+tier: M
+---
+
+$ grep -n "^status:" .moai/specs/SPEC-DESIGN-001/spec.md
+5:status: completed
+
+$ grep -c "amendment_of" .moai/specs/SPEC-DESIGN-001/spec.md
+0
+$ grep -c "## Amendments" .moai/specs/SPEC-DESIGN-001/spec.md
+0
+```
+
+**삭제행 `0`이 이 AC의 핵심**이다 — 기존 값 코드블록·주의 3항목·HISTORY·frontmatter 중 어느 것도 제거되거나 제자리 수정되지 않았음을 한 번에 보증한다(REQ-DESIGN4-009). `plan.md` frontmatter가 `in-progress`로, `spec.md`의 `completed`와 어긋난 상태는 **의도적으로 그대로 두었다**(§E.1 검증 10번 · `plan.md` §D.3이 범위 밖으로 명시).
+
+#### AC-010 — 변경 파일 정확히 3개 + 품질 게이트 신규 실패 0건
+
+```
+$ git diff --name-only cfbd320 -- .moai/design/tokens.json src/app/globals.css .moai/specs/SPEC-DESIGN-001/plan.md
+.moai/design/tokens.json
+.moai/specs/SPEC-DESIGN-001/plan.md
+src/app/globals.css
+                                        ← 정확히 3줄
+
+$ git diff --name-only cfbd320 | grep -v "^.moai/specs/SPEC-DESIGN-004/" | grep -v "^.moai/design/tokens.json$" | grep -v "^src/app/globals.css$" | grep -v "^.moai/specs/SPEC-DESIGN-001/plan.md$"
+(출력 없음)
+$ echo "exit=$?"
+exit=1
+
+$ git diff --name-only cfbd320 -- src/ | grep -v "^src/app/globals.css$"
+(출력 없음)
+$ echo "exit=$?"
+exit=1
+
+$ git diff --name-only cfbd320 -- src/
+src/app/globals.css
+```
+
+참고 — baseline 대비 전체 변경 목록(이 SPEC 자신의 산출물 4개 포함):
+
+```
+$ git diff --name-only cfbd320
+.moai/design/tokens.json
+.moai/specs/SPEC-DESIGN-001/plan.md
+.moai/specs/SPEC-DESIGN-004/acceptance.md
+.moai/specs/SPEC-DESIGN-004/plan.md
+.moai/specs/SPEC-DESIGN-004/progress.md
+.moai/specs/SPEC-DESIGN-004/spec.md
+src/app/globals.css
+```
+
+**(d) 린트**:
+
+```
+$ npm run lint
+> our@0.1.0 lint
+> eslint .
+
+exit=0
+```
+
+오류 출력 없음.
+
+**(e) 타입체크** — 판정 기준은 절대 건수가 아니라 `src/` 신규 오류 0건:
+
+```
+$ npm run typecheck 2>&1 | grep -c "^src/"
+0
+
+$ grep -cE "error TS" typecheck.txt
+41
+$ grep -oE "^[a-zA-Z0-9_.-]+/" typecheck.txt | sort | uniq -c
+  40 e2e/
+$ grep -E "error TS" typecheck.txt | grep -v "^e2e/"
+playwright.config.ts(2,39): error TS2307: Cannot find module '@playwright/test' or its corresponding type declarations.
+```
+
+총 41건 = `e2e/**` 40건 + `playwright.config.ts` 1건. **`src/` 오류 0건**. 41이라는 총계는 SPEC-DESIGN-003 `progress.md` §E.2가 실측한 baseline 41건과 정확히 일치하므로, 이 카드가 새 오류를 들이지 않았음이 두 방향으로 확인된다. 원인은 이 워크트리에 `@playwright/test`가 설치되어 있지 않은 것이며(`acceptance.md` §D.2가 예고), 이 카드의 변경과 무관하다.
+
+**(f) 테스트 전량**:
+
+```
+$ npm test
+ Test Files  130 passed (130)
+      Tests  1665 passed (1665)
+   Duration  20.94s
+exit=0
+```
+
+**실패 0건 — 재실행 불필요.** 이 프로젝트에 알려진 타이밍 민감 테스트(`tests/integration/auth/login.test.ts` AC-AUTH-005 응답시간 유사도)가 존재하나 **1회차에서 통과**했으므로 flaky 여부를 가르기 위한 격리 재실행이 필요하지 않았다. 해당 테스트의 실측 마진도 기록해 둔다:
+
+```
+[AC-AUTH-005] median(nonexistent-email)=278.11ms median(wrong-password)=276.48ms diff=1.63ms tolerance=41.72ms
+```
+
+diff 1.63ms 대 허용치 41.72ms — 임계에서 멀다. 통과 1665건은 SPEC-DESIGN-003이 기록한 1665건과 동일하다(테스트 수 증감 없음 — 이 카드가 `.tsx`와 테스트를 건드리지 않았다는 AC-010(c)와 정합).
+
+---
+
+### §D.1 완료 보고 필수 항목
+
+1. **AC-001 스크립트의 축자 마지막 행**: `checked=39 mismatch=0` (직전 행 `shippedKeys=39`, `exit=0`).
+2. **AC-006 `diff`의 exit code와 행 수**: `exit=0`(출력 없음) · `98`행.
+3. **AC-007 (a)(b)(c) 세 값의 축자 출력**: (a) `@import "tailwindcss";` · (b) `0` · (c) `126:body {` (경계 `57:@theme {` 보다 뒤 = 실제 규칙).
+4. **AC-009 (b)의 값이 `0`**: `git diff cfbd320 -- .moai/specs/SPEC-DESIGN-001/plan.md | grep -c "^-[^-]"` → `0`. 순수 삽입 확정.
+5. **M3 커밋이 M1·M2와 분리되었음**: M1 `af2f5fb` · M2 `baf048c` · M3 `eef14af` — 세 개의 독립 커밋(위 마일스톤 표).
+6. **미해소로 남는 후속 카드 3건**:
+   - (a) `globals.css` `@theme` 내부(baseline 72행 상당)에 잔존하는 같은 성격의 주장 — `spec.md` §3. 사용자 지정 범위를 지킨 결과이며 AC-006이 그 구간의 무변경을 보증하므로 이 카드에서는 손대지 않았다.
+   - (b) `.moai/design/components.json` 재동기화 — `spec.md` §3. 어긋남 정도는 정량화하지 않았다(§E.1 Gaps).
+   - (c) SPEC-DESIGN-001 본문 전반 재조정 — **카드 t70**. `plan.md` frontmatter `in-progress` ↔ `spec.md` `completed` 불일치(§E.1 검증 10번)를 포함한다.
+
+### 미검증으로 남는 것 (Gaps — `acceptance.md` §D.2 사전 선언대로)
+
+- **브라우저 렌더 확인 미실시.** AC-006이 CSS 커스텀 프로퍼티 값 무변경을 바이트 단위로 보증하므로 렌더 결과가 달라질 경로가 없다. 스크린샷 대조 없음.
+- **E2E(Playwright) 미실행.** 이 워크트리에 `@playwright/test`가 설치되어 있지 않다(타입체크 41건 중 1건이 그 증거). AC-010은 lint·typecheck·vitest 세 가지만 요구한다.
+- **`npm run build` 미실행.** AC가 요구하지 않는다.
+- **DesignSync 라이브 대조 미실시** (`spec.md` §3 · §2.6 — MCP 서버 부재).
+- **`tokens.json`을 읽는 장래 design-phase 파이프라인 미검증.** 이 카드는 파일 내용의 정확성만 보증하며, 그것을 소비하는 파이프라인(`manager-design` / `/moai design`)을 실행해 보지 않았다.
+- **타입체크 baseline 41건을 `cfbd320`에서 직접 재실행해 대조하지는 않았다.** SPEC-DESIGN-003 `progress.md` §E.2의 실측 기록(41건)과의 일치 및 `src/` 0건이라는 판정 기준으로 갈음했다.
+
+### 잔여 위험
+
+1. **`tokens.json`은 런타임 소비처가 0건이므로 이 카드의 정확성을 검증하는 실행 경로가 없다.** AC-001의 기계적 대조가 유일한 안전망이며, 그 대조가 통과해도 값이 「디자인 의도로서 옳은지」는 판정하지 않는다 — 이 카드는 «출시 상태를 그대로 반영했는가»만 보증한다(§E.1 잔여 위험 4의 존속).
+2. **AC-001 스크립트의 `@theme` 추출 정규식**은 블록 안에 자체 행 `}`가 생기면 조기 종료한다. 현재 트리에는 없고 `shippedKeys=39` 어서션이 감시하지만, 장래 `@theme`에 중첩 블록이 도입되면 조용히 부분 대조가 된다.
+3. **주석 산문 ↔ 테스트 정규식 결합은 구조적으로 남는다.** 이 카드는 AC-007로 현 시점의 안전을 확인했을 뿐, 결합 자체를 끊지 않았다. 장래 헤더 주석을 다시 손대는 카드는 같은 검사를 반복해야 한다.
+4. **`e2e/**` 타입 오류 41건이 baseline으로 존속한다.** 이 카드의 책임은 아니나, 이 상태가 지속되면 「신규 오류 0건」 판정이 `src/` 한정 필터에 계속 의존하게 된다.
 
 ---
 
 ## §E.3 Run-phase Audit-Ready Signal
 
-_<pending run-phase>_
+```yaml
+run_status: audit-ready
+run_complete_at: 2026-09-07
+run_branch: WT-design-token-docs-sync
+run_baseline_sha: cfbd320d1b1cb2f2c1400b088262539c75a77879
+run_commits:
+  m1: af2f5fb52a13ed421f430d65fdd664183a8d7741
+  m2: baf048cb301c984ed718fe5e822079c12744495d
+  m3: eef14af48fe02f38105cd9386db49d448d27f8e4
+  m4: self                                   # 이 §E.2/§E.3를 담는 증적 커밋 — 커밋은 자기 해시를 알 수 없다.
+                                             # 자리표시자를 남기는 대신 실제 SHA는 완료 보고로 전달한다.
+ac_total: 10
+ac_pass_count: 10
+ac_fail_count: 0
+ac_pass_with_debt_count: 0
+preserve_list_post_run_count: 0              # plan.md §F PRESERVE 목록 위반 0건 (AC-006 · AC-009 · AC-010(b)(c))
+total_run_phase_files: 3                     # tokens.json · globals.css · SPEC-DESIGN-001/plan.md
+m1_to_mN_commit_strategy: "마일스톤별 분리 커밋 (M1·M2·M3 각각 독립) + M4 증적 커밋"
+new_warnings_or_lints_introduced: 0
+lint_status: clean                           # npm run lint → exit 0, 출력 없음
+typecheck_src_new_errors: 0                  # baseline 41건(e2e/ 40 + playwright.config.ts 1) 전량 존속, src/ 0건
+test_suite: "130 files / 1665 tests — 전원 통과, 실패 0건 (1회차 통과, 격리 재실행 불필요)"
+cross_platform_build:
+  applicable: false                          # Next.js/TypeScript 단일 타깃 — 크로스 플랫폼 빌드 태그 해당 없음
+  build_executed: false                      # npm run build는 AC 요구 밖 (acceptance.md §D.2)
+e2e_executed: false                          # @playwright/test 미설치 (acceptance.md §D.2 사전 선언)
+blocker: null
+next_action: "sync-phase 진입 — manager-docs가 in-progress → implemented → completed 전이 수행"
+```
+
+**상태 전이 기록**: 이 M4 커밋은 `progress.md` §E.2/§E.3만 기록한다. `draft → in-progress` 전이는 M1에서 이미 수행되었고, `in-progress → implemented → completed`는 sync-phase에서 `manager-docs`가 단일 sync 커밋으로 수행한다(`spec-frontmatter-schema.md` § Status Transition Ownership Matrix). 따라서 M4는 **어떤 status도 변경하지 않는다**.
 
 ---
 
